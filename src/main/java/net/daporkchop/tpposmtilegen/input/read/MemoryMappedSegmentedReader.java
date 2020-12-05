@@ -23,16 +23,14 @@ package net.daporkchop.tpposmtilegen.input.read;
 import io.netty.util.internal.PlatformDependent;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.netty.buf.WrappedUnpooledUnsafeDirectByteBuf;
-import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
 import net.daporkchop.tpposmtilegen.input.DataProcessor;
 import net.daporkchop.tpposmtilegen.input.InputParser;
 import net.daporkchop.tpposmtilegen.input.InputReader;
+import net.daporkchop.tpposmtilegen.util.RefCountedMappedByteBuffer;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.MappedByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.StandardOpenOption;
 
@@ -47,13 +45,12 @@ public class MemoryMappedSegmentedReader implements InputReader {
         //map the entire file into memory
         RefCountedMappedByteBuffer buffer;
         try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
-            long size = channel.size();
-            buffer = new RefCountedMappedByteBuffer(channel.map(FileChannel.MapMode.READ_ONLY, 0L, size), size);
+            buffer = new RefCountedMappedByteBuffer(channel, FileChannel.MapMode.READ_ONLY, 0L, channel.size());
         }
 
         try {
-            long addr = buffer.addr;
-            long size = buffer.size;
+            long addr = buffer.addr();
+            long size = buffer.size();
             long start = 0L;
             for (long i = 0L; i < size; i++) {
                 if (PUnsafe.getByte(addr + i) == '\n') {
@@ -71,35 +68,11 @@ public class MemoryMappedSegmentedReader implements InputReader {
         }
     }
 
-    private static final class RefCountedMappedByteBuffer extends AbstractRefCounted {
-        protected final MappedByteBuffer buffer;
-        protected final long addr;
-        protected final long size;
-
-        public RefCountedMappedByteBuffer(@NonNull MappedByteBuffer buffer, long size) {
-            this.buffer = buffer;
-            this.addr = PUnsafe.pork_directBufferAddress(buffer);
-            this.size = size;
-        }
-
-        @Override
-        public RefCountedMappedByteBuffer retain() throws AlreadyReleasedException {
-            super.retain();
-            return this;
-        }
-
-        @Override
-        protected void doRelease() {
-            System.out.println("Released memory map");
-            PUnsafe.pork_releaseBuffer(this.buffer);
-        }
-    }
-
     private static final class MemoryMappedSlice extends WrappedUnpooledUnsafeDirectByteBuf {
         protected final RefCountedMappedByteBuffer buffer;
 
         public MemoryMappedSlice(@NonNull RefCountedMappedByteBuffer buffer, long offset, int size) {
-            super(PlatformDependent.directBuffer(buffer.addr + offset, size), size);
+            super(PlatformDependent.directBuffer(buffer.addr() + offset, size), size);
 
             this.buffer = buffer.retain();
         }
