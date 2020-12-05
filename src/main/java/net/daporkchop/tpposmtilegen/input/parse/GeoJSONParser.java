@@ -18,18 +18,38 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input;
+package net.daporkchop.tpposmtilegen.input.parse;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufInputStream;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.geojson.GeoJSONObject;
+import net.daporkchop.tpposmtilegen.input.DataProcessor;
+import net.daporkchop.tpposmtilegen.input.InputParser;
+import net.daporkchop.tpposmtilegen.util.Util;
 
 import java.io.IOException;
+import java.io.InputStream;
 
 /**
- * Actually processes the data.
- *
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface DataProcessor<D> {
-    void process(@NonNull D data) throws IOException;
+public class GeoJSONParser implements InputParser<GeoJSONObject> {
+    @Override
+    public void parse(@NonNull ByteBuf input, @NonNull DataProcessor<GeoJSONObject> processor) throws IOException {
+        /*input.markReaderIndex();
+        byte[] arr = new byte[input.readableBytes()];
+        input.readBytes(arr).resetReaderIndex();
+        System.out.write(arr);
+        System.out.println();*/
+
+        GeoJSONObject object;
+        try {
+            object = Util.JSON_MAPPER.readValue((InputStream) new ByteBufInputStream(input), GeoJSONObject.class);
+        } finally {
+            input.release();
+        }
+
+        processor.process(object);
+    }
 }

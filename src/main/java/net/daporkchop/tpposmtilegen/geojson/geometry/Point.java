@@ -18,18 +18,32 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input;
+package net.daporkchop.tpposmtilegen.geojson.geometry;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 
-import java.io.IOException;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
- * Actually processes the data.
- *
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface DataProcessor<D> {
-    void process(@NonNull D data) throws IOException;
+@Getter
+@ToString
+@JsonDeserialize
+public class Point implements Geometry {
+    protected final double lon;
+    protected final double lat;
+
+    @JsonCreator(mode = JsonCreator.Mode.PROPERTIES)
+    public Point(@JsonProperty("coordinates") @NonNull double[] coordinates) {
+        checkArg(coordinates.length >= 2, "Point must have at least 2 coordinates!");
+
+        this.lon = coordinates[0];
+        this.lat = coordinates[1];
+    }
 }

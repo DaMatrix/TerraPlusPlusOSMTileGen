@@ -37,7 +37,7 @@ import java.io.IOException;
  *
  * @author DaPorkchop_
  */
-public class SegmentedReader implements InputReader {
+public class StreamingSegmentedReader implements InputReader {
     private static final int BLOCK_SIZE = 1 << 16;
 
     @Override

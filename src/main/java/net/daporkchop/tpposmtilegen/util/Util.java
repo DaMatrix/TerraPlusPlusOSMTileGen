@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.util;
 
+import com.fasterxml.jackson.databind.json.JsonMapper;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.binary.stream.DataIn;
@@ -36,6 +37,8 @@ import java.io.IOException;
  */
 @UtilityClass
 public class Util {
+    public static final JsonMapper JSON_MAPPER = new JsonMapper();
+
     public static DataIn readerFor(@NonNull File file) throws IOException {
         DataIn in = DataIn.wrapNonBuffered(file);
         if (file.getName().endsWith(".zstd")) {

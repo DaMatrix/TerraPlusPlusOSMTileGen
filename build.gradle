@@ -26,6 +26,7 @@ ext {
     programVersion = "0.0.1"
 
     //dependency things
+    jacksonVersion = "2.11.2"
     junitVersion = "4.12"
     lombokVersion = "1.16.20"
     porklibVersion = "0.5.5-SNAPSHOT"
@@ -57,6 +58,8 @@ configurations {
 dependencies {
     shade "net.daporkchop.lib:binary:$porklibVersion"
     shade "net.daporkchop.lib:compression-zstd:$porklibVersion"
+
+    shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
 
     testCompile "junit:junit:$junitVersion"
 

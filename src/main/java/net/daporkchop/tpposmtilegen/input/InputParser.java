@@ -26,6 +26,8 @@ import lombok.NonNull;
 import java.io.IOException;
 
 /**
+ * Parses binary input into a format usable by a data processor.
+ *
  * @author DaPorkchop_
  */
 @FunctionalInterface

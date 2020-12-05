@@ -18,18 +18,27 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input;
+package net.daporkchop.tpposmtilegen.geojson.feature;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import lombok.Getter;
 import lombok.NonNull;
-
-import java.io.IOException;
+import lombok.ToString;
+import net.daporkchop.tpposmtilegen.geojson.GeoJSONObject;
 
 /**
- * Actually processes the data.
- *
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface DataProcessor<D> {
-    void process(@NonNull D data) throws IOException;
+@Getter
+@ToString
+@JsonDeserialize
+public class FeatureCollection implements GeoJSONObject {
+    protected final Feature[] features;
+
+    @JsonCreator
+    public FeatureCollection(@JsonProperty("features") @NonNull Feature[] features) {
+        this.features = features;
+    }
 }

@@ -18,18 +18,26 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input;
+package net.daporkchop.tpposmtilegen.geojson.geometry;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import lombok.Getter;
 import lombok.NonNull;
-
-import java.io.IOException;
+import lombok.ToString;
 
 /**
- * Actually processes the data.
- *
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface DataProcessor<D> {
-    void process(@NonNull D data) throws IOException;
+@Getter
+@ToString
+@JsonDeserialize
+public class GeometryCollection implements Geometry {
+    protected final Geometry[] geometries;
+
+    @JsonCreator
+    public GeometryCollection(@JsonProperty("geometries") @NonNull Geometry[] geometries) {
+        this.geometries = geometries;
+    }
 }
