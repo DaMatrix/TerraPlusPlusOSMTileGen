@@ -20,13 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.input.read;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.PlatformDependent;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.netty.buf.WrappedUnpooledUnsafeDirectByteBuf;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.input.DataProcessor;
-import net.daporkchop.tpposmtilegen.input.InputParser;
-import net.daporkchop.tpposmtilegen.input.InputReader;
 import net.daporkchop.tpposmtilegen.util.RefCountedMappedByteBuffer;
 
 import java.io.File;
@@ -39,9 +39,13 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class MemoryMappedSegmentedReader implements InputReader {
+@RequiredArgsConstructor
+public class MemoryMappedSegmentedReader implements IOConsumer<File> {
+    @NonNull
+    protected final IOConsumer<ByteBuf> next;
+
     @Override
-    public <D> void read(@NonNull File file, @NonNull InputParser<D> parser, @NonNull DataProcessor<D> processor) throws IOException {
+    public void acceptThrowing(@NonNull File file) throws IOException {
         //map the entire file into memory
         RefCountedMappedByteBuffer buffer;
         try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
@@ -55,13 +59,13 @@ public class MemoryMappedSegmentedReader implements InputReader {
             for (long i = 0L; i < size; i++) {
                 if (PUnsafe.getByte(addr + i) == '\n') {
                     if (start < i) {
-                        parser.parse(new MemoryMappedSlice(buffer, start, toInt(i - start)), processor);
+                        this.next.acceptThrowing(new MemoryMappedSlice(buffer, start, toInt(i - start)));
                     }
                     start = i + 1L;
                 }
             }
             if (start < size) {
-                parser.parse(new MemoryMappedSlice(buffer, start, toInt(size - start)), processor);
+                this.next.acceptThrowing(new MemoryMappedSlice(buffer, start, toInt(size - start)));
             }
         } finally {
             buffer.release();

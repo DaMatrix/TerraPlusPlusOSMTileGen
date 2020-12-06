@@ -23,9 +23,9 @@ package net.daporkchop.tpposmtilegen.input.parse;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.tpposmtilegen.geojson.GeoJSONObject;
-import net.daporkchop.tpposmtilegen.input.DataProcessor;
-import net.daporkchop.tpposmtilegen.input.InputParser;
 import net.daporkchop.tpposmtilegen.util.Util;
 
 import java.io.IOException;
@@ -34,9 +34,13 @@ import java.io.InputStream;
 /**
  * @author DaPorkchop_
  */
-public class GeoJSONParser implements InputParser<GeoJSONObject> {
+@RequiredArgsConstructor
+public class GeoJSONParser implements IOConsumer<ByteBuf> {
+    @NonNull
+    protected final IOConsumer<GeoJSONObject> next;
+
     @Override
-    public void parse(@NonNull ByteBuf input, @NonNull DataProcessor<GeoJSONObject> processor) throws IOException {
+    public void acceptThrowing(@NonNull ByteBuf input) throws IOException {
         /*input.markReaderIndex();
         byte[] arr = new byte[input.readableBytes()];
         input.readBytes(arr).resetReaderIndex();
@@ -50,6 +54,6 @@ public class GeoJSONParser implements InputParser<GeoJSONObject> {
             input.release();
         }
 
-        processor.process(object);
+        this.next.acceptThrowing(object);
     }
 }

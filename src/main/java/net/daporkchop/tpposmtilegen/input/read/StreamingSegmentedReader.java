@@ -23,10 +23,9 @@ package net.daporkchop.tpposmtilegen.input.read;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.stream.DataIn;
-import net.daporkchop.tpposmtilegen.input.DataProcessor;
-import net.daporkchop.tpposmtilegen.input.InputParser;
-import net.daporkchop.tpposmtilegen.input.InputReader;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.tpposmtilegen.util.Util;
 
 import java.io.File;
@@ -37,29 +36,37 @@ import java.io.IOException;
  *
  * @author DaPorkchop_
  */
-public class StreamingSegmentedReader implements InputReader {
+@RequiredArgsConstructor
+public class StreamingSegmentedReader implements IOConsumer<File> {
     private static final int BLOCK_SIZE = 1 << 16;
 
+    @NonNull
+    protected final IOConsumer<ByteBuf> next;
+
     @Override
-    public <D> void read(@NonNull File file, @NonNull InputParser<D> parser, @NonNull DataProcessor<D> processor) throws IOException {
+    public void acceptThrowing(@NonNull File file) throws IOException {
         ByteBuf buf = ByteBufAllocator.DEFAULT.buffer(BLOCK_SIZE);
         try (DataIn in = Util.readerFor(file)) {
             while (in.read(buf, BLOCK_SIZE) >= 0) {
+                int mark = buf.readerIndex();
+                buf.resetReaderIndex();
                 while (buf.isReadable(2)) {
                     if (buf.readByte() == '\n') {
                         int end = buf.readerIndex();
-                        int start = buf.resetReaderIndex().readerIndex();
+                        int start = mark;
                         int len = end - start - 1;
+                        mark = end;
                         ByteBuf blob = ByteBufAllocator.DEFAULT.buffer(len, len);
-                        buf.readBytes(blob).readerIndex(end).markReaderIndex();
-                        parser.parse(blob, processor);
+                        buf.getBytes(start, blob);
+                        this.next.acceptThrowing(blob);
                     }
                 }
+                buf.markReaderIndex().readerIndex(mark);
                 buf.discardSomeReadBytes();
             }
 
             if (buf.resetReaderIndex().isReadable()) { //pass rest of data to parser
-                parser.parse(buf.retain(), processor);
+                this.next.acceptThrowing(buf.retain());
             }
         } finally {
             buf.release();

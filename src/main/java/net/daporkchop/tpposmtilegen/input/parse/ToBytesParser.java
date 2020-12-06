@@ -22,19 +22,23 @@ package net.daporkchop.tpposmtilegen.input.parse;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.input.DataProcessor;
-import net.daporkchop.tpposmtilegen.input.InputParser;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 
 import java.io.IOException;
 
 /**
  * @author DaPorkchop_
  */
-public class ToBytesParser implements InputParser<byte[]> {
+@RequiredArgsConstructor
+public class ToBytesParser implements IOConsumer<ByteBuf> {
+    @NonNull
+    protected final IOConsumer<byte[]> next;
+
     @Override
-    public void parse(@NonNull ByteBuf input, @NonNull DataProcessor<byte[]> processor) throws IOException {
-        byte[] arr = new byte[input.readableBytes()];
-        input.readBytes(arr).release();
-        processor.process(arr);
+    public void acceptThrowing(@NonNull ByteBuf next) throws IOException {
+        byte[] arr = new byte[next.readableBytes()];
+        next.readBytes(arr).release();
+        this.next.acceptThrowing(arr);
     }
 }

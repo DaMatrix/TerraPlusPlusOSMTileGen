@@ -21,15 +21,43 @@
 package net.daporkchop.tpposmtilegen.input;
 
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.io.IOConsumer;
+import net.daporkchop.lib.common.function.io.IORunnable;
+import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
+import net.daporkchop.lib.common.util.PorkUtil;
 
 import java.io.IOException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Semaphore;
 
 /**
- * Actually processes the data.
- *
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface DataProcessor<D> {
-    void process(@NonNull D data) throws IOException;
+public class Parallelizer<T> implements IOConsumer<T> {
+    protected final IOConsumer<T> delegate;
+    protected final Executor executor;
+    protected final Semaphore lock;
+
+    public Parallelizer(@NonNull IOConsumer<T> delegate) {
+        this(delegate, 512);
+    }
+
+    public Parallelizer(@NonNull IOConsumer<T> delegate, int maxQueueSize) {
+        this.delegate = delegate;
+        this.executor = Executors.newFixedThreadPool(PorkUtil.CPU_COUNT, PThreadFactories.builder().daemon(true).build());
+        this.lock = new Semaphore(maxQueueSize);
+    }
+
+    @Override
+    public void acceptThrowing(T t) throws IOException {
+        this.lock.acquireUninterruptibly();
+        this.executor.execute((IORunnable) () -> {
+            try {
+                this.delegate.acceptThrowing(t);
+            } finally {
+                this.lock.release();
+            }
+        });
+    }
 }
