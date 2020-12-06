@@ -21,33 +21,63 @@
 package net.daporkchop.tpposmtilegen.mode.countstrings;
 
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.binary.oio.appendable.PAppendable;
+import net.daporkchop.lib.binary.oio.writer.UTF8FileWriter;
+import net.daporkchop.lib.binary.stream.DataOut;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
+import net.daporkchop.tpposmtilegen.util.ByteArrayKey;
 
+import java.io.BufferedOutputStream;
+import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.OutputStream;
 import java.util.Comparator;
+import java.util.List;
 import java.util.Map;
+import java.util.TreeMap;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.Function;
+import java.util.stream.Collectors;
 
 /**
  * @author DaPorkchop_
  */
-public class StringCounterImpl implements PipelineStep<String>, Function<String, LongAdder> {
-    protected final Map<String, LongAdder> counts = new ConcurrentHashMap<>();
+@RequiredArgsConstructor
+public class StringCounterImpl implements PipelineStep<byte[]>, Function<ByteArrayKey, LongAdder> {
+    protected final Map<ByteArrayKey, LongAdder> counts = new ConcurrentHashMap<>();
+
+    @NonNull
+    protected final File dstFile;
 
     @Override
-    public void accept(@NonNull String value) throws IOException {
-        this.counts.computeIfAbsent(value, this).increment();
+    public void accept(@NonNull byte[] value) throws IOException {
+        if (value.length > 32) {
+            return; //don't bother indexing long strings
+        }
+
+        this.counts.computeIfAbsent(new ByteArrayKey(value), this).increment();
     }
 
     @Override
     public void close() throws IOException {
-        System.out.println("10 most frequent strings:");
-        this.counts.entrySet().stream()
-                .sorted(Comparator.<Map.Entry<String, LongAdder>>comparingLong(e -> e.getValue().sum()).reversed())
-                .limit(10L)
-                .forEachOrdered(System.out::println);
+        System.out.println("Sorting...");
+        Map<Long, List<byte[]>> sorted = this.counts.entrySet().stream().collect(Collectors.groupingBy(
+                e -> e.getValue().sum(),
+                () -> new TreeMap<Long, List<byte[]>>(Comparator.reverseOrder()),
+                Collectors.mapping(e -> e.getKey().value(), Collectors.toList())));
+        System.out.println("Writing to file");
+        try (DataOut out = DataOut.wrap(this.dstFile)) {
+            sorted.forEach((count, strings) -> strings.forEach((IOConsumer<byte[]>) string -> {
+                out.writeVarInt(string.length);
+                out.write(string);
+                out.writeVarLong(count);
+            }));
+            out.writeVarInt(-1);
+        }
     }
 
     /**
@@ -55,7 +85,7 @@ public class StringCounterImpl implements PipelineStep<String>, Function<String,
      */
     @Override
     @Deprecated
-    public LongAdder apply(String s) {
+    public LongAdder apply(ByteArrayKey s) {
         return new LongAdder();
     }
 }

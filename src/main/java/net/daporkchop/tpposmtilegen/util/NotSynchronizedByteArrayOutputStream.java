@@ -18,32 +18,41 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.MemoryMappedSegmentedReader;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
+import lombok.Getter;
 
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.OutputStream;
+import java.util.Arrays;
 
 /**
+ * Alternative to {@link ByteArrayOutputStream} without synchronization.
+ *
  * @author DaPorkchop_
  */
-public class CountStringsMode {
-    public PipelineStep<File> construct(@NonNull String... args) {
-        checkArg(args.length == 1, "Usage: countstrings <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[0]));
+public class NotSynchronizedByteArrayOutputStream extends OutputStream {
+    protected byte[] b = new byte[512];
+    @Getter
+    protected int size = 0;
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    @Override
+    public void write(int b) throws IOException {
+        if (this.size + 1 == this.b.length) { //grow array
+            byte[] newArr = new byte[this.b.length << 1];
+            System.arraycopy(this.b, 0, newArr, 0, this.b.length);
+            this.b = newArr;
+        }
+        this.b[this.size++] = (byte) b;
+    }
+
+    public byte[] toByteArray() {
+        return Arrays.copyOf(this.b, this.size);
+    }
+
+    public void reset() {
+        this.size = 0;
     }
 }
+

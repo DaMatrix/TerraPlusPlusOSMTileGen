@@ -18,32 +18,27 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.MemoryMappedSegmentedReader;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.util.Comparator;
 
 /**
  * @author DaPorkchop_
  */
-public class CountStringsMode {
-    public PipelineStep<File> construct(@NonNull String... args) {
-        checkArg(args.length == 1, "Usage: countstrings <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[0]));
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public class ByteComparator implements Comparator<byte[]> {
+    public static final ByteComparator INSTANCE = new ByteComparator();
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    @Override
+    public int compare(byte[] o1, byte[] o2) {
+        for (int i = 0; i < o1.length && i < o2.length; i++) {
+            if (o1[i] != o2[i]) {
+                return Integer.compare(o1[i] & 0xFF, o2[i] & 0xFF);
+            }
+        }
+        return Integer.compare(o1.length, o2.length);
     }
 }
