@@ -18,42 +18,34 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input.parse;
+package net.daporkchop.tpposmtilegen.util;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.ByteBufInputStream;
-import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.function.io.IOConsumer;
-import net.daporkchop.tpposmtilegen.geojson.GeoJSONObject;
-import net.daporkchop.tpposmtilegen.util.Util;
-
-import java.io.IOException;
-import java.io.InputStream;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.BlockingQueue;
 
 /**
+ * A {@link BlockingQueue} whose {@link #offer(Object)} method blocks as well.
+ *
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
-public class GeoJSONParser implements IOConsumer<ByteBuf> {
-    @NonNull
-    protected final IOConsumer<GeoJSONObject> next;
+public class BetterBlockingQueue<E> extends ArrayBlockingQueue<E> {
+    public BetterBlockingQueue(int capacity) {
+        super(capacity);
+    }
+
+    public BetterBlockingQueue(int capacity, boolean fair) {
+        super(capacity, fair);
+    }
 
     @Override
-    public void acceptThrowing(@NonNull ByteBuf input) throws IOException {
-        /*input.markReaderIndex();
-        byte[] arr = new byte[input.readableBytes()];
-        input.readBytes(arr).resetReaderIndex();
-        System.out.write(arr);
-        System.out.println();*/
-
-        GeoJSONObject object;
-        try {
-            object = Util.JSON_MAPPER.readValue((InputStream) new ByteBufInputStream(input), GeoJSONObject.class);
-        } finally {
-            input.release();
+    public boolean offer(E value) {
+        while (true) {
+            try {
+                super.put(value);
+                return true;
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
         }
-
-        this.next.acceptThrowing(object);
     }
 }

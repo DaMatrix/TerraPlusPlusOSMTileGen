@@ -18,46 +18,28 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input;
+package net.daporkchop.tpposmtilegen.pipeline.parse;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.io.IOConsumer;
-import net.daporkchop.lib.common.function.io.IORunnable;
-import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
-import net.daporkchop.lib.common.util.PorkUtil;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.pipeline.FilterPipelineStep;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 
 import java.io.IOException;
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Semaphore;
 
 /**
  * @author DaPorkchop_
  */
-public class Parallelizer<T> implements IOConsumer<T> {
-    protected final IOConsumer<T> delegate;
-    protected final Executor executor;
-    protected final Semaphore lock;
-
-    public Parallelizer(@NonNull IOConsumer<T> delegate) {
-        this(delegate, 512);
-    }
-
-    public Parallelizer(@NonNull IOConsumer<T> delegate, int maxQueueSize) {
-        this.delegate = delegate;
-        this.executor = Executors.newFixedThreadPool(PorkUtil.CPU_COUNT, PThreadFactories.builder().daemon(true).build());
-        this.lock = new Semaphore(maxQueueSize);
+public class ToBytesParser extends FilterPipelineStep<ByteBuf, byte[]> {
+    public ToBytesParser(PipelineStep<byte[]> next) {
+        super(next);
     }
 
     @Override
-    public void acceptThrowing(T t) throws IOException {
-        this.lock.acquireUninterruptibly();
-        this.executor.execute((IORunnable) () -> {
-            try {
-                this.delegate.acceptThrowing(t);
-            } finally {
-                this.lock.release();
-            }
-        });
+    public void accept(@NonNull ByteBuf next) throws IOException {
+        byte[] arr = new byte[next.readableBytes()];
+        next.readBytes(arr).release();
+        this.next.accept(arr);
     }
 }

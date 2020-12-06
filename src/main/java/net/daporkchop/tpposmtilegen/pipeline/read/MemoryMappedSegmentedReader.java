@@ -18,15 +18,15 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input.read;
+package net.daporkchop.tpposmtilegen.pipeline.read;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.util.internal.PlatformDependent;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.netty.buf.WrappedUnpooledUnsafeDirectByteBuf;
-import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.pipeline.FilterPipelineStep;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 import net.daporkchop.tpposmtilegen.util.RefCountedMappedByteBuffer;
 
 import java.io.File;
@@ -39,13 +39,13 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
-public class MemoryMappedSegmentedReader implements IOConsumer<File> {
-    @NonNull
-    protected final IOConsumer<ByteBuf> next;
+public class MemoryMappedSegmentedReader extends FilterPipelineStep<File, ByteBuf> {
+    public MemoryMappedSegmentedReader(PipelineStep<ByteBuf> next) {
+        super(next);
+    }
 
     @Override
-    public void acceptThrowing(@NonNull File file) throws IOException {
+    public void accept(@NonNull File file) throws IOException {
         //map the entire file into memory
         RefCountedMappedByteBuffer buffer;
         try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
@@ -59,13 +59,13 @@ public class MemoryMappedSegmentedReader implements IOConsumer<File> {
             for (long i = 0L; i < size; i++) {
                 if (PUnsafe.getByte(addr + i) == '\n') {
                     if (start < i) {
-                        this.next.acceptThrowing(new MemoryMappedSlice(buffer, start, toInt(i - start)));
+                        this.next.accept(new MemoryMappedSlice(buffer, start, toInt(i - start)));
                     }
                     start = i + 1L;
                 }
             }
             if (start < size) {
-                this.next.acceptThrowing(new MemoryMappedSlice(buffer, start, toInt(size - start)));
+                this.next.accept(new MemoryMappedSlice(buffer, start, toInt(size - start)));
             }
         } finally {
             buffer.release();

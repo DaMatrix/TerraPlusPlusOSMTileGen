@@ -18,14 +18,14 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input.read;
+package net.daporkchop.tpposmtilegen.pipeline.read;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.stream.DataIn;
-import net.daporkchop.lib.common.function.io.IOConsumer;
+import net.daporkchop.tpposmtilegen.pipeline.FilterPipelineStep;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 import net.daporkchop.tpposmtilegen.util.Util;
 
 import java.io.File;
@@ -36,15 +36,15 @@ import java.io.IOException;
  *
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
-public class StreamingSegmentedReader implements IOConsumer<File> {
+public class StreamingSegmentedReader extends FilterPipelineStep<File, ByteBuf> {
     private static final int BLOCK_SIZE = 1 << 16;
 
-    @NonNull
-    protected final IOConsumer<ByteBuf> next;
+    public StreamingSegmentedReader(PipelineStep<ByteBuf> next) {
+        super(next);
+    }
 
     @Override
-    public void acceptThrowing(@NonNull File file) throws IOException {
+    public void accept(@NonNull File file) throws IOException {
         ByteBuf buf = ByteBufAllocator.DEFAULT.buffer(BLOCK_SIZE);
         try (DataIn in = Util.readerFor(file)) {
             while (in.read(buf, BLOCK_SIZE) >= 0) {
@@ -58,7 +58,7 @@ public class StreamingSegmentedReader implements IOConsumer<File> {
                         mark = end;
                         ByteBuf blob = ByteBufAllocator.DEFAULT.buffer(len, len);
                         buf.getBytes(start, blob);
-                        this.next.acceptThrowing(blob);
+                        this.next.accept(blob);
                     }
                 }
                 buf.markReaderIndex().readerIndex(mark);
@@ -66,7 +66,7 @@ public class StreamingSegmentedReader implements IOConsumer<File> {
             }
 
             if (buf.resetReaderIndex().isReadable()) { //pass rest of data to parser
-                this.next.acceptThrowing(buf.retain());
+                this.next.accept(buf.retain());
             }
         } finally {
             buf.release();

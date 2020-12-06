@@ -18,12 +18,10 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.input.parse;
+package net.daporkchop.tpposmtilegen.pipeline;
 
-import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.function.io.IOConsumer;
 
 import java.io.IOException;
 
@@ -31,14 +29,12 @@ import java.io.IOException;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-public class ToBytesParser implements IOConsumer<ByteBuf> {
+public abstract class FilterPipelineStep<I, O> implements PipelineStep<I> {
     @NonNull
-    protected final IOConsumer<byte[]> next;
+    protected final PipelineStep<O> next;
 
     @Override
-    public void acceptThrowing(@NonNull ByteBuf next) throws IOException {
-        byte[] arr = new byte[next.readableBytes()];
-        next.readBytes(arr).release();
-        this.next.acceptThrowing(arr);
+    public void close() throws IOException {
+        this.next.close();
     }
 }
