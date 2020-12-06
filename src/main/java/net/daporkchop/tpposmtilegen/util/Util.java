@@ -21,11 +21,13 @@
 package net.daporkchop.tpposmtilegen.util;
 
 import com.fasterxml.jackson.databind.json.JsonMapper;
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.binary.stream.DataIn;
 import net.daporkchop.lib.compression.context.PInflater;
 import net.daporkchop.lib.compression.zstd.Zstd;
+import net.daporkchop.lib.encoding.Hexadecimal;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,5 +49,66 @@ public class Util {
             inflater.release(); //release now so that the only remaining reference comes from the DataIn instance
         }
         return in;
+    }
+
+    public static int readJsonStringToEnd(int i, @NonNull StringBuilder dst, @NonNull ByteBuf src) {
+        while (true) {
+            int b = src.getUnsignedByte(i++);
+            if ((b & 0x80) == 0) {
+                if (b == '"') { //end of string
+                    break;
+                } else if (b == '\\') { //escape sequence
+                    switch (b = src.getUnsignedByte(i++)) {
+                        case '"':
+                        case '\\':
+                        case '/':
+                            dst.append((char) b);
+                            break;
+                        case 'n':
+                            dst.append('\n');
+                            break;
+                        case 't':
+                            dst.append('\t');
+                            break;
+                        case 'r':
+                            dst.append('\r');
+                            break;
+                        case 'f':
+                            dst.append('\f');
+                            break;
+                        case 'b':
+                            dst.append('\b');
+                            break;
+                        case 'u':
+                            char c = (char) ((Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)) << 8)
+                                             | Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)));
+                            if (!Character.isHighSurrogate(c)) {
+                                dst.append(c);
+                            } else {
+                                i += 2;
+                                char c2 = (char) ((Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)) << 8)
+                                                  | Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)));
+                                dst.appendCodePoint(Character.toCodePoint(c, c2));
+                            }
+                            break;
+                    }
+                } else { //normal ASCII character
+                    dst.append((char) b);
+                }
+            } else if ((b & 0xE0) == 0xC0) { //UTF-8, 2 bytes
+                dst.append((char) (((b & 0x1F) << 6)
+                                   | (src.getUnsignedByte(i++) & 0x3F)));
+            } else if ((b & 0xF0) == 0xE0) { //UTF-8, 3 bytes
+                dst.append((char) (((b & 0xF) << 12)
+                                   | ((src.getUnsignedByte(i++) & 0x3F) << 6)
+                                   | (src.getUnsignedByte(i++) & 0x3F)));
+            } else if ((b & 0xF0) == 0xF0) { //UTF-8, 4 bytes
+                dst.appendCodePoint(((b & 0xF) << 18)
+                                    | ((src.getUnsignedByte(i++) & 0x3F) << 12)
+                                    | ((src.getUnsignedByte(i++) & 0x3F) << 6)
+                                    | (src.getUnsignedByte(i++) & 0x3F));
+            }
+        }
+        return i;
     }
 }

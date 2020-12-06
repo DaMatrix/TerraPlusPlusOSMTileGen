@@ -58,6 +58,7 @@ configurations {
 dependencies {
     shade "net.daporkchop.lib:binary:$porklibVersion"
     shade "net.daporkchop.lib:compression-zstd:$porklibVersion"
+    shade "net.daporkchop.lib:encoding:$porklibVersion"
 
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
 

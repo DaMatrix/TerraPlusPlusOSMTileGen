@@ -45,31 +45,40 @@ public class StreamingSegmentedReader extends FilterPipelineStep<File, ByteBuf> 
 
     @Override
     public void accept(@NonNull File file) throws IOException {
-        ByteBuf buf = ByteBufAllocator.DEFAULT.buffer(BLOCK_SIZE);
+        ByteBuf readBuffer = ByteBufAllocator.DEFAULT.buffer(BLOCK_SIZE);
         try (DataIn in = Util.readerFor(file)) {
-            while (in.read(buf, BLOCK_SIZE) >= 0) {
-                int mark = buf.readerIndex();
-                buf.resetReaderIndex();
-                while (buf.isReadable(2)) {
-                    if (buf.readByte() == '\n') {
-                        int end = buf.readerIndex();
-                        int start = mark;
-                        int len = end - start - 1;
-                        mark = end;
-                        ByteBuf blob = ByteBufAllocator.DEFAULT.buffer(len, len);
-                        buf.getBytes(start, blob);
-                        this.next.accept(blob);
-                    }
-                }
-                buf.markReaderIndex().readerIndex(mark);
-                buf.discardSomeReadBytes();
+            while (in.read(readBuffer, BLOCK_SIZE) >= 0) {
+                readBuffer = this.processBlock(readBuffer);
             }
 
-            if (buf.resetReaderIndex().isReadable()) { //pass rest of data to parser
-                this.next.accept(buf.retain());
+            if (readBuffer.resetReaderIndex().isReadable()) { //pass rest of data to parser
+                this.next.accept(readBuffer.retain());
             }
         } finally {
-            buf.release();
+            readBuffer.release();
         }
+    }
+
+    private ByteBuf processBlock(ByteBuf readBuffer) throws IOException {
+        int start = 0; //index of the first char of the current line
+        int writerIndex = readBuffer.writerIndex();
+        int limit = writerIndex - 1; //the index to read up to
+
+        for (int i = readBuffer.readerIndex(); i < limit; i++) {
+            if (readBuffer.getByte(i) == '\n') {
+                this.next.accept(readBuffer.retainedSlice(start, i - start));
+                start = i + 1;
+            }
+        }
+
+        if (start != 0) { //we read at least one line, discard buffer and copy remaining data to a new one
+            int length = writerIndex - start;
+            ByteBuf newBuffer = ByteBufAllocator.DEFAULT.buffer(length + BLOCK_SIZE);
+            readBuffer.getBytes(start, newBuffer, length).release();
+            readBuffer = newBuffer;
+        } else {
+            readBuffer.readerIndex(limit);
+        }
+        return readBuffer;
     }
 }

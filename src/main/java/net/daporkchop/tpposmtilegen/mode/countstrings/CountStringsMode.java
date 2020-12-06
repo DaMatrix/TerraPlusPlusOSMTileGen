@@ -18,23 +18,25 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.pipeline;
+package net.daporkchop.tpposmtilegen.mode.countstrings;
 
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
+import net.daporkchop.tpposmtilegen.pipeline.read.MemoryMappedSegmentedReader;
 
-import java.io.IOException;
+import java.io.File;
 
 /**
- * A step in the data processing pipeline.
- *
- * @param <I> the input data type
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface PipelineStep<I> extends AutoCloseable {
-    void accept(@NonNull I value) throws IOException;
-
-    @Override
-    default void close() throws IOException {
+public class CountStringsMode {
+    public PipelineStep<File> construct(@NonNull String... args) {
+        return new PipelineBuilder<File, Object>()
+                .first(MemoryMappedSegmentedReader::new)
+                .filter(Parallelizer::new)
+                .map(ExtractTagStrings::new)
+                .tail(new StringCounterImpl());
     }
 }

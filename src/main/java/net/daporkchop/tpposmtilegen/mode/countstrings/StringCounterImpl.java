@@ -18,23 +18,44 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.pipeline;
+package net.daporkchop.tpposmtilegen.mode.countstrings;
 
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 
 import java.io.IOException;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Function;
 
 /**
- * A step in the data processing pipeline.
- *
- * @param <I> the input data type
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface PipelineStep<I> extends AutoCloseable {
-    void accept(@NonNull I value) throws IOException;
+public class StringCounterImpl implements PipelineStep<String>, Function<String, LongAdder> {
+    protected final Map<String, LongAdder> counts = new ConcurrentHashMap<>();
 
     @Override
-    default void close() throws IOException {
+    public void accept(@NonNull String value) throws IOException {
+        this.counts.computeIfAbsent(value, this).increment();
+    }
+
+    @Override
+    public void close() throws IOException {
+        System.out.println("10 most frequent strings:");
+        this.counts.entrySet().stream()
+                .sorted(Comparator.<Map.Entry<String, LongAdder>>comparingLong(e -> e.getValue().sum()).reversed())
+                .limit(10L)
+                .forEachOrdered(System.out::println);
+    }
+
+    /**
+     * @deprecated internal API, do not touch!
+     */
+    @Override
+    @Deprecated
+    public LongAdder apply(String s) {
+        return new LongAdder();
     }
 }
