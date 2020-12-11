@@ -27,7 +27,7 @@ import net.daporkchop.lib.binary.netty.buf.WrappedUnpooledUnsafeDirectByteBuf;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.pipeline.FilterPipelineStep;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.util.RefCountedMappedByteBuffer;
+import net.daporkchop.tpposmtilegen.util.mmap.RefCountedMemoryMap;
 
 import java.io.File;
 import java.io.IOException;
@@ -47,9 +47,9 @@ public class MemoryMappedSegmentedReader extends FilterPipelineStep<File, ByteBu
     @Override
     public void accept(@NonNull File file) throws IOException {
         //map the entire file into memory
-        RefCountedMappedByteBuffer buffer;
+        RefCountedMemoryMap buffer;
         try (FileChannel channel = FileChannel.open(file.toPath(), StandardOpenOption.READ)) {
-            buffer = new RefCountedMappedByteBuffer(channel, FileChannel.MapMode.READ_ONLY, 0L, channel.size());
+            buffer = new RefCountedMemoryMap(channel, FileChannel.MapMode.READ_ONLY, 0L, channel.size());
         }
 
         try {
@@ -73,9 +73,9 @@ public class MemoryMappedSegmentedReader extends FilterPipelineStep<File, ByteBu
     }
 
     private static final class MemoryMappedSlice extends WrappedUnpooledUnsafeDirectByteBuf {
-        protected final RefCountedMappedByteBuffer buffer;
+        protected final RefCountedMemoryMap buffer;
 
-        public MemoryMappedSlice(@NonNull RefCountedMappedByteBuffer buffer, long offset, int size) {
+        public MemoryMappedSlice(@NonNull RefCountedMemoryMap buffer, long offset, int size) {
             super(PlatformDependent.directBuffer(buffer.addr() + offset, size), size);
 
             this.buffer = buffer.retain();

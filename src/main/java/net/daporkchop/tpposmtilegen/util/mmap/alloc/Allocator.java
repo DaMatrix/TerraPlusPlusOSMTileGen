@@ -18,33 +18,28 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
-
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
 
 /**
+ * Handles memory allocations inside of a {@link DynamicMemoryMap}.
+ *
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+public interface Allocator {
+    /**
+     * Allocates the requested number of bytes.
+     *
+     * @param size the number of bytes allocated
+     * @return the address of the allocated memory, relative to the beginning of the file
+     */
+    long alloc(long size);
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
-    }
+    /**
+     * Frees the given memory block, potentially allowing the memory to be re-used again for future allocations.
+     *
+     * @param base the base address of the memory allocation
+     */
+    void free(long base);
 }

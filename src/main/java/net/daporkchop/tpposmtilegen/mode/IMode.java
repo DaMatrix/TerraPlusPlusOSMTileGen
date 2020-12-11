@@ -18,33 +18,32 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
 
 import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.io.IOException;
+import java.util.Arrays;
 
 /**
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+public interface IMode {
+    void run(@NonNull String... args) throws IOException;
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    interface Pipeline extends IMode {
+        @Override
+        default void run(@NonNull String... args) throws IOException {
+            File srcFile = PFiles.assertFileExists(new File(args[0]));
+
+            try (PipelineStep<File> step = this.createPipeline(args)) {
+                step.accept(srcFile);
+            }
+        }
+
+        PipelineStep<File> createPipeline(@NonNull String... args);
     }
 }

@@ -18,33 +18,45 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
-
-import java.io.File;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.RefCountedMemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
+ * A simple allocator which works by incrementing a counter to keep track of the current file head, and doesn't support releasing memory.
+ *
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+public class SequentialAllocator implements Allocator {
+    protected final DynamicMemoryMap file;
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    public SequentialAllocator(@NonNull DynamicMemoryMap file) {
+        this.file = file;
+
+        if (this.file.size() < 8L) { //file hasn't been initialized yet
+            this.file.ensureCapacity(8L);
+            try (MemoryMap buffer = this.file.buffer()) { //next offset should be at 8 (not 0, there's a header lol)
+                PUnsafe.putLong(buffer.addr(), 8L);
+            }
+        }
+    }
+
+    @Override
+    public long alloc(long size) {
+        positive(size, "size");
+        try (MemoryMap buffer = this.file.buffer()) {
+            return PUnsafe.getAndAddLong(null, buffer.addr(), size);
+        }
+    }
+
+    @Override
+    public void free(long base) {
+        //no-op
     }
 }
