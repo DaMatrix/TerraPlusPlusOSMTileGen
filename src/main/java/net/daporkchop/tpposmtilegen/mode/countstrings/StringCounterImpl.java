@@ -21,21 +21,20 @@
 package net.daporkchop.tpposmtilegen.mode.countstrings;
 
 import lombok.NonNull;
-import net.daporkchop.lib.binary.stream.DataOut;
 import net.daporkchop.lib.common.function.io.IOConsumer;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 import net.daporkchop.tpposmtilegen.util.cstring;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapString2LongTreeMap;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapString2LongHashMap;
 
 import java.io.File;
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
-import java.util.stream.Collectors;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -43,30 +42,29 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 public class StringCounterImpl implements PipelineStep<byte[]> {
-    protected final OffHeapString2LongTreeMap counts;
+    protected static final int MAX_LENGTH = 16;
+    protected static final Ref<Long> STR_BUFFER_POINTER = ThreadRef.late(() -> PUnsafe.allocateMemory(Thread.currentThread(), MAX_LENGTH + 1L));
+
+    protected final OffHeapString2LongHashMap counts;
 
     protected final File dstFile;
 
     public StringCounterImpl(@NonNull File dstFile) throws IOException {
         this.dstFile = dstFile;
-        this.counts = new OffHeapString2LongTreeMap(dstFile.toPath());
+        this.counts = new OffHeapString2LongHashMap(dstFile.toPath(), 1L << 20L);
     }
 
     @Override
     public void accept(@NonNull byte[] value) throws IOException {
-        if (value.length > 32) {
+        if (value.length > MAX_LENGTH) {
             return; //don't bother indexing long strings
         }
 
-        long addr = PUnsafe.allocateMemory(value.length + 1);
+        long addr = STR_BUFFER_POINTER.get();
         PUnsafe.copyMemory(value, PUnsafe.ARRAY_BYTE_BASE_OFFSET, null, addr, value.length);
         PUnsafe.putByte(addr + value.length, (byte) 0);
 
-        synchronized (this.counts) {
-            this.counts.increment(addr);
-        }
-
-        PUnsafe.freeMemory(addr);
+        this.counts.increment(addr);
     }
 
     @Override

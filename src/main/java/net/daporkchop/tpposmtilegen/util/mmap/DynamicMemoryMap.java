@@ -89,6 +89,7 @@ public class DynamicMemoryMap extends AbstractRefCounted {
 
                     //replace the old map with the new one
                     this.buffer = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = newSize);
+                    System.gc(); //remind the garbage collector to attempt a full GC to release mappings that are no longer used
                 }
             }
         }

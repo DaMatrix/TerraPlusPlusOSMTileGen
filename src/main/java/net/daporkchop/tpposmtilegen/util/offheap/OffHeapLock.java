@@ -18,49 +18,30 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util;
+package net.daporkchop.tpposmtilegen.util.offheap;
 
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.unsafe.PUnsafe;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
-
 /**
- * {@code #include <cstring>}
+ * A simple lock implemented using off-heap memory.
  *
  * @author DaPorkchop_
  */
 @UtilityClass
-public class cstring {
-    public long strlen(long addr) {
-        long len = 0L;
-        while (PUnsafe.getByte(addr + len) != 0) {
-            len++;
-        }
-        return len;
+public class OffHeapLock {
+    public static final long SIZE = 4L;
+
+    public static void init(long lock) {
+        PUnsafe.putIntVolatile(null, lock, 0);
     }
 
-    public int strcmp(long a, long b) {
-        for (long i = 0L; ; i++) {
-            int ca = PUnsafe.getByte(a + i);
-            int cb = PUnsafe.getByte(b + i);
-            if (ca == cb) { //both characters are the same
-                if ((ca | cb) == 0) { //both characters are NUL
-                    return 0;
-                }
-            } else {
-                return ca - cb;
-            }
+    public static void lock(long lock) {
+        while (!PUnsafe.compareAndSwapInt(null, lock, 0, 1)) {
         }
     }
 
-    public long hash(long addr) {
-        long l = 0L;
-        int b;
-        for (long i = 0L; (b = PUnsafe.getByte(addr + i)) != 0; i++) {
-            l = PMath.mix64(l + b);
-        }
-        return l;
+    public static void unlock(long lock) {
+        PUnsafe.putIntVolatile(null, lock, 0);
     }
 }

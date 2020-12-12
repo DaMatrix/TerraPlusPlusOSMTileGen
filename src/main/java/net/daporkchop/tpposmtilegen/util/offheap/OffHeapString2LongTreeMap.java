@@ -48,7 +48,7 @@ public class OffHeapString2LongTreeMap extends SequentialAllocator {
     protected static final long VALUE_OFFSET = LOW_OFFSET + 8L;
     protected static final long KEY_OFFSET = VALUE_OFFSET + 8L;
 
-    //offset of root node
+    //offset of root node pointer
     protected final long root = super.headerSize();
 
     public OffHeapString2LongTreeMap(@NonNull Path path) throws IOException {
