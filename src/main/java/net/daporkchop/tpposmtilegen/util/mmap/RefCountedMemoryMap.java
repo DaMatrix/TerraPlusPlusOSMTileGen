@@ -63,7 +63,9 @@ public final class RefCountedMemoryMap extends MemoryMap implements RefCounted {
 
         if (refCnt == 1) {
             //old reference count was 1, meaning now it's 0 and the instance should be released
-            this.cleaner.clean();
+            if (this.cleaner != null) {
+                this.cleaner.clean();
+            }
             return true;
         } else {
             return false;

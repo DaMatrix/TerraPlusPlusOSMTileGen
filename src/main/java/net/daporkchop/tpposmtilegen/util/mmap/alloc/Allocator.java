@@ -27,7 +27,7 @@ import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
  *
  * @author DaPorkchop_
  */
-public interface Allocator {
+public interface Allocator extends AutoCloseable {
     /**
      * Allocates the requested number of bytes.
      *
@@ -42,4 +42,7 @@ public interface Allocator {
      * @param base the base address of the memory allocation
      */
     void free(long base);
+
+    @Override
+    void close();
 }

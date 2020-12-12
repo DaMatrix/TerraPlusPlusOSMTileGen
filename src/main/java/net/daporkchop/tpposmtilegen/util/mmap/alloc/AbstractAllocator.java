@@ -18,25 +18,50 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc;
 
-import lombok.EqualsAndHashCode;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.function.LongUnaryOperator;
 
 /**
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
-@Getter
-@EqualsAndHashCode
-public class ByteArrayKey implements Comparable<ByteArrayKey> {
-    @NonNull
-    protected final byte[] value;
+public abstract class AbstractAllocator extends DynamicMemoryMap implements Allocator {
+    public AbstractAllocator(@NonNull Path path) throws IOException {
+        super(path);
+
+        this.init();
+    }
+
+    public AbstractAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
+        super(path, growFunction);
+
+        this.init();
+    }
+
+    protected void init() {
+        long headerSize = this.headerSize();
+        if (this.size < headerSize) { //file hasn't been initialized yet
+            this.ensureCapacity(headerSize);
+            try (MemoryMap buffer = this.buffer) { //next offset should be at 8 (not 0, there's a header lol)
+                PUnsafe.setMemory(buffer.addr(), headerSize, (byte) 0);
+                this.initHeaders(buffer.addr());
+            }
+        }
+    }
+
+    protected abstract long headerSize();
+
+    protected abstract void initHeaders(long addr);
 
     @Override
-    public int compareTo(ByteArrayKey o) {
-        return ByteComparator.INSTANCE.compare(this.value, o.value);
+    public void close() {
+        super.close();
     }
 }

@@ -24,8 +24,12 @@ import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
+import net.daporkchop.tpposmtilegen.util.mmap.growfunc.DefaultGrowFunction;
 
+import java.io.FileDescriptor;
 import java.io.IOException;
+import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
 import java.nio.file.OpenOption;
 import java.nio.file.Path;
@@ -44,14 +48,18 @@ public class DynamicMemoryMap extends AbstractRefCounted {
     protected final LongUnaryOperator growFunction;
     protected final FileChannel channel;
 
-    protected MemoryMap buffer;
-    protected long size;
+    protected volatile MemoryMap buffer;
+    protected volatile long size;
+
+    public DynamicMemoryMap(@NonNull Path path) throws IOException {
+        this(path, DefaultGrowFunction.INSTANCE);
+    }
 
     public DynamicMemoryMap(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
         this.growFunction = growFunction;
         this.channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE);
 
-        this.buffer = new RefCountedMemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = this.channel.size());
+        this.buffer = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = this.channel.size());
     }
 
     public MemoryMap ensureCapacity(long capacity) {
@@ -64,13 +72,23 @@ public class DynamicMemoryMap extends AbstractRefCounted {
                     } while (newSize < capacity); //continually apply the grow function until we reach maximum capacity
 
                     try {
-                        this.channel.truncate(newSize);
-                    } catch (IOException e) {
+                        Field fdField = MemoryMap.FILE_CHANNEL_IMPL.getDeclaredField("fd");
+                        fdField.setAccessible(true);
+                        Object fd = fdField.get(this.channel);
+
+                        Field ndField = MemoryMap.FILE_CHANNEL_IMPL.getDeclaredField("nd");
+                        ndField.setAccessible(true);
+                        Object nd = ndField.get(this.channel);
+
+                        Method truncate = ndField.getType().getDeclaredMethod("truncate", FileDescriptor.class, long.class);
+                        truncate.setAccessible(true);
+                        truncate.invoke(nd, fd, newSize);
+                    } catch (Exception e) {
                         throw new RuntimeException("unable to grow file!", e);
                     }
 
                     //replace the old map with the new one
-                    this.buffer = new RefCountedMemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = newSize);
+                    this.buffer = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = newSize);
                 }
             }
         }

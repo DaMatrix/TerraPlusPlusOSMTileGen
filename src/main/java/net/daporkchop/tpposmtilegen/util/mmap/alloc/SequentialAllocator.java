@@ -22,9 +22,12 @@ package net.daporkchop.tpposmtilegen.util.mmap.alloc;
 
 import lombok.NonNull;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import net.daporkchop.tpposmtilegen.util.mmap.RefCountedMemoryMap;
 import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+
+import java.io.IOException;
+import java.nio.file.Path;
+import java.util.function.LongUnaryOperator;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -33,26 +36,34 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  *
  * @author DaPorkchop_
  */
-public class SequentialAllocator implements Allocator {
-    protected final DynamicMemoryMap file;
+public class SequentialAllocator extends AbstractAllocator {
+    public SequentialAllocator(@NonNull Path path) throws IOException {
+        super(path);
+    }
 
-    public SequentialAllocator(@NonNull DynamicMemoryMap file) {
-        this.file = file;
+    public SequentialAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
+        super(path, growFunction);
+    }
 
-        if (this.file.size() < 8L) { //file hasn't been initialized yet
-            this.file.ensureCapacity(8L);
-            try (MemoryMap buffer = this.file.buffer()) { //next offset should be at 8 (not 0, there's a header lol)
-                PUnsafe.putLong(buffer.addr(), 8L);
-            }
-        }
+    @Override
+    protected long headerSize() {
+        return 8L;
+    }
+
+    @Override
+    protected void initHeaders(long addr) {
+        PUnsafe.putLong(addr, this.headerSize());
     }
 
     @Override
     public long alloc(long size) {
         positive(size, "size");
-        try (MemoryMap buffer = this.file.buffer()) {
-            return PUnsafe.getAndAddLong(null, buffer.addr(), size);
+        long base;
+        try (MemoryMap buffer = this.buffer) {
+            base = PUnsafe.getAndAddLong(null, buffer.addr(), size);
         }
+        this.ensureCapacity(base + size);
+        return base;
     }
 
     @Override

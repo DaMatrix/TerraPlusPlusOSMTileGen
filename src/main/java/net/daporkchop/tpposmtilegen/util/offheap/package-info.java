@@ -18,34 +18,9 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
-
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
-
-import java.io.File;
-import java.io.IOException;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
-
 /**
+ * Concurrent, off-heap datastructures.
+ *
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) throws IOException {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
-
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
-    }
-}
+package net.daporkchop.tpposmtilegen.util.offheap;

@@ -18,34 +18,30 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util.mmap.growfunc;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
+import lombok.AccessLevel;
+import lombok.NoArgsConstructor;
 
-import java.io.File;
-import java.io.IOException;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.util.function.LongUnaryOperator;
 
 /**
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) throws IOException {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+@NoArgsConstructor(access = AccessLevel.PRIVATE)
+public class DefaultGrowFunction implements LongUnaryOperator {
+    public static final DefaultGrowFunction INSTANCE = new DefaultGrowFunction();
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    protected static final long DOUBLING_THRESHOLD = 1L << 24L; // 16MiB
+
+    @Override
+    public long applyAsLong(long size) {
+        if (size == 0L) {
+            return 4096L;
+        } else if (size < DOUBLING_THRESHOLD) {
+            return size << 1L;
+        } else {
+            return size + DOUBLING_THRESHOLD;
+        }
     }
 }

@@ -44,6 +44,6 @@ public interface IMode {
             }
         }
 
-        PipelineStep<File> createPipeline(@NonNull String... args);
+        PipelineStep<File> createPipeline(@NonNull String... args) throws IOException;
     }
 }

@@ -51,6 +51,12 @@ public class MemoryMap implements AutoCloseable {
         notNegative(position, "position");
         this.size = notNegative(size, "size");
 
+        if (this.size == 0L) { //don't create zero-length mapping
+            this.addr = 0L;
+            this.cleaner = null;
+            return;
+        }
+
         try {
             String smode;
             if (mode == FileChannel.MapMode.READ_ONLY) {

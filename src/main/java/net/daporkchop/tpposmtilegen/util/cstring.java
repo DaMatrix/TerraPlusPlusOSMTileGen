@@ -18,34 +18,37 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.util;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
-
-import java.io.File;
-import java.io.IOException;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.unsafe.PUnsafe;
 
 /**
+ * {@code #include <cstring>}
+ *
  * @author DaPorkchop_
  */
-public class CountStringsMode implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) throws IOException {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+@UtilityClass
+public class cstring {
+    public long strlen(long addr) {
+        long len = 0L;
+        while (PUnsafe.getByte(addr + len) != 0) {
+            len++;
+        }
+        return len;
+    }
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    public int strcmp(long a, long b) {
+        for (long i = 0L; ; i++) {
+            int ca = PUnsafe.getByte(a + i);
+            int cb = PUnsafe.getByte(b + i);
+            if (ca == cb) { //both characters are the same
+                if ((ca | cb) == 0) { //both characters are NUL
+                    return 0;
+                }
+            } else {
+                return ca - cb;
+            }
+        }
     }
 }
