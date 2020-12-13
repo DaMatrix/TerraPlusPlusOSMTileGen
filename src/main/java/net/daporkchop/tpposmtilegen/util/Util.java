@@ -31,7 +31,6 @@ import net.daporkchop.lib.encoding.Hexadecimal;
 
 import java.io.File;
 import java.io.IOException;
-import java.io.OutputStream;
 
 /**
  * Global utility methods.
@@ -113,72 +112,73 @@ public class Util {
         return i;
     }
 
-    public static int readJsonStringToEnd(int i, @NonNull OutputStream dst, @NonNull ByteBuf src) throws IOException {
+    public static int readJsonStringToEnd(int i, @NonNull ByteBuf dst, @NonNull ByteBuf src) {
         while (true) {
             int b = src.getUnsignedByte(i++);
             if (b == '"') { //end of string
                 break;
             } else if (b != '\\') { //not an escape sequence
-                dst.write(b);
+                dst.writeByte(b);
                 if ((b & 0x80) == 0) {
                 } else if ((b & 0xE0) == 0xC0) { //UTF-8, 2 bytes
-                    dst.write(src.getUnsignedByte(i++));
+                    dst.writeByte(src.getUnsignedByte(i++));
                 } else if ((b & 0xF0) == 0xE0) { //UTF-8, 3 bytes
-                    dst.write(src.getUnsignedByte(i++));
-                    dst.write(src.getUnsignedByte(i++));
+                    dst.writeByte(src.getUnsignedByte(i++))
+                            .writeByte(src.getUnsignedByte(i++));
                 } else if ((b & 0xF0) == 0xF0) { //UTF-8, 4 bytes
-                    dst.write(src.getUnsignedByte(i++));
-                    dst.write(src.getUnsignedByte(i++));
-                    dst.write(src.getUnsignedByte(i++));
+                    dst.writeByte(src.getUnsignedByte(i++))
+                            .writeByte(src.getUnsignedByte(i++))
+                            .writeByte(src.getUnsignedByte(i++));
                 }
             } else { //escape sequence
                 switch (b = src.getUnsignedByte(i++)) {
                     case '"':
                     case '\\':
                     case '/':
-                        dst.write(b);
+                        dst.writeByte(b);
                         break;
                     case 'n':
-                        dst.write('\n');
+                        dst.writeByte('\n');
                         break;
                     case 't':
-                        dst.write('\t');
+                        dst.writeByte('\t');
                         break;
                     case 'r':
-                        dst.write('\r');
+                        dst.writeByte('\r');
                         break;
                     case 'f':
-                        dst.write('\f');
+                        dst.writeByte('\f');
                         break;
                     case 'b':
-                        dst.write('\b');
+                        dst.writeByte('\b');
                         break;
                     case 'u':
                         char c = (char) ((Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)) << 8)
                                          | Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)));
                         if (c < 0x80) {
-                            dst.write(c);
+                            dst.writeByte(c);
                         } else if (c < 0x800) {
-                            dst.write(0xC0 | (c >> 6));
-                            dst.write(0x80 | (c & 0x3F));
+                            dst.writeByte(0xC0 | (c >> 6))
+                                    .writeByte(0x80 | (c & 0x3F));
                         } else if (Character.isHighSurrogate(c)) {
                             i += 2;
                             char c2 = (char) ((Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)) << 8)
                                               | Hexadecimal.decodeUnsigned((char) src.getUnsignedByte(i++), (char) src.getUnsignedByte(i++)));
                             int codePoint = Character.toCodePoint(c, c2);
-                            dst.write(0xF0 | (codePoint >> 18));
-                            dst.write(0x80 | ((codePoint >> 12) & 0x3F));
-                            dst.write(0x80 | ((codePoint >> 6) & 0x3F));
-                            dst.write(0x80 | (codePoint & 0x3F));
+                            dst.writeByte(0xF0 | (codePoint >> 18))
+                                    .writeByte(0x80 | ((codePoint >> 12) & 0x3F))
+                                    .writeByte(0x80 | ((codePoint >> 6) & 0x3F))
+                                    .writeByte(0x80 | (codePoint & 0x3F));
                         } else {
-                            dst.write(0xE0 | (c >> 12));
-                            dst.write(0x80 | ((c >> 6) & 0x3F));
-                            dst.write(0x80 | (c & 0x3F));
+                            dst.writeByte(0xE0 | (c >> 12))
+                                    .writeByte(0x80 | ((c >> 6) & 0x3F))
+                                    .writeByte(0x80 | (c & 0x3F));
                         }
                         break;
                 }
             }
         }
+        dst.writeByte(0); //NUL terminator
         return i;
     }
 }

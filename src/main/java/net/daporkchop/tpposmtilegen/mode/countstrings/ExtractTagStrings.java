@@ -21,12 +21,12 @@
 package net.daporkchop.tpposmtilegen.mode.countstrings;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.tpposmtilegen.pipeline.FilterPipelineStep;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.util.NotSynchronizedByteArrayOutputStream;
 import net.daporkchop.tpposmtilegen.util.Util;
 
 import java.io.IOException;
@@ -34,10 +34,10 @@ import java.io.IOException;
 /**
  * @author DaPorkchop_
  */
-public class ExtractTagStrings extends FilterPipelineStep<ByteBuf, byte[]> {
-    protected static final Ref<NotSynchronizedByteArrayOutputStream> BAOS_CACHE = ThreadRef.soft(NotSynchronizedByteArrayOutputStream::new);
+public class ExtractTagStrings extends FilterPipelineStep<ByteBuf, ByteBuf> {
+    protected static final Ref<ByteBuf> BAOS_CACHE = ThreadRef.soft(Unpooled::directBuffer);
 
-    public ExtractTagStrings(PipelineStep<byte[]> next) {
+    public ExtractTagStrings(PipelineStep<ByteBuf> next) {
         super(next);
     }
 
@@ -45,16 +45,15 @@ public class ExtractTagStrings extends FilterPipelineStep<ByteBuf, byte[]> {
     public void accept(@NonNull ByteBuf input) throws IOException {
         //this assumes that the json is a well-formed GeoJSON object (with no additional fields), and not a collection.
         try {
-            NotSynchronizedByteArrayOutputStream baos = BAOS_CACHE.get();
+            ByteBuf buf = BAOS_CACHE.get();
 
             for (int i = input.readerIndex() + 3, limit = input.writerIndex(); i < limit; i++) {
                 if (input.getByte(i) == '{' && input.getByte(i - 3) == 's') { //found properties block
                     while (true) {
                         switch (input.getByte(i++)) {
                             case '"': //start string
-                                baos.reset();
-                                i = Util.readJsonStringToEnd(i, baos, input);
-                                this.next.accept(baos.toByteArray());
+                                i = Util.readJsonStringToEnd(i, buf.clear(), input);
+                                this.next.accept(buf);
                                 break;
                             case '}': //end object
                                 return;

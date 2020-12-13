@@ -43,8 +43,6 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 public class DynamicMemoryMap extends AbstractRefCounted {
-    protected static final OpenOption[] RW = { StandardOpenOption.READ, StandardOpenOption.WRITE };
-
     protected final LongUnaryOperator growFunction;
     protected final FileChannel channel;
 
@@ -71,21 +69,7 @@ public class DynamicMemoryMap extends AbstractRefCounted {
                         newSize = this.growFunction.applyAsLong(newSize);
                     } while (newSize < capacity); //continually apply the grow function until we reach maximum capacity
 
-                    try {
-                        Field fdField = MemoryMap.FILE_CHANNEL_IMPL.getDeclaredField("fd");
-                        fdField.setAccessible(true);
-                        Object fd = fdField.get(this.channel);
-
-                        Field ndField = MemoryMap.FILE_CHANNEL_IMPL.getDeclaredField("nd");
-                        ndField.setAccessible(true);
-                        Object nd = ndField.get(this.channel);
-
-                        Method truncate = ndField.getType().getDeclaredMethod("truncate", FileDescriptor.class, long.class);
-                        truncate.setAccessible(true);
-                        truncate.invoke(nd, fd, newSize);
-                    } catch (Exception e) {
-                        throw new RuntimeException("unable to grow file!", e);
-                    }
+                    MemoryMap.truncate0(this.channel, newSize);
 
                     //replace the old map with the new one
                     this.buffer = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, this.size = newSize);

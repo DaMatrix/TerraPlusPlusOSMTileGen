@@ -25,8 +25,7 @@ import net.daporkchop.lib.common.math.BinMath;
 import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.cstring;
-import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import net.daporkchop.tpposmtilegen.util.mmap.alloc.SequentialAllocator;
+import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.SequentialSparseAllocator;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -36,7 +35,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class OffHeapString2LongHashMap extends SequentialAllocator {
+public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
     protected static final long TABLE_NODE_OFFSET = 0L;
     protected static final long TABLE_LOCK_OFFSET = TABLE_NODE_OFFSET + 8L;
     protected static final long TABLE_SIZE = TABLE_LOCK_OFFSET + OffHeapLock.SIZE;
@@ -46,36 +45,32 @@ public class OffHeapString2LongHashMap extends SequentialAllocator {
     protected static final long NODE_KEY_OFFSET = NODE_VALUE_OFFSET + 8L;
 
     //offset of info block
-    protected final long root = super.headerSize();
+    private final long base = super.headerSize();
     //offset of table
     protected final long table;
-
+    //number of entries in table
     protected final long tableSize;
 
-    public OffHeapString2LongHashMap(@NonNull Path path, long tableSize) throws IOException {
-        super(path);
+    public OffHeapString2LongHashMap(@NonNull Path path, long fileSize, long tableSize) throws IOException {
+        super(path, fileSize);
 
         tableSize = BinMath.roundToNearestPowerOf2(positive(tableSize, "tableSize"));
 
-        try (MemoryMap map = this.buffer) {
-            long addr = map.addr();
-            if (PUnsafe.getLong(addr + this.root) == 0L) {
-                PUnsafe.putLong(addr + this.root, this.tableSize = tableSize);
-                PUnsafe.putLong(addr + this.root + 8L, this.table = this.alloc(tableSize * TABLE_SIZE));
+        long addr = this.addr;
 
-                try (MemoryMap map2 = this.buffer) { //file may have grown
-                    addr = map2.addr();
-                    //initialize table
-                    for (long l = 0L; l < this.tableSize; l++) {
-                        long bucket = this.table + l * TABLE_SIZE;
-                        PUnsafe.putLong(addr + bucket + TABLE_NODE_OFFSET, 0L);
-                        OffHeapLock.init(addr + bucket + TABLE_LOCK_OFFSET);
-                    }
-                }
-            } else {
-                this.tableSize = PUnsafe.getLong(addr + this.root);
-                this.table = PUnsafe.getLong(addr + this.root + 8L);
+        if (PUnsafe.getLong(addr + this.base) == 0L) {
+            PUnsafe.putLong(addr + this.base, this.tableSize = tableSize);
+            PUnsafe.putLong(addr + this.base + 8L, this.table = this.alloc(tableSize * TABLE_SIZE));
+
+            //initialize table
+            for (long l = 0L; l < this.tableSize; l++) {
+                long bucket = this.table + l * TABLE_SIZE;
+                PUnsafe.putLong(addr + bucket + TABLE_NODE_OFFSET, 0L);
+                OffHeapLock.init(addr + bucket + TABLE_LOCK_OFFSET);
             }
+        } else {
+            this.tableSize = PUnsafe.getLong(addr + this.base);
+            this.table = PUnsafe.getLong(addr + this.base + 8L);
         }
     }
 
@@ -84,65 +79,45 @@ public class OffHeapString2LongHashMap extends SequentialAllocator {
         long bucket = this.table + (hash & (this.tableSize - 1L)) * TABLE_SIZE;
         long currPtr;
 
-        MemoryMap mmap = this.buffer;
-        long addr = mmap.addr();
+        long addr = this.addr;
+        //lock bucket
+        OffHeapLock.lock(addr + bucket + TABLE_LOCK_OFFSET);
         try {
-            //lock bucket
-            OffHeapLock.lock(addr + bucket + TABLE_LOCK_OFFSET);
-
             currPtr = bucket + TABLE_NODE_OFFSET;
             long node;
             while ((node = PUnsafe.getLong(addr + currPtr)) != 0L) {
                 if (cstring.strcmp(key, addr + node + NODE_KEY_OFFSET) == 0) { //found matching node! increment value and exit
                     PUnsafe.putLong(addr + node + NODE_VALUE_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET) + 1L);
-                    PUnsafe.storeFence();
-                    OffHeapLock.unlock(addr + bucket + TABLE_LOCK_OFFSET);
                     return;
                 }
 
                 currPtr = node + NODE_NEXT_OFFSET;
             }
-        } finally {
-            PUnsafe.loadFence();
-            PUnsafe.storeFence();
-            mmap.close();
-            mmap = null;
-        }
 
-        //if we get this far, we need to allocate a new node
-        long keySize = cstring.strlen(key);
-        long node = this.alloc(NODE_KEY_OFFSET + keySize + 1);
+            //if we get this far, we need to allocate a new node
+            long keySize = cstring.strlen(key);
+            node = this.alloc(NODE_KEY_OFFSET + keySize + 1);
 
-        mmap = this.buffer;
-        addr = mmap.addr();
-        try {
             PUnsafe.putLong(addr + node + NODE_NEXT_OFFSET, 0L);
             PUnsafe.putLong(addr + node + NODE_VALUE_OFFSET, 1L);
             PUnsafe.copyMemory(key, addr + node + NODE_KEY_OFFSET, keySize);
             PUnsafe.putByte(addr + node + NODE_KEY_OFFSET + keySize, (byte) 0);
 
             PUnsafe.putLong(addr + currPtr, node);
-
-            OffHeapLock.unlock(addr + bucket + TABLE_LOCK_OFFSET);
         } finally {
-            PUnsafe.loadFence();
             PUnsafe.storeFence();
-            mmap.close();
-            mmap = null;
+            OffHeapLock.unlock(addr + bucket + TABLE_LOCK_OFFSET);
         }
     }
 
     public void forEach(@NonNull LongLongConsumer callback) {
-        try (MemoryMap mmap = this.buffer) {
-            long addr = mmap.addr();
-            for (long l = 0L; l < this.tableSize; l++) {
-                long bucket = this.table + l * TABLE_SIZE;
+        long addr = this.addr;
+        for (long l = 0L; l < this.tableSize; l++) {
+            long bucket = this.table + l * TABLE_SIZE;
 
-                //no locking required, we're only reading!
-                //...this isn't safe though, it'll break if the table is resized while iterating.
-                for (long node = PUnsafe.getLong(addr + bucket + TABLE_NODE_OFFSET); node != 0L; node = PUnsafe.getLong(addr + node + NODE_NEXT_OFFSET)) {
-                    callback.accept(addr + node + NODE_KEY_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET));
-                }
+            //no locking required, we're only reading!
+            for (long node = PUnsafe.getLong(addr + bucket + TABLE_NODE_OFFSET); node != 0L; node = PUnsafe.getLong(addr + node + NODE_NEXT_OFFSET)) {
+                callback.accept(addr + node + NODE_KEY_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET));
             }
         }
     }
@@ -153,7 +128,7 @@ public class OffHeapString2LongHashMap extends SequentialAllocator {
     }
 
     @Override
-    protected void initHeaders(long addr) {
-        super.initHeaders(addr);
+    protected void initHeaders() {
+        super.initHeaders();
     }
 }

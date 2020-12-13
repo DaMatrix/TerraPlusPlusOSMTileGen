@@ -27,8 +27,9 @@ import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PCleaner;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import sun.misc.Contended;
 
+import java.io.FileDescriptor;
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
 
@@ -40,6 +41,47 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 public class MemoryMap implements AutoCloseable {
     protected static final Class<?> FILE_CHANNEL_IMPL = PorkUtil.classForName("sun.nio.ch.FileChannelImpl");
+    protected static final int IMODE_RO = PUnsafe.pork_getStaticField(FILE_CHANNEL_IMPL, "MAP_RO").getInt();
+    protected static final int IMODE_RW = PUnsafe.pork_getStaticField(FILE_CHANNEL_IMPL, "MAP_RW").getInt();
+    protected static final int IMODE_PV = PUnsafe.pork_getStaticField(FILE_CHANNEL_IMPL, "MAP_PV").getInt();
+
+    protected static long map0(@NonNull FileChannel channel, int imode, long position, long size) {
+        try {
+            Method m = FILE_CHANNEL_IMPL.getDeclaredMethod("map0", int.class, long.class, long.class);
+            m.setAccessible(true);
+            return (long) m.invoke(channel, imode, position, size);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected static void unmap0(long addr, long size) {
+        try {
+            Method m = FILE_CHANNEL_IMPL.getDeclaredMethod("unmap0", long.class, long.class);
+            m.setAccessible(true);
+            m.invoke(null, addr, size);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
+
+    protected static void truncate0(@NonNull FileChannel channel, long size) {
+        try {
+            Field fdField = FILE_CHANNEL_IMPL.getDeclaredField("fd");
+            fdField.setAccessible(true);
+            Object fd = fdField.get(channel);
+
+            Field ndField = FILE_CHANNEL_IMPL.getDeclaredField("nd");
+            ndField.setAccessible(true);
+            Object nd = ndField.get(channel);
+
+            Method truncate = ndField.getType().getDeclaredMethod("truncate", FileDescriptor.class, long.class);
+            truncate.setAccessible(true);
+            truncate.invoke(nd, fd, size);
+        } catch (Exception e) {
+            throw new RuntimeException(e);
+        }
+    }
 
     protected final long addr;
     protected final long size;
@@ -59,31 +101,28 @@ public class MemoryMap implements AutoCloseable {
         }
 
         try {
-            String smode;
+            int imode;
             if (mode == FileChannel.MapMode.READ_ONLY) {
-                smode = "MAP_RO";
+                imode = IMODE_RO;
             } else if (mode == FileChannel.MapMode.READ_WRITE) {
-                smode = "MAP_RW";
+                imode = IMODE_RW;
             } else if (mode == FileChannel.MapMode.PRIVATE) {
-                smode = "MAP_PV";
+                imode = IMODE_PV;
             } else {
                 throw new IllegalArgumentException(mode.toString());
             }
-            int imode = PUnsafe.pork_getStaticField(FILE_CHANNEL_IMPL, smode).getInt();
 
-            Method m = FILE_CHANNEL_IMPL.getDeclaredMethod("map0", int.class, long.class, long.class);
-            m.setAccessible(true);
-            this.addr = (long) m.invoke(channel, imode, position, size);
+            this.addr = map0(channel, imode, position, size);
         } catch (Exception e) {
             throw new RuntimeException(e);
         }
 
-        this.cleaner = PCleaner.cleaner(this, new RefCountedMemoryMap.Unmapper(this.addr, this.size));
+        this.cleaner = PCleaner.cleaner(this, new Unmapper(this.addr, this.size));
     }
 
     @Override
     public void close() {
-        //no-op
+        this.cleaner.clean();
     }
 
     @RequiredArgsConstructor
@@ -93,13 +132,7 @@ public class MemoryMap implements AutoCloseable {
 
         @Override
         public void run() {
-            try {
-                Method m = FILE_CHANNEL_IMPL.getDeclaredMethod("unmap0", long.class, long.class);
-                m.setAccessible(true);
-                m.invoke(null, this.addr, this.size);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
+            unmap0(this.addr, this.size);
             System.out.println("Released memory map");
         }
     }

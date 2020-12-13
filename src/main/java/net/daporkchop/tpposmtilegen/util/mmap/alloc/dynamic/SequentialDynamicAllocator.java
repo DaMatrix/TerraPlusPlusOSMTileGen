@@ -18,41 +18,55 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc.dynamic;
 
-import lombok.Getter;
+import lombok.NonNull;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
 
-import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.OutputStream;
-import java.util.Arrays;
+import java.nio.file.Path;
+import java.util.function.LongUnaryOperator;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
- * Alternative to {@link ByteArrayOutputStream} without synchronization.
+ * A simple allocator which works by incrementing a counter to keep track of the current file head, and doesn't support releasing memory.
  *
  * @author DaPorkchop_
  */
-public class NotSynchronizedByteArrayOutputStream extends OutputStream {
-    protected byte[] b = new byte[512];
-    @Getter
-    protected int size = 0;
+public class SequentialDynamicAllocator extends AbstractDynamicAllocator {
+    public SequentialDynamicAllocator(@NonNull Path path) throws IOException {
+        super(path);
+    }
+
+    public SequentialDynamicAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
+        super(path, growFunction);
+    }
 
     @Override
-    public void write(int b) throws IOException {
-        if (this.size + 1 == this.b.length) { //grow array
-            byte[] newArr = new byte[this.b.length << 1];
-            System.arraycopy(this.b, 0, newArr, 0, this.b.length);
-            this.b = newArr;
+    protected long headerSize() {
+        return 8L;
+    }
+
+    @Override
+    protected void initHeaders(long addr) {
+        PUnsafe.putLong(addr, this.headerSize());
+    }
+
+    @Override
+    public long alloc(long size) {
+        positive(size, "size");
+        long base;
+        try (MemoryMap buffer = this.buffer) {
+            base = PUnsafe.getAndAddLong(null, buffer.addr(), size);
         }
-        this.b[this.size++] = (byte) b;
+        this.ensureCapacity(base + size);
+        return base;
     }
 
-    public byte[] toByteArray() {
-        return Arrays.copyOf(this.b, this.size);
-    }
-
-    public void reset() {
-        this.size = 0;
+    @Override
+    public void free(long base) {
+        //no-op
     }
 }
-

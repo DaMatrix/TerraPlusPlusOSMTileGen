@@ -25,7 +25,7 @@ import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.cstring;
 import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import net.daporkchop.tpposmtilegen.util.mmap.alloc.SequentialAllocator;
+import net.daporkchop.tpposmtilegen.util.mmap.alloc.dynamic.SequentialDynamicAllocator;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -33,7 +33,7 @@ import java.nio.file.Path;
 /**
  * @author DaPorkchop_
  */
-public class OffHeapString2LongTreeMap extends SequentialAllocator {
+public class OffHeapString2LongTreeMap extends SequentialDynamicAllocator {
     /*
      * struct Node {
      *   Node* high;

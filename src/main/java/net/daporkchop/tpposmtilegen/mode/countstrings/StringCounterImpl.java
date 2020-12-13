@@ -20,10 +20,9 @@
 
 package net.daporkchop.tpposmtilegen.mode.countstrings;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.io.IOConsumer;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 import net.daporkchop.tpposmtilegen.util.cstring;
@@ -41,9 +40,8 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class StringCounterImpl implements PipelineStep<byte[]> {
+public class StringCounterImpl implements PipelineStep<ByteBuf> {
     protected static final int MAX_LENGTH = 16;
-    protected static final Ref<Long> STR_BUFFER_POINTER = ThreadRef.late(() -> PUnsafe.allocateMemory(Thread.currentThread(), MAX_LENGTH + 1L));
 
     protected final OffHeapString2LongHashMap counts;
 
@@ -51,20 +49,18 @@ public class StringCounterImpl implements PipelineStep<byte[]> {
 
     public StringCounterImpl(@NonNull File dstFile) throws IOException {
         this.dstFile = dstFile;
-        this.counts = new OffHeapString2LongHashMap(dstFile.toPath(), 1L << 20L);
+        this.counts = new OffHeapString2LongHashMap(dstFile.toPath(),
+                1L << 40L, //1 TiB
+                1L << 20L); //1 Mi entries
     }
 
     @Override
-    public void accept(@NonNull byte[] value) throws IOException {
-        if (value.length > MAX_LENGTH) {
+    public void accept(@NonNull ByteBuf value) throws IOException {
+        if (value.readableBytes() - 1 > MAX_LENGTH) { //subtract 1 because of NUL terminator
             return; //don't bother indexing long strings
         }
 
-        long addr = STR_BUFFER_POINTER.get();
-        PUnsafe.copyMemory(value, PUnsafe.ARRAY_BYTE_BASE_OFFSET, null, addr, value.length);
-        PUnsafe.putByte(addr + value.length, (byte) 0);
-
-        this.counts.increment(addr);
+        this.counts.increment(value.memoryAddress() + value.readerIndex());
     }
 
     @Override

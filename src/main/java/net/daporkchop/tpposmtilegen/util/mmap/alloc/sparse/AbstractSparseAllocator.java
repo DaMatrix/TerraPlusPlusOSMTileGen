@@ -18,50 +18,37 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.mmap.alloc;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse;
 
 import lombok.NonNull;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
 import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.SparseMemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.alloc.Allocator;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.function.LongUnaryOperator;
 
 /**
  * @author DaPorkchop_
  */
-public abstract class AbstractAllocator extends DynamicMemoryMap implements Allocator {
-    public AbstractAllocator(@NonNull Path path) throws IOException {
-        super(path);
+public abstract class AbstractSparseAllocator extends SparseMemoryMap implements Allocator {
+    private static final long MAGIC = 0xDEADBEEF_F000BAAAL;
 
-        this.init();
-    }
+    public AbstractSparseAllocator(@NonNull Path path, long size) throws IOException {
+        super(path, size);
 
-    public AbstractAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
-        super(path, growFunction);
-
-        this.init();
-    }
-
-    protected void init() {
-        long headerSize = this.headerSize();
-        if (this.size < headerSize) { //file hasn't been initialized yet
-            this.ensureCapacity(headerSize);
-            try (MemoryMap buffer = this.buffer) { //next offset should be at 8 (not 0, there's a header lol)
-                PUnsafe.setMemory(buffer.addr(), headerSize, (byte) 0);
-                this.initHeaders(buffer.addr());
-            }
+        if (PUnsafe.getLong(this.addr) != MAGIC) { //file hasn't been initialized yet
+            this.initHeaders();
         }
     }
 
-    protected abstract long headerSize();
+    protected long headerSize() {
+        return 8L;
+    }
 
-    protected abstract void initHeaders(long addr);
-
-    @Override
-    public void close() {
-        super.close();
+    protected void initHeaders() {
+        PUnsafe.setMemory(this.addr, this.headerSize(), (byte) 0);
+        PUnsafe.putLong(this.addr, MAGIC);
     }
 }

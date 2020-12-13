@@ -74,7 +74,6 @@ public final class RefCountedMemoryMap extends MemoryMap implements RefCounted {
 
     @Override
     public void close() {
-        super.close();
         this.release();
     }
 }

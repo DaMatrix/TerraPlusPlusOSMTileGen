@@ -18,56 +18,51 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.mmap.alloc;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc.dynamic;
 
 import lombok.NonNull;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
 import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+import net.daporkchop.tpposmtilegen.util.mmap.alloc.Allocator;
 
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.function.LongUnaryOperator;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
-
 /**
- * A simple allocator which works by incrementing a counter to keep track of the current file head, and doesn't support releasing memory.
- *
  * @author DaPorkchop_
  */
-public class SequentialAllocator extends AbstractAllocator {
-    public SequentialAllocator(@NonNull Path path) throws IOException {
+public abstract class AbstractDynamicAllocator extends DynamicMemoryMap implements Allocator {
+    public AbstractDynamicAllocator(@NonNull Path path) throws IOException {
         super(path);
+
+        this.init();
     }
 
-    public SequentialAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
+    public AbstractDynamicAllocator(@NonNull Path path, @NonNull LongUnaryOperator growFunction) throws IOException {
         super(path, growFunction);
+
+        this.init();
     }
 
-    @Override
-    protected long headerSize() {
-        return 8L;
-    }
-
-    @Override
-    protected void initHeaders(long addr) {
-        PUnsafe.putLong(addr, this.headerSize());
-    }
-
-    @Override
-    public long alloc(long size) {
-        positive(size, "size");
-        long base;
-        try (MemoryMap buffer = this.buffer) {
-            base = PUnsafe.getAndAddLong(null, buffer.addr(), size);
+    protected void init() {
+        long headerSize = this.headerSize();
+        if (this.size < headerSize) { //file hasn't been initialized yet
+            this.ensureCapacity(headerSize);
+            try (MemoryMap buffer = this.buffer) { //next offset should be at 8 (not 0, there's a header lol)
+                PUnsafe.setMemory(buffer.addr(), headerSize, (byte) 0);
+                this.initHeaders(buffer.addr());
+            }
         }
-        this.ensureCapacity(base + size);
-        return base;
     }
 
+    protected abstract long headerSize();
+
+    protected abstract void initHeaders(long addr);
+
     @Override
-    public void free(long base) {
-        //no-op
+    public void close() {
+        super.close();
     }
 }

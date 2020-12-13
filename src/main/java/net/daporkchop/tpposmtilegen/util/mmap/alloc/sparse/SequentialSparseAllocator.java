@@ -18,28 +18,53 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.mmap.alloc;
+package net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse;
 
-import net.daporkchop.tpposmtilegen.util.mmap.DynamicMemoryMap;
+import lombok.NonNull;
+import net.daporkchop.lib.unsafe.PUnsafe;
+
+import java.io.IOException;
+import java.nio.file.Path;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
- * Handles memory allocations inside of a {@link DynamicMemoryMap}.
+ * A simple allocator which works by incrementing a counter to keep track of the current file head, and doesn't support releasing memory.
  *
  * @author DaPorkchop_
  */
-public interface Allocator {
-    /**
-     * Allocates the requested number of bytes.
-     *
-     * @param size the number of bytes allocated
-     * @return the address of the allocated memory, relative to the beginning of the file
-     */
-    long alloc(long size);
+public class SequentialSparseAllocator extends AbstractSparseAllocator {
+    private final long base = super.headerSize();
 
-    /**
-     * Frees the given memory block, potentially allowing the memory to be re-used again for future allocations.
-     *
-     * @param base the base address of the memory allocation
-     */
-    void free(long base);
+    public SequentialSparseAllocator(@NonNull Path path, long size) throws IOException {
+        super(path, size);
+    }
+
+    @Override
+    protected long headerSize() {
+        return super.headerSize() + 8L;
+    }
+
+    @Override
+    protected void initHeaders() {
+        super.initHeaders();
+
+        PUnsafe.putLong(this.addr + super.headerSize(), this.headerSize());
+    }
+
+    @Override
+    public long alloc(long size) {
+        return PUnsafe.getAndAddLong(null, this.addr + this.base, positive(size, "size"));
+    }
+
+    @Override
+    public void free(long base) {
+        //no-op
+    }
+
+    @Override
+    protected long actualSize0() {
+        //the actual file size is the same as the next allocation index
+        return PUnsafe.getLong(this.addr + this.base);
+    }
 }
