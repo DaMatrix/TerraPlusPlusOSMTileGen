@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.offheap;
+package net.daporkchop.tpposmtilegen.util.offheap.lock;
 
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.unsafe.PUnsafe;

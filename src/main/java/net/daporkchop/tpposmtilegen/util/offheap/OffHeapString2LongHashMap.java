@@ -26,6 +26,7 @@ import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.cstring;
 import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.SequentialSparseAllocator;
+import net.daporkchop.tpposmtilegen.util.offheap.lock.OffHeapReadWriteLock;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -38,7 +39,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
     protected static final long TABLE_NODE_OFFSET = 0L;
     protected static final long TABLE_LOCK_OFFSET = TABLE_NODE_OFFSET + 8L;
-    protected static final long TABLE_SIZE = TABLE_LOCK_OFFSET + OffHeapLock.SIZE;
+    protected static final long TABLE_SIZE = TABLE_LOCK_OFFSET + OffHeapReadWriteLock.SIZE;
 
     protected static final long NODE_NEXT_OFFSET = 0L;
     protected static final long NODE_VALUE_OFFSET = NODE_NEXT_OFFSET + 8L;
@@ -66,7 +67,7 @@ public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
             for (long l = 0L; l < this.tableSize; l++) {
                 long bucket = this.table + l * TABLE_SIZE;
                 PUnsafe.putLong(addr + bucket + TABLE_NODE_OFFSET, 0L);
-                OffHeapLock.init(addr + bucket + TABLE_LOCK_OFFSET);
+                OffHeapReadWriteLock.init(addr + bucket + TABLE_LOCK_OFFSET);
             }
         } else {
             this.tableSize = PUnsafe.getLong(addr + this.base);
@@ -77,17 +78,34 @@ public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
     public void increment(long key) {
         long hash = cstring.hash(key);
         long bucket = this.table + (hash & (this.tableSize - 1L)) * TABLE_SIZE;
-        long currPtr;
 
         long addr = this.addr;
-        //lock bucket
-        OffHeapLock.lock(addr + bucket + TABLE_LOCK_OFFSET);
-        try {
+        long lock = addr + bucket + TABLE_LOCK_OFFSET;
+
+        long currPtr;
+
+        OffHeapReadWriteLock.acquireRead(lock);
+        try { //check for existing entry in bucket
             currPtr = bucket + TABLE_NODE_OFFSET;
             long node;
             while ((node = PUnsafe.getLong(addr + currPtr)) != 0L) {
                 if (cstring.strcmp(key, addr + node + NODE_KEY_OFFSET) == 0) { //found matching node! increment value and exit
-                    PUnsafe.putLong(addr + node + NODE_VALUE_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET) + 1L);
+                    PUnsafe.getAndAddLong(null, addr + node + NODE_VALUE_OFFSET, 1L);
+                    return;
+                }
+
+                currPtr = node + NODE_NEXT_OFFSET;
+            }
+        } finally {
+            OffHeapReadWriteLock.unlockRead(lock);
+        }
+
+        OffHeapReadWriteLock.acquireWrite(lock);
+        try { //resume search after acquring write lock, and if one hasn't been added, create new entry
+            long node;
+            while ((node = PUnsafe.getLong(addr + currPtr)) != 0L) {
+                if (cstring.strcmp(key, addr + node + NODE_KEY_OFFSET) == 0) { //found matching node! increment value and exit
+                    PUnsafe.getAndAddLong(null, addr + node + NODE_VALUE_OFFSET, 1L);
                     return;
                 }
 
@@ -105,8 +123,7 @@ public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
 
             PUnsafe.putLong(addr + currPtr, node);
         } finally {
-            PUnsafe.storeFence();
-            OffHeapLock.unlock(addr + bucket + TABLE_LOCK_OFFSET);
+            OffHeapReadWriteLock.unlockWrite(lock);
         }
     }
 
@@ -114,10 +131,15 @@ public class OffHeapString2LongHashMap extends SequentialSparseAllocator {
         long addr = this.addr;
         for (long l = 0L; l < this.tableSize; l++) {
             long bucket = this.table + l * TABLE_SIZE;
+            long lock = addr + bucket + TABLE_LOCK_OFFSET;
 
-            //no locking required, we're only reading!
-            for (long node = PUnsafe.getLong(addr + bucket + TABLE_NODE_OFFSET); node != 0L; node = PUnsafe.getLong(addr + node + NODE_NEXT_OFFSET)) {
-                callback.accept(addr + node + NODE_KEY_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET));
+            OffHeapReadWriteLock.acquireRead(lock);
+            try {
+                for (long node = PUnsafe.getLong(addr + bucket + TABLE_NODE_OFFSET); node != 0L; node = PUnsafe.getLong(addr + node + NODE_NEXT_OFFSET)) {
+                    callback.accept(addr + node + NODE_KEY_OFFSET, PUnsafe.getLong(addr + node + NODE_VALUE_OFFSET));
+                }
+            } finally {
+                OffHeapReadWriteLock.unlockRead(lock);
             }
         }
     }
