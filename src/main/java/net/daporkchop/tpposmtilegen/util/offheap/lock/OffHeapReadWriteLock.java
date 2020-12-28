@@ -24,7 +24,7 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.unsafe.PUnsafe;
 
 /**
- * A simple lock implemented using off-heap memory.
+ * A simple read/write lock implemented using off-heap memory.
  *
  * @author DaPorkchop_
  */
@@ -39,7 +39,7 @@ public class OffHeapReadWriteLock {
     private static final int READ_MASK = ((1 << (32 - READ_SHIFT)) - 1) << READ_SHIFT;
 
     public static void init(long lock) {
-        PUnsafe.putIntVolatile(null, lock, 0);
+        PUnsafe.putInt(lock, 0);
     }
 
     public static void acquireRead(long lock) {
