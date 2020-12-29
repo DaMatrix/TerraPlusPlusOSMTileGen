@@ -2,7 +2,9 @@ package net.daporkchop.tpposmtilegen;
 
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.assemblebvh.AssembleBVH;
+import net.daporkchop.tpposmtilegen.mode.assembleindex.AssembleIndex;
 import net.daporkchop.tpposmtilegen.mode.countstrings.CountStrings;
+import net.daporkchop.tpposmtilegen.mode.testindex.TestIndex;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -18,7 +20,9 @@ public class Main {
 
     static {
         MODES.put("assemble_bvh", AssembleBVH::new);
+        MODES.put("assemble_index", AssembleIndex::new);
         MODES.put("count_strings", CountStrings::new);
+        MODES.put("test_index", TestIndex::new);
     }
 
     public static void main(String... args) throws IOException {
