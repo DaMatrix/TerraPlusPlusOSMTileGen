@@ -21,11 +21,15 @@
 package net.daporkchop.tpposmtilegen.mode.testindex;
 
 import lombok.NonNull;
+import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.storage.Node;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 
 import java.io.File;
+import java.util.BitSet;
+import java.util.concurrent.ThreadLocalRandom;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -33,9 +37,32 @@ import java.io.File;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        try (Storage storage = new Storage(Storage.dataSource(new File(args[0])))) {
-            for (Node node : storage.getNodes(1L, 6L, 23L)) {
-                System.out.println(node);
+        BitSet java = new BitSet();
+        int max = 10000000;
+
+        PFiles.rm(new File(args[0], "bitset"));
+        try (OffHeapBitSet bitSet = new OffHeapBitSet(PFiles.ensureFileExists(new File(args[0], "bitset")).toPath(), 1L << 40L)) {
+            if (true) {
+                for (int i = 0; i < 10000; i++) {
+                    int j = ThreadLocalRandom.current().nextInt(max);
+                    bitSet.set(j);
+                    java.set(j);
+                }
+            } else {
+                for (int i = 0; i < max; i += ThreadLocalRandom.current().nextInt(4)) {
+                    bitSet.set(i);
+                    java.set(i);
+                }
+            }
+
+            for (int i = 0; i < max; i++) {
+                checkState(java.get(i) == bitSet.get(i), "bit %d (byte %d, word %d)", i, i >> 3, i >> 6);
+            }
+        }
+
+        try (OffHeapBitSet bitSet = new OffHeapBitSet(new File(args[0], "bitset").toPath(), 1L << 40L)) {
+            for (int i = 0; i < max; i++) {
+                checkState(java.get(i) == bitSet.get(i), "bit %d (byte %d, word %d)", i, i >> 3, i >> 6);
             }
         }
     }

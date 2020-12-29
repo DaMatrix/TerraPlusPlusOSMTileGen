@@ -37,6 +37,14 @@ import java.util.function.Function;
  * @author DaPorkchop_
  */
 public class CountValues implements IMode {
+    /*
+     * com.wolt.osm.parallelpbf.entity.Relation: 8364019
+     * com.wolt.osm.parallelpbf.entity.BoundBox: 1
+     * com.wolt.osm.parallelpbf.entity.Header: 1
+     * com.wolt.osm.parallelpbf.entity.Node: 6482558025
+     * com.wolt.osm.parallelpbf.entity.Way: 716217853
+     */
+
     @Override
     public void run(@NonNull String... args) throws Exception {
         Map<Class<?>, LongAdder> counters = new ConcurrentHashMap<>();
