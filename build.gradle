@@ -30,7 +30,7 @@ ext {
     jacksonVersion = "2.11.2"
     junitVersion = "4.12"
     lombokVersion = "1.16.20"
-    parallelpbfVersion = "069e4beaa78ccf89081acd58248a35820a3dbd5a"
+    parallelpbfVersion = "26e99f6af779366c9a0a606bfdfbdea20ac6c58b"
     porklibVersion = "0.5.5-SNAPSHOT"
     rocksdbVersion = "6.13.3"
     sqliteVersion = "3.34.0"

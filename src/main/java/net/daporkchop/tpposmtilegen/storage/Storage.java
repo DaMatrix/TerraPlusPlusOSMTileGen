@@ -21,184 +21,24 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.util.concurrent.FastThreadLocal;
+import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
-import org.sqlite.SQLiteDataSource;
 
 import java.io.File;
-import java.lang.reflect.Field;
-import java.sql.Connection;
-import java.sql.PreparedStatement;
-import java.sql.ResultSet;
-import java.sql.SQLException;
-import java.sql.Statement;
-import java.util.StringJoiner;
-import java.util.stream.Collectors;
-import java.util.stream.IntStream;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.io.IOException;
 
 /**
  * @author DaPorkchop_
  */
+@Getter
 public class Storage implements AutoCloseable {
-    protected static final int FAST_BATCH_NODE_COUNT = 2000;
+    protected final FastThreadLocal<NodeDB> nodeDB;
 
-    public static FastThreadLocal<Storage> threadLocalStorage(@NonNull File root) {
-        SQLiteDataSource dataSource = dataSource(root);
-
-        return new CloseableThreadLocal<Storage>() {
-            @Override
-            protected Storage initialValue0() throws Exception {
-                return new Storage(dataSource);
-            }
-        };
-    }
-
-    public static SQLiteDataSource dataSource(@NonNull File file) {
-        SQLiteDataSource dataSource = new SQLiteDataSource();
-        dataSource.setUrl("jdbc:sqlite:file:" + new File(PFiles.ensureDirectoryExists(file), "index.dat"));
-        return dataSource;
-    }
-
-    protected final Connection connection;
-
-    protected final PreparedStatement createNode;
-    protected final PreparedStatement modifyNode;
-    protected final PreparedStatement[] deleteNodes = new PreparedStatement[FAST_BATCH_NODE_COUNT];
-    protected final PreparedStatement[] getNodes = new PreparedStatement[FAST_BATCH_NODE_COUNT];
-
-    protected int writeQueue = 0;
-
-    public Storage(@NonNull SQLiteDataSource dataSource) throws SQLException {
-        this.connection = dataSource.getConnection();
-
-        try (Statement statement = this.connection.createStatement()) {
-            statement.addBatch("CREATE TABLE IF NOT EXISTS nodes("
-                               + "id INTEGER NOT NULL PRIMARY KEY,"
-                               + "data BLOB NOT NULL"
-                               + ");");
-
-            statement.executeBatch();
-        }
-
-        this.connection.setAutoCommit(false);
-
-        this.createNode = this.connection.prepareStatement("INSERT INTO nodes VALUES (?, ?);");
-        this.modifyNode = this.connection.prepareStatement("UPDATE nodes SET data = ? WHERE id = ?;");
-
-        for (int i = 0; i < FAST_BATCH_NODE_COUNT; i++) {
-            this.deleteNodes[i] = this.connection.prepareStatement(IntStream.rangeClosed(0, i)
-                    .mapToObj(j -> "?")
-                    .collect(Collectors.joining(", ", "DELETE FROM nodes WHERE id IN (", ");")));
-            this.getNodes[i] = this.connection.prepareStatement(IntStream.rangeClosed(0, i)
-                    .mapToObj(j -> "?")
-                    .collect(Collectors.joining(", ", "SELECT data FROM nodes WHERE id IN (", ");")));
-        }
-    }
-
-    public void createNode(@NonNull Node node) throws SQLException {
-        this.createNode.setLong(1, node.id());
-        this.createNode.setBytes(2, node.toByteArray());
-        this.createNode.addBatch();
-        this.createNode.clearParameters();
-
-        this.incrementWriteQueue();
-    }
-
-    public void modifyNode(@NonNull Node node) throws SQLException {
-        this.modifyNode.setLong(2, node.id());
-        this.modifyNode.setBytes(1, node.toByteArray());
-        this.modifyNode.addBatch();
-        this.modifyNode.clearParameters();
-
-        this.incrementWriteQueue();
-    }
-
-    public void deleteNodes(@NonNull long... ids) throws SQLException {
-        positive(ids.length, "ids.length");
-        checkArg(ids.length <= FAST_BATCH_NODE_COUNT, "can delete at most %d nodes at a time!", FAST_BATCH_NODE_COUNT);
-
-        PreparedStatement statement = this.deleteNodes[ids.length - 1];
-        for (int i = 0; i < ids.length; i++) {
-            statement.setLong(i + 1, ids[i]);
-        }
-        statement.addBatch();
-        statement.clearParameters();
-
-        this.incrementWriteQueue();
-    }
-
-    public Node[] getNodes(@NonNull long... ids) throws SQLException {
-        positive(ids.length, "ids.length");
-        checkArg(ids.length <= FAST_BATCH_NODE_COUNT, "can get at most %d nodes at a time!", FAST_BATCH_NODE_COUNT);
-
-        PreparedStatement statement = this.getNodes[ids.length - 1];
-        for (int i = 0; i < ids.length; i++) {
-            statement.setLong(i + 1, ids[i]);
-        }
-
-        try (ResultSet resultSet = statement.executeQuery()) {
-            Node[] nodes = new Node[ids.length];
-            int i = 0;
-            while (resultSet.next()) {
-                nodes[i] = new Node(ids[i], resultSet.getBytes(1));
-                i++;
-            }
-            checkState(i == nodes.length, "not all nodes were found!");
-            return nodes;
-        } finally {
-            statement.clearParameters();
-        }
-    }
-
-    protected void incrementWriteQueue() throws SQLException {
-        if (++this.writeQueue == 100000) {
-            this.flushWriteQueue();
-        }
-    }
-
-    protected void flushWriteQueue() throws SQLException {
-        this.writeQueue = 0;
-        this.modifyNode.executeBatch();
-        this.createNode.executeBatch();
-        for (PreparedStatement statement : this.deleteNodes) {
-            statement.executeBatch();
-        }
-    }
-
-    public void commit() throws SQLException {
-        if (this.writeQueue != 0) {
-            this.flushWriteQueue();
-        }
-
-        this.connection.commit();
+    public Storage(@NonNull File root) throws IOException {
+        this.nodeDB = NodeDB.threadLocalStorage(new File(root, "nodes.sqlite"));
     }
 
     @Override
-    public void close() throws SQLException {
-        try {
-            this.commit();
-
-            try { //close all prepared statements
-                for (Field field : Storage.class.getDeclaredFields()) {
-                    if (field.getType() == PreparedStatement.class) {
-                        ((PreparedStatement) field.get(this)).close();
-                    } else if (field.getType() == PreparedStatement[].class) {
-                        for (PreparedStatement statement : (PreparedStatement[]) field.get(this)) {
-                            statement.close();
-                        }
-                    }
-                }
-            } catch (IllegalAccessException e) {
-                throw new RuntimeException(e);
-            }
-
-            this.connection.close();
-        } catch (SQLException e) {
-            e.printStackTrace();
-            throw e;
-        }
+    public void close() throws Exception {
     }
 }

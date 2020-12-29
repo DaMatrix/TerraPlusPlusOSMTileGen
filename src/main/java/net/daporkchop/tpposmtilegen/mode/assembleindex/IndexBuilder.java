@@ -28,7 +28,7 @@ import net.daporkchop.tpposmtilegen.geojson.feature.FeatureCollection;
 import net.daporkchop.tpposmtilegen.geojson.geometry.Point;
 import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
 import net.daporkchop.tpposmtilegen.storage.Node;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.NodeDB;
 
 import java.io.File;
 import java.io.IOException;
@@ -41,11 +41,11 @@ import java.util.concurrent.atomic.AtomicLong;
  * @author DaPorkchop_
  */
 public class IndexBuilder implements PipelineStep<GeoJSONObject> {
-    protected final FastThreadLocal<Storage> threadLocalStorage;
+    protected final FastThreadLocal<NodeDB> threadLocalStorage;
     protected final AtomicLong counter = new AtomicLong();
 
     public IndexBuilder(@NonNull File root) throws IOException {
-        this.threadLocalStorage = Storage.threadLocalStorage(root);
+        this.threadLocalStorage = NodeDB.threadLocalStorage(root);
     }
 
     @Override

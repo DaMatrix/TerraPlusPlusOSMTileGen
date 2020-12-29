@@ -20,33 +20,62 @@
 
 package net.daporkchop.tpposmtilegen.mode.assemblebvh;
 
+import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.parse.GeoJSONParser;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
+import net.daporkchop.tpposmtilegen.storage.Node;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.io.File;
-import java.io.IOException;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.sql.SQLException;
+import java.util.Collections;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public class AssembleBVH implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) throws IOException {
-        checkArg(args.length == 2, "Usage: assemble_bvh <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+public class AssembleBVH implements IMode {
+    /*
+     * com.wolt.osm.parallelpbf.entity.Relation: 8364019
+     * com.wolt.osm.parallelpbf.entity.BoundBox: 1
+     * com.wolt.osm.parallelpbf.entity.Header: 1
+     * com.wolt.osm.parallelpbf.entity.Node: 6482558025
+     * com.wolt.osm.parallelpbf.entity.Way: 716217853
+     */
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(GeoJSONParser::new)
-                .tail(new BVHInserter(dstFile));
+    @Override
+    public void run(@NonNull String... args) throws Exception {
+        checkArg(args.length == 2, "Usage: assemble_bvh <src> <dst>");
+        File src = PFiles.assertFileExists(new File(args[0]));
+        File dst = new File(args[1]);
+
+        //TODO: remove this
+        PFiles.rm(dst);
+
+        checkArg(!PFiles.checkDirectoryExists(dst), "destination folder already exists: %s", dst);
+        PFiles.ensureDirectoryExists(dst);
+
+        try (Storage storage = new Storage(dst)) {
+            try (InputStream is = new FileInputStream(src)) {
+                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT).setThreadFactory(PThreadFactories.DEFAULT_THREAD_FACTORY)
+                        .onHeader(System.out::println).onBoundBox(System.out::println).onChangeset(System.out::println)
+                        .onNode(in -> {
+                            Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
+
+                            try {
+                                storage.nodeDB().get().createNode(node);
+                            } catch (SQLException e) {
+                                throw new RuntimeException("unable to create node: " + node, e);
+                            }
+                        })
+                        .parse();
+            }
+        }
     }
 }
