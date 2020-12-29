@@ -18,32 +18,37 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
+package net.daporkchop.tpposmtilegen.util;
 
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
+import io.netty.util.concurrent.FastThreadLocal;
+import io.netty.util.concurrent.FastThreadLocalThread;
+import lombok.RequiredArgsConstructor;
 
-import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
+ * Implementation of {@link FastThreadLocal} which is able to close resources when the thread exits.
+ *
  * @author DaPorkchop_
  */
-public interface IMode {
-    void run(@NonNull String... args) throws Exception;
+@RequiredArgsConstructor
+public abstract class CloseableThreadLocal<V extends AutoCloseable> extends FastThreadLocal<V> {
+    @Override
+    protected V initialValue() throws Exception {
+        Thread currentThread = Thread.currentThread();
+        checkState(currentThread instanceof FastThreadLocalThread, "Not a FastThreadLocalThread: %s", currentThread);
 
-    interface Pipeline extends IMode {
-        @Override
-        default void run(@NonNull String... args) throws Exception {
-            File srcFile = PFiles.assertFileExists(new File(args[0]));
+        return this.initialValue0();
+    }
 
-            try (PipelineStep<File> step = this.createPipeline(args)) {
-                step.accept(srcFile);
-            }
+    protected abstract V initialValue0() throws Exception;
+
+    @Override
+    protected void onRemoval(V value) throws Exception {
+        super.onRemoval(value);
+
+        if (value != null) {
+            value.close();
         }
-
-        PipelineStep<File> createPipeline(@NonNull String... args) throws Exception;
     }
 }

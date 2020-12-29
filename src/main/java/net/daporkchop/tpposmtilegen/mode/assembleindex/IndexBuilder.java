@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.mode.assembleindex;
 import com.googlecode.cqengine.IndexedCollection;
 import com.googlecode.cqengine.index.sqlite.support.SQLiteIndexFlags;
 import com.googlecode.cqengine.query.option.QueryOptions;
+import io.netty.util.concurrent.FastThreadLocal;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.geojson.GeoJSONObject;
 import net.daporkchop.tpposmtilegen.geojson.feature.Feature;
@@ -50,13 +51,11 @@ import static java.lang.Math.*;
  * @author DaPorkchop_
  */
 public class IndexBuilder implements PipelineStep<GeoJSONObject> {
-    protected final IndexedCollection<Element> storage;
+    protected final FastThreadLocal<Storage> threadLocalStorage;
     protected final AtomicLong counter = new AtomicLong();
 
-    protected final BlockingQueue<Element> writeQueue = new ArrayBlockingQueue<>(1 << 20);
-
     public IndexBuilder(@NonNull File root) throws IOException {
-        this.storage = Storage.openStorage(root);
+        this.threadLocalStorage = Storage.threadLocalStorage(root);
     }
 
     @Override
@@ -101,25 +100,11 @@ public class IndexBuilder implements PipelineStep<GeoJSONObject> {
             element.maxZ = max(element.maxZ, point.lat());
         }
 
-        while (!this.writeQueue.offer(element)) {
-            this.flush(false); //flush queue and try again
-        }
+
     }
 
     @Override
     public void close() throws IOException {
-        System.out.println("closing");
-        this.flush(true);
-    }
 
-    protected void flush(boolean last) {
-        List<Element> elements = new ArrayList<>();
-        this.writeQueue.drainTo(elements);
-
-        if (!elements.isEmpty()) {
-            QueryOptions options = new QueryOptions();
-            options.put(SQLiteIndexFlags.BULK_IMPORT, last ? SQLiteIndexFlags.BulkImportExternallyManged.LAST : SQLiteIndexFlags.BulkImportExternallyManged.NOT_LAST);
-            this.storage.update(Collections.emptyList(), elements, options);
-        }
     }
 }

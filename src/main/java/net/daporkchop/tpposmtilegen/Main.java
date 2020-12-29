@@ -6,7 +6,6 @@ import net.daporkchop.tpposmtilegen.mode.assembleindex.AssembleIndex;
 import net.daporkchop.tpposmtilegen.mode.countstrings.CountStrings;
 import net.daporkchop.tpposmtilegen.mode.testindex.TestIndex;
 
-import java.io.IOException;
 import java.util.Arrays;
 import java.util.HashMap;
 import java.util.Map;
@@ -25,7 +24,7 @@ public class Main {
         MODES.put("test_index", TestIndex::new);
     }
 
-    public static void main(String... args) throws IOException {
+    public static void main(String... args) throws Exception {
         Supplier<IMode> modeFactory = MODES.get(args[0]);
         if (modeFactory == null) {
             System.err.printf("unknown mode: \"%s\"\n", args[0]);
