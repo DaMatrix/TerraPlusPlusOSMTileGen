@@ -4,6 +4,7 @@ import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.assemblebvh.AssembleBVH;
 import net.daporkchop.tpposmtilegen.mode.assembleindex.AssembleIndex;
 import net.daporkchop.tpposmtilegen.mode.countstrings.CountStrings;
+import net.daporkchop.tpposmtilegen.mode.countvalues.CountValues;
 import net.daporkchop.tpposmtilegen.mode.testindex.TestIndex;
 
 import java.util.Arrays;
@@ -21,6 +22,7 @@ public class Main {
         MODES.put("assemble_bvh", AssembleBVH::new);
         MODES.put("assemble_index", AssembleIndex::new);
         MODES.put("count_strings", CountStrings::new);
+        MODES.put("count_values", CountValues::new);
         MODES.put("test_index", TestIndex::new);
     }
 

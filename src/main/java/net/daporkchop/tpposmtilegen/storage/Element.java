@@ -20,13 +20,20 @@
 
 package net.daporkchop.tpposmtilegen.storage;
 
-import lombok.AllArgsConstructor;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
+import io.netty.util.concurrent.FastThreadLocal;
+import lombok.Getter;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import lombok.Setter;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.util.LongArrayIterator;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.Collections;
-import java.util.Iterator;
+import java.util.HashMap;
 import java.util.Map;
 
 /**
@@ -35,20 +42,68 @@ import java.util.Map;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
+@Getter
 @ToString
-public final class Element implements Iterable<Long> {
-    public final long id;
+public abstract class Element {
+    protected static final FastThreadLocal<ByteBuf> ENCODING_BUFFER_CACHE = new FastThreadLocal<ByteBuf>() {
+        @Override
+        protected ByteBuf initialValue() throws Exception {
+            return UnpooledByteBufAllocator.DEFAULT.heapBuffer();
+        }
+    };
 
-    public double minX;
-    public double maxX;
-    public double minZ;
-    public double maxZ;
+    public static final long FLAG_NODE = 0 << 61L;
+    public static final long FLAG_WAY = 1 << 61L;
+    public static final long FLAG_RELATION = 2 << 61L;
 
-    public long[] children;
-    public Map<String, String> tags;
+    protected final long id;
 
-    @Override
-    public Iterator<Long> iterator() {
-        return this.children != null ? new LongArrayIterator(this.children) : Collections.emptyIterator();
+    @NonNull
+    protected Map<String, String> tags;
+
+    public Element(long id, byte[] data) {
+        this.id = id;
+        this.fromByteArray(data);
     }
+
+    /**
+     * @return the state of this element, encoded as a {@code byte[]}
+     */
+    public byte[] toByteArray() {
+        ByteBuf dst = ENCODING_BUFFER_CACHE.get().clear();
+        this.toByteArray0(dst);
+
+        int countIndex = dst.writerIndex();
+        dst.writeInt(-1);
+        this.tags.forEach((k, v) -> {
+            int startIndex = dst.writerIndex();
+            int bytes = dst.writeInt(-1).writeCharSequence(k, StandardCharsets.UTF_8);
+            dst.setInt(startIndex, bytes);
+
+            startIndex = dst.writerIndex();
+            bytes = dst.writeInt(-1).writeCharSequence(v, StandardCharsets.UTF_8);
+            dst.setInt(startIndex, bytes);
+        });
+        dst.setInt(countIndex, this.tags.size());
+
+        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
+    }
+
+    protected abstract void toByteArray0(ByteBuf dst);
+
+    public Element fromByteArray(@NonNull byte[] data) {
+        ByteBuf src = Unpooled.wrappedBuffer(data);
+        this.fromByteArray0(src);
+
+        this.tags = new HashMap<>();
+        for (int i = 0, count = src.readInt(); i < count; i++) {
+            String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+            String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+            this.tags.put(k, v);
+        }
+
+        return this;
+    }
+
+    protected abstract void fromByteArray0(ByteBuf src);
 }

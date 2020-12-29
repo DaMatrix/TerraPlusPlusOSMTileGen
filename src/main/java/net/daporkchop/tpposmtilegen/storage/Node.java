@@ -18,25 +18,56 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.testindex;
+package net.daporkchop.tpposmtilegen.storage;
 
+import io.netty.buffer.ByteBuf;
+import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.storage.Node;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import lombok.Setter;
+import lombok.ToString;
 
-import java.io.File;
+import java.util.Map;
 
 /**
  * @author DaPorkchop_
  */
-public class TestIndex implements IMode {
+@Getter
+@Setter
+@ToString(callSuper = true)
+public final class Node extends Element {
+    protected double lon;
+    protected double lat;
+
+    public Node(long id, Map<String, String> tags, double lon, double lat) {
+        super(id, tags);
+
+        this.lon = lon;
+        this.lat = lat;
+    }
+
+    public Node(long id, byte[] data) {
+        super(id, data);
+    }
+
+    public Node tags(@NonNull Map<String, String> tags) {
+        super.tags = tags;
+        return this;
+    }
+
     @Override
-    public void run(@NonNull String... args) throws Exception {
-        try (Storage storage = new Storage(Storage.dataSource(new File(args[0])))) {
-            for (Node node : storage.getNodes(1L, 6L, 23L)) {
-                System.out.println(node);
-            }
-        }
+    protected void toByteArray0(ByteBuf dst) {
+        dst.writeDouble(this.lon).writeDouble(this.lat);
+    }
+
+    @Override
+    public Node fromByteArray(@NonNull byte[] data) {
+        super.fromByteArray(data);
+        return this;
+    }
+
+    @Override
+    protected void fromByteArray0(ByteBuf src) {
+        this.lon = src.readDouble();
+        this.lat = src.readDouble();
     }
 }

@@ -18,25 +18,43 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.testindex;
+package net.daporkchop.tpposmtilegen.mode.countvalues;
 
+import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import lombok.NonNull;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.storage.Node;
-import net.daporkchop.tpposmtilegen.storage.Storage;
 
-import java.io.File;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Consumer;
+import java.util.function.Function;
 
 /**
  * @author DaPorkchop_
  */
-public class TestIndex implements IMode {
+public class CountValues implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        try (Storage storage = new Storage(Storage.dataSource(new File(args[0])))) {
-            for (Node node : storage.getNodes(1L, 6L, 23L)) {
-                System.out.println(node);
-            }
+        Map<Class<?>, LongAdder> counters = new ConcurrentHashMap<>();
+        Function<Class<?>, LongAdder> computeFunc = c -> new LongAdder();
+
+        Consumer callback = v -> counters.computeIfAbsent(v.getClass(), computeFunc).increment();
+
+        try (InputStream in = new FileInputStream(args[0])) {
+            new ParallelBinaryParser(in, PorkUtil.CPU_COUNT)
+                    .onBoundBox(callback)
+                    .onChangeset(callback)
+                    .onHeader(callback)
+                    .onNode(callback)
+                    .onRelation(callback)
+                    .onWay(callback)
+                    .parse();
         }
+
+        counters.forEach((clazz, count) -> System.out.printf("%s: %d\n", clazz.getCanonicalName(), count.sum()));
     }
 }

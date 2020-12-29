@@ -26,12 +26,11 @@ ext {
     programVersion = "0.0.1"
 
     //dependency things
-    cqengineVersion = "3.5.0"
     guavaVersion = "21.0"
     jacksonVersion = "2.11.2"
     junitVersion = "4.12"
     lombokVersion = "1.16.20"
-    parallelpbfVersion = "0.3.1"
+    parallelpbfVersion = "069e4beaa78ccf89081acd58248a35820a3dbd5a"
     porklibVersion = "0.5.5-SNAPSHOT"
     rocksdbVersion = "6.13.3"
     sqliteVersion = "3.34.0"
@@ -53,6 +52,10 @@ repositories {
         name = "DaPorkchop_"
         url = "https://maven.daporkchop.net/"
     }
+    maven {
+        name = "JitPack"
+        url = "https://jitpack.io/"
+    }
 }
 
 configurations {
@@ -68,12 +71,11 @@ dependencies {
 
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
 
-    shade "com.wolt.osm:parallelpbf:$parallelpbfVersion"
+    shade "com.github.DaMatrix:parallelpbf:$parallelpbfVersion"
     shade "org.rocksdb:rocksdbjni:$rocksdbVersion"
 
     shade "com.google.guava:guava:$guavaVersion"
 
-    shade "com.googlecode.cqengine:cqengine:$cqengineVersion"
     shade "org.xerial:sqlite-jdbc:$sqliteVersion"
 
     testCompile "junit:junit:$junitVersion"

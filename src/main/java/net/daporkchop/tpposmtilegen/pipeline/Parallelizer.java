@@ -52,7 +52,7 @@ public class Parallelizer<T> extends FilterPipelineStep<T, T> {
         this.executor = new ThreadPoolExecutor(threads, threads,
                 1L, TimeUnit.SECONDS,
                 new BetterBlockingQueue<>(maxQueueSize),
-                PThreadFactories.builder().daemon().build());
+                PThreadFactories.builder().build());
     }
 
     @Override

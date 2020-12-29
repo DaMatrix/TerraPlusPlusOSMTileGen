@@ -18,25 +18,61 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.testindex;
+package net.daporkchop.tpposmtilegen.storage;
 
+import io.netty.buffer.ByteBuf;
+import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.storage.Node;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import lombok.Setter;
+import lombok.ToString;
 
-import java.io.File;
+import java.util.Map;
 
 /**
  * @author DaPorkchop_
  */
-public class TestIndex implements IMode {
+@Getter
+@Setter
+@ToString(callSuper = true)
+public final class Way extends Element {
+    @NonNull
+    protected long[] nodes;
+
+    public Way(long id, Map<String, String> tags, @NonNull long[] nodes) {
+        super(id, tags);
+
+        this.nodes = nodes;
+    }
+
+    public Way(long id, byte[] data) {
+        super(id, data);
+    }
+
+    public Way tags(@NonNull Map<String, String> tags) {
+        super.tags = tags;
+        return this;
+    }
+
     @Override
-    public void run(@NonNull String... args) throws Exception {
-        try (Storage storage = new Storage(Storage.dataSource(new File(args[0])))) {
-            for (Node node : storage.getNodes(1L, 6L, 23L)) {
-                System.out.println(node);
-            }
+    protected void toByteArray0(ByteBuf dst) {
+        dst.writeInt(this.nodes.length);
+        for (long node : this.nodes) {
+            dst.writeLong(node);
+        }
+    }
+
+    @Override
+    public Way fromByteArray(@NonNull byte[] data) {
+        super.fromByteArray(data);
+        return this;
+    }
+
+    @Override
+    protected void fromByteArray0(ByteBuf src) {
+        int count = src.readInt();
+        this.nodes = new long[count];
+        for (int i = 0; i < count; i++) {
+            this.nodes[i] = src.readLong();
         }
     }
 }
