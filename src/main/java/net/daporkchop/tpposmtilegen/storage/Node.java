@@ -45,7 +45,7 @@ public final class Node extends Element {
         this.lat = lat;
     }
 
-    public Node(long id, byte[] data) {
+    public Node(long id, ByteBuf data) {
         super(id, data);
     }
 
@@ -55,19 +55,17 @@ public final class Node extends Element {
     }
 
     @Override
-    protected void toByteArray0(ByteBuf dst) {
+    public void toBytes(@NonNull ByteBuf dst) {
         dst.writeDouble(this.lon).writeDouble(this.lat);
+
+        super.toBytes(dst);
     }
 
     @Override
-    public Node fromByteArray(@NonNull byte[] data) {
-        super.fromByteArray(data);
-        return this;
-    }
-
-    @Override
-    protected void fromByteArray0(ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         this.lon = src.readDouble();
         this.lat = src.readDouble();
+
+        super.fromBytes(src);
     }
 }

@@ -18,22 +18,48 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.sql.node;
+package net.daporkchop.tpposmtilegen.util.map;
 
-import com.google.common.collect.ImmutableMap;
-import lombok.experimental.UtilityClass;
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 
-import java.util.Map;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
-@UtilityClass
-class NodeDB {
-    public static final Map<String, String> CREATE_TABLES = ImmutableMap.of(
-            "nodes", ""
-                     + "id INTEGER NOT NULL PRIMARY KEY,"
-                     + " data BLOB NOT NULL");
+@RequiredArgsConstructor
+public abstract class ForwardingPersistentMap<K, V> implements PersistentMap<K, V> {
+    @NonNull
+    protected final PersistentMap<K, V> delegate;
 
-    public static final int FAST_BATCH_NODE_COUNT = 2000;
+    @Override
+    public void put(@NonNull K key, @NonNull V value) throws Exception {
+        this.delegate.put(key, value);
+    }
+
+    @Override
+    public void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception {
+        this.delegate.putAll(keys, values);
+    }
+
+    @Override
+    public V get(@NonNull K key) throws Exception {
+        return this.delegate.get(key);
+    }
+
+    @Override
+    public List<V> getAll(@NonNull List<K> keys) throws Exception {
+        return this.delegate.getAll(keys);
+    }
+
+    @Override
+    public void flush() throws Exception {
+        this.delegate.flush();
+    }
+
+    @Override
+    public void close() throws Exception {
+        this.delegate.close();
+    }
 }

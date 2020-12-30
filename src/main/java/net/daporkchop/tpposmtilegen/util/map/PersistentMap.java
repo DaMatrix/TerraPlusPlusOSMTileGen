@@ -18,33 +18,26 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.util.map;
 
-import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.storage.db.NodeDB;
-import net.daporkchop.tpposmtilegen.util.map.BufferedPersistentMap;
-import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 
-import java.nio.file.Path;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
-public class Storage implements AutoCloseable {
-    protected final PersistentMap<Long, Node> nodes;
+public interface PersistentMap<K, V> extends AutoCloseable {
+    void put(@NonNull K key, @NonNull V value) throws Exception;
 
-    public Storage(@NonNull Path root) throws Exception {
-        this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "nodes"), 100_000);
-    }
+    void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception;
 
-    public void flush() throws Exception {
-        this.nodes.flush();
-    }
+    V get(@NonNull K key) throws Exception;
+
+    List<V> getAll(@NonNull List<K> keys) throws Exception;
+
+    void flush() throws Exception;
 
     @Override
-    public void close() throws Exception {
-        this.nodes.close();
-    }
+    void close() throws Exception;
 }

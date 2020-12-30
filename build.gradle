@@ -33,7 +33,6 @@ ext {
     parallelpbfVersion = "26e99f6af779366c9a0a606bfdfbdea20ac6c58b"
     porklibVersion = "0.5.5-SNAPSHOT"
     rocksdbVersion = "6.13.3"
-    sqliteVersion = "3.34.0"
 }
 
 group "net.daporkchop"
@@ -75,8 +74,6 @@ dependencies {
     shade "org.rocksdb:rocksdbjni:$rocksdbVersion"
 
     shade "com.google.guava:guava:$guavaVersion"
-
-    shade "org.xerial:sqlite-jdbc:$sqliteVersion"
 
     testCompile "junit:junit:$junitVersion"
 

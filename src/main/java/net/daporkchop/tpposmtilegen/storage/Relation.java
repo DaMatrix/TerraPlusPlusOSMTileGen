@@ -46,7 +46,7 @@ public final class Relation extends Element {
         this.members = members;
     }
 
-    public Relation(long id, byte[] data) {
+    public Relation(long id, ByteBuf data) {
         super(id, data);
     }
 
@@ -56,26 +56,24 @@ public final class Relation extends Element {
     }
 
     @Override
-    protected void toByteArray0(ByteBuf dst) {
+    public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.members.length);
         for (Member member : this.members) {
             member.write(dst);
         }
+
+        super.toBytes(dst);
     }
 
     @Override
-    public Relation fromByteArray(@NonNull byte[] data) {
-        super.fromByteArray(data);
-        return this;
-    }
-
-    @Override
-    protected void fromByteArray0(ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.members = new Member[count];
         for (int i = 0; i < count; i++) {
             this.members[i] = new Member(src);
         }
+
+        super.fromBytes(src);
     }
 
     /**

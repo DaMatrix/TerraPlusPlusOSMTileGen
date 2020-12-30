@@ -61,9 +61,9 @@ public abstract class Element {
     @NonNull
     protected Map<String, String> tags;
 
-    public Element(long id, byte[] data) {
+    public Element(long id, @NonNull ByteBuf data) {
         this.id = id;
-        this.fromByteArray(data);
+        this.fromBytes(data);
     }
 
     /**
@@ -71,8 +71,11 @@ public abstract class Element {
      */
     public byte[] toByteArray() {
         ByteBuf dst = ENCODING_BUFFER_CACHE.get().clear();
-        this.toByteArray0(dst);
+        this.toBytes(dst);
+        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
+    }
 
+    public void toBytes(@NonNull ByteBuf dst) {
         int countIndex = dst.writerIndex();
         dst.writeInt(-1);
         this.tags.forEach((k, v) -> {
@@ -85,25 +88,14 @@ public abstract class Element {
             dst.setInt(startIndex, bytes);
         });
         dst.setInt(countIndex, this.tags.size());
-
-        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
     }
 
-    protected abstract void toByteArray0(ByteBuf dst);
-
-    public Element fromByteArray(@NonNull byte[] data) {
-        ByteBuf src = Unpooled.wrappedBuffer(data);
-        this.fromByteArray0(src);
-
+    public void fromBytes(@NonNull ByteBuf src) {
         this.tags = new HashMap<>();
         for (int i = 0, count = src.readInt(); i < count; i++) {
             String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
             String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
             this.tags.put(k, v);
         }
-
-        return this;
     }
-
-    protected abstract void fromByteArray0(ByteBuf src);
 }

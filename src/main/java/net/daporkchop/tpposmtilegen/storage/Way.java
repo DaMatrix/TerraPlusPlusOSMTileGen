@@ -44,7 +44,7 @@ public final class Way extends Element {
         this.nodes = nodes;
     }
 
-    public Way(long id, byte[] data) {
+    public Way(long id, ByteBuf data) {
         super(id, data);
     }
 
@@ -54,25 +54,23 @@ public final class Way extends Element {
     }
 
     @Override
-    protected void toByteArray0(ByteBuf dst) {
+    public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.nodes.length);
         for (long node : this.nodes) {
             dst.writeLong(node);
         }
+
+        super.toBytes(dst);
     }
 
     @Override
-    public Way fromByteArray(@NonNull byte[] data) {
-        super.fromByteArray(data);
-        return this;
-    }
-
-    @Override
-    protected void fromByteArray0(ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.nodes = new long[count];
         for (int i = 0; i < count; i++) {
             this.nodes[i] = src.readLong();
         }
+
+        super.fromBytes(src);
     }
 }

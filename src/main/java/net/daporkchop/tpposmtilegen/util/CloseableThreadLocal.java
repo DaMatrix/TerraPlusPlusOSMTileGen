@@ -31,6 +31,7 @@ import java.util.IdentityHashMap;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
+import java.util.function.Consumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -78,14 +79,18 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
     protected void onRemoval(@NonNull V value) throws Exception {
         super.onRemoval(value);
 
-        try {
-            if (this.instances.remove(value)) {
-                value.close();
-            }
-        } catch (Exception e) {
-            synchronized (System.err) {
-                e.printStackTrace();
-            }
+        boolean removed;
+        synchronized (this.instances) {
+            removed = this.instances.remove(value);
+        }
+        if (removed) {
+            value.close();
+        }
+    }
+
+    public void forEach(@NonNull Consumer<V> callback) {
+        synchronized (this.instances) {
+            this.instances.forEach(callback);
         }
     }
 

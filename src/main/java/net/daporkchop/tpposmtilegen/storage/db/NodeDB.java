@@ -18,33 +18,42 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.storage.db;
 
-import lombok.Getter;
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.storage.db.NodeDB;
-import net.daporkchop.tpposmtilegen.util.map.BufferedPersistentMap;
+import net.daporkchop.tpposmtilegen.storage.Node;
 import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 
 import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Node}s.
+ *
  * @author DaPorkchop_
  */
-@Getter
-public class Storage implements AutoCloseable {
-    protected final PersistentMap<Long, Node> nodes;
-
-    public Storage(@NonNull Path root) throws Exception {
-        this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "nodes"), 100_000);
-    }
-
-    public void flush() throws Exception {
-        this.nodes.flush();
+public final class NodeDB extends DB<Long, Node> {
+    public NodeDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
     @Override
-    public void close() throws Exception {
-        this.nodes.close();
+    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
+        dst.writeLong(key);
+    }
+
+    @Override
+    protected void valueToBytes(@NonNull Node value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
+    }
+
+    @Override
+    protected Node valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+        return new Node(key, valueBytes);
+    }
+
+    @Override
+    protected Node valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
+        return new Node(keyBytes.readLong(), valueBytes);
     }
 }

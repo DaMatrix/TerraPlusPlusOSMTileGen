@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.mode.assemblebvh;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
@@ -32,8 +33,9 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.Collections;
+import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -61,20 +63,28 @@ public class AssembleBVH implements IMode {
         checkArg(!PFiles.checkDirectoryExists(dst), "destination folder already exists: %s", dst);
         PFiles.ensureDirectoryExists(dst);
 
-        try (Storage storage = new Storage(dst)) {
+        try (Storage storage = new Storage(dst.toPath())) {
             try (InputStream is = new FileInputStream(src)) {
-                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT).setThreadFactory(PThreadFactories.DEFAULT_THREAD_FACTORY)
+                List<Thread> threads = new ArrayList<>();
+                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
+                        .setThreadFactory(r -> {
+                            Thread thread = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
+                            threads.add(thread);
+                            return thread;
+                        })
                         .onHeader(System.out::println).onBoundBox(System.out::println).onChangeset(System.out::println)
                         .onNode(in -> {
                             Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
 
                             try {
-                                storage.writeNodeDB().createNode(node);
-                            } catch (SQLException e) {
+                                storage.nodes().put(in.getId(), node);
+                            } catch (Exception e) {
                                 throw new RuntimeException("unable to create node: " + node, e);
                             }
                         })
                         .parse();
+
+                threads.forEach((EConsumer<Thread>) Thread::join);
             }
         }
     }
