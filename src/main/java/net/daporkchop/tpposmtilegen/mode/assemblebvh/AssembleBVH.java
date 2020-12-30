@@ -69,7 +69,7 @@ public class AssembleBVH implements IMode {
                             Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
 
                             try {
-                                storage.nodeDB().get().createNode(node);
+                                storage.writeNodeDB().createNode(node);
                             } catch (SQLException e) {
                                 throw new RuntimeException("unable to create node: " + node, e);
                             }

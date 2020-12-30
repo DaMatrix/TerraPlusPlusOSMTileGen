@@ -20,25 +20,46 @@
 
 package net.daporkchop.tpposmtilegen.storage;
 
-import io.netty.util.concurrent.FastThreadLocal;
-import lombok.Getter;
 import lombok.NonNull;
+import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.storage.node.ReadNodeDB;
+import net.daporkchop.tpposmtilegen.storage.node.WriteNodeDB;
+import net.daporkchop.tpposmtilegen.storage.sql.SqliteDB;
+import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import org.rocksdb.RocksDB;
+import org.sqlite.SQLiteDataSource;
 
 import java.io.File;
-import java.io.IOException;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
 public class Storage implements AutoCloseable {
-    protected final FastThreadLocal<NodeDB> nodeDB;
+    protected final CloseableThreadLocal<ReadNodeDB> readNodeDB;
+    protected final CloseableThreadLocal<WriteNodeDB> writeNodeDB;
+    protected final RocksDB nodes;
 
-    public Storage(@NonNull File root) throws IOException {
-        this.nodeDB = NodeDB.threadLocalStorage(new File(root, "nodes.sqlite"));
+    public Storage(@NonNull File root) throws Exception {
+        SQLiteDataSource dataSource = SqliteDB.dataSource(new File(root, "nodes.sqlite"));
+        this.readNodeDB = CloseableThreadLocal.of(() -> new ReadNodeDB(dataSource));
+        this.writeNodeDB = CloseableThreadLocal.of(() -> new WriteNodeDB(dataSource));
+
+        this.nodes = RocksDB.open(PFiles.ensureDirectoryExists(new File(root, "nodes")).toString());
+    }
+
+    public ReadNodeDB readNodeDB() {
+        return this.readNodeDB.get();
+    }
+
+    public WriteNodeDB writeNodeDB() {
+        return this.writeNodeDB.get();
     }
 
     @Override
     public void close() throws Exception {
+        this.writeNodeDB.close();
+        this.readNodeDB.close();
+
+        this.nodes.close();
     }
 }

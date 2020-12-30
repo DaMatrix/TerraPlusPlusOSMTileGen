@@ -22,7 +22,15 @@ package net.daporkchop.tpposmtilegen.util;
 
 import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
+import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
+
+import java.util.Collections;
+import java.util.IdentityHashMap;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.Callable;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -32,23 +40,49 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-public abstract class CloseableThreadLocal<V extends AutoCloseable> extends FastThreadLocal<V> {
+public abstract class CloseableThreadLocal<V extends AutoCloseable> extends FastThreadLocal<V> implements AutoCloseable {
+    protected final Set<V> instances = Collections.newSetFromMap(new IdentityHashMap<>());
+
+    public static <V extends AutoCloseable> CloseableThreadLocal<V> of(@NonNull Callable<V> factory) {
+        return new CloseableThreadLocal<V>() {
+            @Override
+            protected V initialValue0() throws Exception {
+                return factory.call();
+            }
+        };
+    }
+
     @Override
     protected V initialValue() throws Exception {
         Thread currentThread = Thread.currentThread();
-        checkState(currentThread instanceof FastThreadLocalThread, "Not a FastThreadLocalThread: %s", currentThread);
+        if (!(currentThread instanceof FastThreadLocalThread)) {
+            System.err.println("[WARN] Not a FastThreadLocalThread: " + Thread.currentThread());
+        }
 
-        return this.initialValue0();
+        V value = this.initialValue0();
+        Objects.requireNonNull(value, "initialValue0 returned null");
+        synchronized (this.instances) {
+            checkState(this.instances.add(value), "duplicate value: %s", value);
+        }
+        return value;
     }
 
     protected abstract V initialValue0() throws Exception;
 
     @Override
-    protected void onRemoval(V value) throws Exception {
+    protected void onRemoval(@NonNull V value) throws Exception {
         super.onRemoval(value);
 
-        if (value != null) {
+        if (this.instances.remove(value)) {
             value.close();
+        }
+    }
+
+    @Override
+    public void close() throws Exception {
+        synchronized (this.instances) {
+            this.instances.forEach((EConsumer<V>) V::close);
+            this.instances.clear();
         }
     }
 }
