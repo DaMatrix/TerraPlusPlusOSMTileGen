@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.node;
+package net.daporkchop.tpposmtilegen.storage.sql.node;
 
 import com.google.common.collect.ImmutableMap;
 import lombok.experimental.UtilityClass;

@@ -71,15 +71,17 @@ public abstract class WriteableSqliteDB extends SqliteDB {
         return maxAffected != 0;
     }
 
-    public void commit() throws SQLException {
-        if (this.uncommitedChanges | this.flushWriteQueue()) {
+    public synchronized void commit() throws SQLException {
+        if (this.uncommitedChanges | (this.writeQueue != 0 && this.flushWriteQueue())) {
             this.uncommitedChanges = false;
+            System.out.println(Thread.currentThread() + " committing");
             this.connection.commit();
+            System.out.println(Thread.currentThread() + " committed.");
         }
     }
 
     @Override
-    public void close() throws SQLException {
+    public synchronized void close() throws SQLException {
         this.commit();
 
         super.close();

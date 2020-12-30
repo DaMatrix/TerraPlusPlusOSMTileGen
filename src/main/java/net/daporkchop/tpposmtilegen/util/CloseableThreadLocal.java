@@ -41,8 +41,6 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @RequiredArgsConstructor
 public abstract class CloseableThreadLocal<V extends AutoCloseable> extends FastThreadLocal<V> implements AutoCloseable {
-    protected final Set<V> instances = Collections.newSetFromMap(new IdentityHashMap<>());
-
     public static <V extends AutoCloseable> CloseableThreadLocal<V> of(@NonNull Callable<V> factory) {
         return new CloseableThreadLocal<V>() {
             @Override
@@ -52,6 +50,8 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
         };
     }
 
+    protected final Set<V> instances = Collections.newSetFromMap(new IdentityHashMap<>());
+
     @Override
     protected V initialValue() throws Exception {
         Thread currentThread = Thread.currentThread();
@@ -59,12 +59,17 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
             System.err.println("[WARN] Not a FastThreadLocalThread: " + Thread.currentThread());
         }
 
-        V value = this.initialValue0();
-        Objects.requireNonNull(value, "initialValue0 returned null");
-        synchronized (this.instances) {
-            checkState(this.instances.add(value), "duplicate value: %s", value);
+        try {
+            V value = this.initialValue0();
+            Objects.requireNonNull(value, "initialValue0 returned null");
+            synchronized (this.instances) {
+                checkState(this.instances.add(value), "duplicate value: %s", value);
+            }
+            return value;
+        } catch (Exception e) {
+            e.printStackTrace();
+            throw e;
         }
-        return value;
     }
 
     protected abstract V initialValue0() throws Exception;
@@ -73,8 +78,14 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
     protected void onRemoval(@NonNull V value) throws Exception {
         super.onRemoval(value);
 
-        if (this.instances.remove(value)) {
-            value.close();
+        try {
+            if (this.instances.remove(value)) {
+                value.close();
+            }
+        } catch (Exception e) {
+            synchronized (System.err) {
+                e.printStackTrace();
+            }
         }
     }
 

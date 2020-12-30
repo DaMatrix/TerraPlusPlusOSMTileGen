@@ -27,7 +27,9 @@ import net.daporkchop.lib.primitive.list.LongList;
 import net.daporkchop.lib.primitive.list.array.LongArrayList;
 import net.daporkchop.lib.primitive.map.concurrent.ObjObjConcurrentHashMap;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
+import org.sqlite.SQLiteOpenMode;
 
 import java.io.File;
 import java.lang.reflect.Field;
@@ -62,6 +64,9 @@ public abstract class SqliteDB implements AutoCloseable {
     public static SQLiteDataSource dataSource(@NonNull File file) {
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl("jdbc:sqlite:file:" + file);
+        dataSource.getConfig().setSynchronous(SQLiteConfig.SynchronousMode.OFF);
+        dataSource.getConfig().setOpenMode(SQLiteOpenMode.FULLMUTEX);
+        dataSource.getConfig().setLockingMode(SQLiteConfig.LockingMode.NORMAL);
         return dataSource;
     }
 

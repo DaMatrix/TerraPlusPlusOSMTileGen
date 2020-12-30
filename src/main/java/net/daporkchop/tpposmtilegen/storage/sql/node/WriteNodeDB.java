@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.node;
+package net.daporkchop.tpposmtilegen.storage.sql.node;
 
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.storage.Node;
@@ -32,7 +32,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.tpposmtilegen.storage.node.NodeDB.*;
+import static net.daporkchop.tpposmtilegen.storage.sql.node.NodeDB.*;
 
 /**
  * @author DaPorkchop_
@@ -61,24 +61,30 @@ public class WriteNodeDB extends WriteableSqliteDB {
     }
 
     public void createNode(@NonNull Node node) throws SQLException {
-        this.createNode.setLong(1, node.id());
-        this.createNode.setBytes(2, node.toByteArray());
-        this.createNode.addBatch();
-        this.createNode.clearParameters();
+        byte[] arr = node.toByteArray();
+        synchronized (this) {
+            this.createNode.setLong(1, node.id());
+            this.createNode.setBytes(2, arr);
+            this.createNode.addBatch();
+            this.createNode.clearParameters();
 
-        this.incrementWriteQueue();
+            this.incrementWriteQueue();
+        }
     }
 
-    public void modifyNode(@NonNull Node node) throws SQLException {
-        this.modifyNode.setLong(2, node.id());
-        this.modifyNode.setBytes(1, node.toByteArray());
-        this.modifyNode.addBatch();
-        this.modifyNode.clearParameters();
+    public synchronized void modifyNode(@NonNull Node node) throws SQLException {
+        byte[] arr = node.toByteArray();
+        synchronized (this) {
+            this.modifyNode.setLong(2, node.id());
+            this.modifyNode.setBytes(1, arr);
+            this.modifyNode.addBatch();
+            this.modifyNode.clearParameters();
 
-        this.incrementWriteQueue();
+            this.incrementWriteQueue();
+        }
     }
 
-    public void deleteNodes(@NonNull long... ids) throws SQLException {
+    public synchronized void deleteNodes(@NonNull long... ids) throws SQLException {
         positive(ids.length, "ids.length");
         checkArg(ids.length <= FAST_BATCH_NODE_COUNT, "can delete at most %d nodes at a time!", FAST_BATCH_NODE_COUNT);
 

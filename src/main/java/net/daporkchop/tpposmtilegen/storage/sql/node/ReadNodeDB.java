@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.node;
+package net.daporkchop.tpposmtilegen.storage.sql.node;
 
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.storage.Node;
@@ -33,7 +33,7 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.tpposmtilegen.storage.node.NodeDB.*;
+import static net.daporkchop.tpposmtilegen.storage.sql.node.NodeDB.*;
 
 /**
  * @author DaPorkchop_
