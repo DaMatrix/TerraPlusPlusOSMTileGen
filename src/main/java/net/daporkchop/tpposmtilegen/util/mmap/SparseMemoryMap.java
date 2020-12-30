@@ -48,7 +48,7 @@ public abstract class SparseMemoryMap implements AutoCloseable {
     public SparseMemoryMap(@NonNull Path path, long size) throws IOException {
         this.size = positive(size, "size");
 
-        this.channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE);
+        this.channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.SPARSE, StandardOpenOption.CREATE);
         if (this.channel.size() < size) { //grow file if needed
             MemoryMap.truncate0(this.channel, size);
         }

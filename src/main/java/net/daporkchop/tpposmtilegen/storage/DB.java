@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.db;
+package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
@@ -29,7 +29,9 @@ import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
+import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.WriteBatch;
@@ -48,26 +50,31 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  * @author DaPorkchop_
  */
 public abstract class DB<K, V> implements PersistentMap<K, V> {
-    static {
-        RocksDB.loadLibrary();
-    }
-
     protected static final Ref<ByteBuf[]> WRITE_BUFFER_CACHE = ThreadRef.late(() -> new ByteBuf[]{
             UnpooledByteBufAllocator.DEFAULT.buffer(),
             UnpooledByteBufAllocator.DEFAULT.buffer()
     });
-
     protected static final CloseableThreadLocal<WriteBatch> WRITE_BATCH_CACHE = CloseableThreadLocal.of(WriteBatch::new);
 
-    protected static final ReadOptions READ_OPTIONS = new ReadOptions();
-    protected static final WriteOptions WRITE_OPTIONS = new WriteOptions();
-    protected static final FlushOptions FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
+    protected static final Options OPTIONS;
+    protected static final ReadOptions READ_OPTIONS;
+    protected static final WriteOptions WRITE_OPTIONS;
+    protected static final FlushOptions FLUSH_OPTIONS;
+
+    static {
+        RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
+
+        OPTIONS = new Options().setCreateIfMissing(true);
+        READ_OPTIONS = new ReadOptions();
+        WRITE_OPTIONS = new WriteOptions();
+        FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
+    }
 
     protected final RocksDB delegate;
     protected final OffHeapAtomicLong maxValueSize;
 
     public DB(@NonNull Path root, @NonNull String name) throws Exception {
-        this.delegate = RocksDB.open(root.resolve(name).toString());
+        this.delegate = RocksDB.open(OPTIONS, root.resolve(name).toString());
         this.maxValueSize = new OffHeapAtomicLong(root.resolve(name + "_maxValueSize"));
     }
 

@@ -18,16 +18,14 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
-import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 
-import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
@@ -36,74 +34,40 @@ import java.util.Map;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Relation extends Element {
-    @NonNull
-    protected Member[] members;
+public final class Node extends Element {
+    public static final int TYPE = 0;
 
-    public Relation(long id, Map<String, String> tags, @NonNull Member[] members) {
+    protected double lon;
+    protected double lat;
+
+    public Node(long id, Map<String, String> tags, double lon, double lat) {
         super(id, tags);
 
-        this.members = members;
+        this.lon = lon;
+        this.lat = lat;
     }
 
-    public Relation(long id, ByteBuf data) {
+    public Node(long id, ByteBuf data) {
         super(id, data);
     }
 
-    public Relation tags(@NonNull Map<String, String> tags) {
+    public Node tags(@NonNull Map<String, String> tags) {
         super.tags = tags;
         return this;
     }
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
-        dst.writeInt(this.members.length);
-        for (Member member : this.members) {
-            member.write(dst);
-        }
+        dst.writeDouble(this.lon).writeDouble(this.lat);
 
         super.toBytes(dst);
     }
 
     @Override
     public void fromBytes(@NonNull ByteBuf src) {
-        int count = src.readInt();
-        this.members = new Member[count];
-        for (int i = 0; i < count; i++) {
-            this.members[i] = new Member(src);
-        }
+        this.lon = src.readDouble();
+        this.lat = src.readDouble();
 
         super.fromBytes(src);
-    }
-
-    /**
-     * A relation member.
-     *
-     * @author DaPorkchop_
-     */
-    @AllArgsConstructor
-    @Getter
-    @ToString
-    public static final class Member {
-        private static String readNullableString(ByteBuf src) {
-            int size = src.readInt();
-            return size >= 0 ? src.readCharSequence(size, StandardCharsets.UTF_8).toString() : null;
-        }
-
-        protected final long id;
-        protected final String role;
-
-        protected Member(ByteBuf src) {
-            this(src.readLong(), readNullableString(src));
-        }
-
-        protected void write(ByteBuf dst) {
-            dst.writeLong(this.id);
-            int sizeIndex = dst.writerIndex();
-            dst.writeInt(-1);
-            if (this.role != null) {
-                dst.setInt(sizeIndex, dst.writeCharSequence(this.role, StandardCharsets.UTF_8));
-            }
-        }
     }
 }

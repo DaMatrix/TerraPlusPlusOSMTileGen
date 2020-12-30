@@ -21,14 +21,18 @@
 package net.daporkchop.tpposmtilegen.mode.assemblebvh;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
+import com.wolt.osm.parallelpbf.entity.RelationMember;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.storage.Node;
+import net.daporkchop.tpposmtilegen.osm.Node;
+import net.daporkchop.tpposmtilegen.osm.Relation;
+import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -42,7 +46,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class AssembleBVH implements IMode {
+public class AssembleIndex implements IMode {
     /*
      * com.wolt.osm.parallelpbf.entity.Relation: 8364019
      * com.wolt.osm.parallelpbf.entity.BoundBox: 1
@@ -64,7 +68,9 @@ public class AssembleBVH implements IMode {
         PFiles.ensureDirectoryExists(dst);
 
         try (Storage storage = new Storage(dst.toPath())) {
-            try (InputStream is = new FileInputStream(src)) {
+            //pass 1: collect all OSM data from PBF file and store it in the value DBs
+            try (ProgressNotifier notifier = new ProgressNotifier("  Read PBF: ", 5000L, "nodes", "ways", "relations");
+                    InputStream is = new FileInputStream(src)) {
                 List<Thread> threads = new ArrayList<>();
                 new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
                         .setThreadFactory(r -> {
@@ -73,19 +79,47 @@ public class AssembleBVH implements IMode {
                             return thread;
                         })
                         .onHeader(System.out::println).onBoundBox(System.out::println).onChangeset(System.out::println)
-                        .onNode(in -> {
+                        .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                             Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
+                            storage.nodes().put(in.getId(), node);
+                            storage.nodeFlags().set(in.getId());
 
-                            try {
-                                storage.nodes().put(in.getId(), node);
-                            } catch (Exception e) {
-                                throw new RuntimeException("unable to create node: " + node, e);
+                            notifier.step(Node.TYPE);
+                        })
+                        .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
+                            List<Long> nodesList = in.getNodes();
+                            long[] nodesArray = new long[nodesList.size()];
+                            for (int i = 0; i < nodesArray.length; i++) {
+                                nodesArray[i] = nodesList.get(i);
                             }
+
+                            Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
+                            storage.ways().put(in.getId(), way);
+                            storage.wayFlags().set(in.getId());
+
+                            notifier.step(Way.TYPE);
+                        })
+                        .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
+                            List<RelationMember> memberList = in.getMembers();
+                            Relation.Member[] membersArray = new Relation.Member[memberList.size()];
+                            for (int i = 0; i < membersArray.length; i++) {
+                                membersArray[i] = new Relation.Member(memberList.get(i));
+                            }
+
+                            Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
+                            storage.relations().put(in.getId(), relation);
+                            storage.relationFlags().set(in.getId());
+
+                            notifier.step(Relation.TYPE);
                         })
                         .parse();
 
+                //ensure all threads are totally stopped
                 threads.forEach((EConsumer<Thread>) Thread::join);
             }
+
+            //ensure everything is written to disk before advancing
+            storage.flush();
         }
     }
 }

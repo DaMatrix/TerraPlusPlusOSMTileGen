@@ -18,21 +18,18 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.util.concurrent.FastThreadLocal;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import lombok.Setter;
 import lombok.ToString;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -51,10 +48,6 @@ public abstract class Element {
             return UnpooledByteBufAllocator.DEFAULT.heapBuffer();
         }
     };
-
-    public static final long FLAG_NODE = 0 << 61L;
-    public static final long FLAG_WAY = 1 << 61L;
-    public static final long FLAG_RELATION = 2 << 61L;
 
     protected final long id;
 

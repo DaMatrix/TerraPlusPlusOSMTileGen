@@ -21,51 +21,39 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 
-import java.util.Map;
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Way}s.
+ *
  * @author DaPorkchop_
  */
-@Getter
-@Setter
-@ToString(callSuper = true)
-public final class Node extends Element {
-    protected double lon;
-    protected double lat;
-
-    public Node(long id, Map<String, String> tags, double lon, double lat) {
-        super(id, tags);
-
-        this.lon = lon;
-        this.lat = lat;
-    }
-
-    public Node(long id, ByteBuf data) {
-        super(id, data);
-    }
-
-    public Node tags(@NonNull Map<String, String> tags) {
-        super.tags = tags;
-        return this;
+final class WayDB extends DB<Long, Way> {
+    public WayDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
     @Override
-    public void toBytes(@NonNull ByteBuf dst) {
-        dst.writeDouble(this.lon).writeDouble(this.lat);
-
-        super.toBytes(dst);
+    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
+        dst.writeLong(key);
     }
 
     @Override
-    public void fromBytes(@NonNull ByteBuf src) {
-        this.lon = src.readDouble();
-        this.lat = src.readDouble();
+    protected void valueToBytes(@NonNull Way value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
+    }
 
-        super.fromBytes(src);
+    @Override
+    protected Way valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+        return new Way(key, valueBytes);
+    }
+
+    @Override
+    protected Way valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
+        return new Way(keyBytes.readLong(), valueBytes);
     }
 }

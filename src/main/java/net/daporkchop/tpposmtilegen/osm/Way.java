@@ -18,34 +18,61 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.countstrings;
+package net.daporkchop.tpposmtilegen.osm;
 
+import io.netty.buffer.ByteBuf;
+import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.pipeline.Parallelizer;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineBuilder;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-import net.daporkchop.tpposmtilegen.pipeline.read.StreamingSegmentedReader;
+import lombok.Setter;
+import lombok.ToString;
 
-import java.io.File;
-import java.io.IOException;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.util.Map;
 
 /**
  * @author DaPorkchop_
  */
-public class CountStrings implements IMode.Pipeline {
-    @Override
-    public PipelineStep<File> createPipeline(@NonNull String... args) throws IOException {
-        checkArg(args.length == 2, "Usage: count_strings <src> <dst>");
-        File dstFile = PFiles.ensureFileExists(new File(args[1]));
+@Getter
+@Setter
+@ToString(callSuper = true)
+public final class Way extends Element {
+    public static final int TYPE = 1;
 
-        return new PipelineBuilder<File, Object>()
-                .first(StreamingSegmentedReader::new)
-                .filter(Parallelizer::new)
-                .map(ExtractTagStrings::new)
-                .tail(new StringCounterImpl(dstFile));
+    @NonNull
+    protected long[] nodes;
+
+    public Way(long id, Map<String, String> tags, @NonNull long[] nodes) {
+        super(id, tags);
+
+        this.nodes = nodes;
+    }
+
+    public Way(long id, ByteBuf data) {
+        super(id, data);
+    }
+
+    public Way tags(@NonNull Map<String, String> tags) {
+        super.tags = tags;
+        return this;
+    }
+
+    @Override
+    public void toBytes(@NonNull ByteBuf dst) {
+        dst.writeInt(this.nodes.length);
+        for (long node : this.nodes) {
+            dst.writeLong(node);
+        }
+
+        super.toBytes(dst);
+    }
+
+    @Override
+    public void fromBytes(@NonNull ByteBuf src) {
+        int count = src.readInt();
+        this.nodes = new long[count];
+        for (int i = 0; i < count; i++) {
+            this.nodes[i] = src.readLong();
+        }
+
+        super.fromBytes(src);
     }
 }

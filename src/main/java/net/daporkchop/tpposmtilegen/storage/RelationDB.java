@@ -21,56 +21,39 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.Relation;
+import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 
-import java.util.Map;
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Relation}s.
+ *
  * @author DaPorkchop_
  */
-@Getter
-@Setter
-@ToString(callSuper = true)
-public final class Way extends Element {
-    @NonNull
-    protected long[] nodes;
-
-    public Way(long id, Map<String, String> tags, @NonNull long[] nodes) {
-        super(id, tags);
-
-        this.nodes = nodes;
-    }
-
-    public Way(long id, ByteBuf data) {
-        super(id, data);
-    }
-
-    public Way tags(@NonNull Map<String, String> tags) {
-        super.tags = tags;
-        return this;
+final class RelationDB extends DB<Long, Relation> {
+    public RelationDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
     @Override
-    public void toBytes(@NonNull ByteBuf dst) {
-        dst.writeInt(this.nodes.length);
-        for (long node : this.nodes) {
-            dst.writeLong(node);
-        }
-
-        super.toBytes(dst);
+    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
+        dst.writeLong(key);
     }
 
     @Override
-    public void fromBytes(@NonNull ByteBuf src) {
-        int count = src.readInt();
-        this.nodes = new long[count];
-        for (int i = 0; i < count; i++) {
-            this.nodes[i] = src.readLong();
-        }
+    protected void valueToBytes(@NonNull Relation value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
+    }
 
-        super.fromBytes(src);
+    @Override
+    protected Relation valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+        return new Relation(key, valueBytes);
+    }
+
+    @Override
+    protected Relation valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
+        return new Relation(keyBytes.readLong(), valueBytes);
     }
 }

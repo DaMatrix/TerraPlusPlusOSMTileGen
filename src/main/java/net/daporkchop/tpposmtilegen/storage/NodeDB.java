@@ -18,11 +18,11 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.db;
+package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.storage.Node;
+import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
 
 import java.nio.file.Path;
@@ -32,7 +32,7 @@ import java.nio.file.Path;
  *
  * @author DaPorkchop_
  */
-public final class NodeDB extends DB<Long, Node> {
+final class NodeDB extends DB<Long, Node> {
     public NodeDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
     }

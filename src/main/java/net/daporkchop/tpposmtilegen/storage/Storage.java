@@ -22,9 +22,12 @@ package net.daporkchop.tpposmtilegen.storage;
 
 import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.storage.db.NodeDB;
+import net.daporkchop.tpposmtilegen.osm.Node;
+import net.daporkchop.tpposmtilegen.osm.Relation;
+import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.util.map.BufferedPersistentMap;
 import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 
 import java.nio.file.Path;
 
@@ -34,17 +37,37 @@ import java.nio.file.Path;
 @Getter
 public class Storage implements AutoCloseable {
     protected final PersistentMap<Long, Node> nodes;
+    protected final PersistentMap<Long, Way> ways;
+    protected final PersistentMap<Long, Relation> relations;
+
+    protected final OffHeapBitSet nodeFlags;
+    protected final OffHeapBitSet wayFlags;
+    protected final OffHeapBitSet relationFlags;
 
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "nodes"), 100_000);
+        this.ways = new BufferedPersistentMap<>(new WayDB(root, "ways"), 10_000);
+        this.relations = new BufferedPersistentMap<>(new RelationDB(root, "relations"), 10_000);
+
+        this.nodeFlags = new OffHeapBitSet(root.resolve("nodeFlags"), 1L << 40L);
+        this.wayFlags = new OffHeapBitSet(root.resolve("wayFlags"), 1L << 40L);
+        this.relationFlags = new OffHeapBitSet(root.resolve("relationFlags"), 1L << 40L);
     }
 
     public void flush() throws Exception {
         this.nodes.flush();
+        this.ways.flush();
+        this.relations.flush();
     }
 
     @Override
     public void close() throws Exception {
         this.nodes.close();
+        this.ways.close();
+        this.relations.close();
+
+        this.nodeFlags.close();
+        this.wayFlags.close();
+        this.relationFlags.close();
     }
 }
