@@ -74,7 +74,7 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
 
     public DB(@NonNull Path root, @NonNull String name) throws Exception {
         this.delegate = RocksDB.open(OPTIONS, root.resolve(name).toString());
-        this.maxValueSize = new OffHeapAtomicLong(root.resolve(name + "_maxValueSize"));
+        this.maxValueSize = new OffHeapAtomicLong(root.resolve(name + "_maxValueSize"), 0L);
     }
 
     @Override

@@ -20,17 +20,18 @@
 
 package net.daporkchop.tpposmtilegen.util.offheap;
 
+import io.netty.buffer.Unpooled;
 import lombok.NonNull;
-import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import net.daporkchop.tpposmtilegen.util.mmap.SparseMemoryMap;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -39,11 +40,12 @@ public class OffHeapAtomicLong implements AutoCloseable {
     protected final MemoryMap map;
     protected final long addr;
 
-    public OffHeapAtomicLong(@NonNull Path path) throws IOException {
+    public OffHeapAtomicLong(@NonNull Path path, long defaultValue) throws IOException {
         try (FileChannel channel = FileChannel.open(path, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE)) {
-            if (channel.size() != 8L) { //reset value to 0L
+            if (channel.size() != 8L) { //reset value to default
                 channel.truncate(0L);
-                channel.write(ByteBuffer.wrap(new byte[8]));
+                Unpooled.wrappedBuffer(new byte[8]).clear().writeLongLE(defaultValue).readBytes(channel, 8);
+                checkState(channel.size() == 8L);
             }
             this.map = new MemoryMap(channel, FileChannel.MapMode.READ_WRITE, 0L, 8L);
         }
@@ -52,6 +54,10 @@ public class OffHeapAtomicLong implements AutoCloseable {
 
     public long get() {
         return PUnsafe.getLongVolatile(null, this.addr);
+    }
+
+    public void set(long value) {
+        PUnsafe.putLongVolatile(null, this.addr, value);
     }
 
     public long max(long value) {

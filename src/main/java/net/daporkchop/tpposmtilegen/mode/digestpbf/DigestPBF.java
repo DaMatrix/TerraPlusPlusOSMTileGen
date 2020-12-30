@@ -56,9 +56,9 @@ public class DigestPBF implements IMode {
         checkArg(!PFiles.checkDirectoryExists(dst), "destination folder already exists: %s", dst);
         PFiles.ensureDirectoryExists(dst);
 
-        try (Storage storage = new Storage(dst.toPath());
-             InputStream is = new FileInputStream(src);
-             ProgressNotifier notifier = new ProgressNotifier("  Read PBF: ", 5000L, "nodes", "ways", "relations")) {
+        try (ProgressNotifier notifier = new ProgressNotifier("  Read PBF: ", 5000L, "nodes", "ways", "relations");
+             Storage storage = new Storage(dst.toPath());
+             InputStream is = new FileInputStream(src);) {
 
             List<Thread> threads = new ArrayList<>();
             new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
@@ -67,7 +67,18 @@ public class DigestPBF implements IMode {
                         threads.add(thread);
                         return thread;
                     })
-                    .onHeader(System.out::println).onBoundBox(System.out::println).onChangeset(System.out::println)
+                    .onHeader(header -> {
+                        System.out.println(header);
+                        if (header.getReplicationSequenceNumber() != null) {
+                            storage.sequenceNumber().set(header.getReplicationSequenceNumber());
+                        } else if (header.getReplicationTimestamp() != null) {
+                            storage.replicationTimestamp().set(header.getReplicationTimestamp());
+                        } else {
+                            System.err.printf("\"%s\" doesn't contain a replication timestamp or sequence number!\n", src);
+                            System.exit(1);
+                        }
+                    })
+                    .onBoundBox(System.out::println).onChangeset(System.out::println)
                     .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                         Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
                         storage.nodes().put(in.getId(), node);

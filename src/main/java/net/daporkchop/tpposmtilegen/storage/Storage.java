@@ -25,9 +25,10 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 
 import java.nio.file.Path;
 
@@ -44,14 +45,20 @@ public class Storage implements AutoCloseable {
     protected final OffHeapBitSet wayFlags;
     protected final OffHeapBitSet relationFlags;
 
-    public Storage(@NonNull Path root) throws Exception {
-        this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "nodes"), 100_000);
-        this.ways = new BufferedPersistentMap<>(new WayDB(root, "ways"), 10_000);
-        this.relations = new BufferedPersistentMap<>(new RelationDB(root, "relations"), 10_000);
+    protected final OffHeapAtomicLong sequenceNumber;
+    protected final OffHeapAtomicLong replicationTimestamp;
 
-        this.nodeFlags = new OffHeapBitSet(root.resolve("nodeFlags"), 1L << 40L);
-        this.wayFlags = new OffHeapBitSet(root.resolve("wayFlags"), 1L << 40L);
-        this.relationFlags = new OffHeapBitSet(root.resolve("relationFlags"), 1L << 40L);
+    public Storage(@NonNull Path root) throws Exception {
+        this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
+        this.ways = new BufferedPersistentMap<>(new WayDB(root, "osm_ways"), 10_000);
+        this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
+
+        this.nodeFlags = new OffHeapBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
+        this.wayFlags = new OffHeapBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
+        this.relationFlags = new OffHeapBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
+
+        this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
+        this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationNumber"), -1L);
     }
 
     public void flush() throws Exception {
@@ -69,5 +76,7 @@ public class Storage implements AutoCloseable {
         this.nodeFlags.close();
         this.wayFlags.close();
         this.relationFlags.close();
+
+        this.sequenceNumber.close();
     }
 }
