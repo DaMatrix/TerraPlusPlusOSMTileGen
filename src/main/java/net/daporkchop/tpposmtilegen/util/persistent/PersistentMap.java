@@ -18,23 +18,26 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.pipeline;
+package net.daporkchop.tpposmtilegen.util.persistent;
 
 import lombok.NonNull;
 
-import java.io.IOException;
+import java.util.List;
 
 /**
- * A step in the data processing pipeline.
- *
- * @param <I> the input data type
  * @author DaPorkchop_
  */
-@FunctionalInterface
-public interface PipelineStep<I> extends AutoCloseable {
-    void accept(@NonNull I value) throws IOException;
+public interface PersistentMap<K, V> extends AutoCloseable {
+    void put(@NonNull K key, @NonNull V value) throws Exception;
+
+    void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception;
+
+    V get(@NonNull K key) throws Exception;
+
+    List<V> getAll(@NonNull List<K> keys) throws Exception;
+
+    void flush() throws Exception;
 
     @Override
-    default void close() throws IOException {
-    }
+    void close() throws Exception;
 }

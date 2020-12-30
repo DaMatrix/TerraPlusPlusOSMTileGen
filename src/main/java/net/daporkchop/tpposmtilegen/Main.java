@@ -3,7 +3,7 @@ package net.daporkchop.tpposmtilegen;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.mode.assemblebvh.AssembleIndex;
+import net.daporkchop.tpposmtilegen.mode.digestpbf.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.testindex.TestIndex;
 
 import java.util.Arrays;
@@ -18,7 +18,7 @@ public class Main {
     protected static final Map<String, Supplier<IMode>> MODES = new HashMap<>();
 
     static {
-        MODES.put("assemble_index", AssembleIndex::new);
+        MODES.put("digest_pbf", DigestPBF::new);
         MODES.put("test_index", TestIndex::new);
     }
 

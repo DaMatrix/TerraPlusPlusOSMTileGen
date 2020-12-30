@@ -25,8 +25,8 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.util.map.BufferedPersistentMap;
-import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
+import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 
 import java.nio.file.Path;

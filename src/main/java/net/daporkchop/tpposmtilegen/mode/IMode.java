@@ -21,29 +21,10 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.pipeline.PipelineStep;
-
-import java.io.File;
-import java.io.IOException;
-import java.util.Arrays;
 
 /**
  * @author DaPorkchop_
  */
 public interface IMode {
     void run(@NonNull String... args) throws Exception;
-
-    interface Pipeline extends IMode {
-        @Override
-        default void run(@NonNull String... args) throws Exception {
-            File srcFile = PFiles.assertFileExists(new File(args[0]));
-
-            try (PipelineStep<File> step = this.createPipeline(args)) {
-                step.accept(srcFile);
-            }
-        }
-
-        PipelineStep<File> createPipeline(@NonNull String... args) throws Exception;
-    }
 }

@@ -23,7 +23,7 @@ package net.daporkchop.tpposmtilegen.storage;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Relation;
-import net.daporkchop.tpposmtilegen.util.map.PersistentMap;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
 import java.nio.file.Path;
 

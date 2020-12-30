@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.map;
+package net.daporkchop.tpposmtilegen.util.persistent;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
