@@ -27,8 +27,10 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
+import org.rocksdb.CompactionStyle;
+import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
@@ -63,17 +65,39 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
 
-        OPTIONS = new Options().setCreateIfMissing(true);
+        OPTIONS = new Options()
+                .setCreateIfMissing(true)
+                .setArenaBlockSize(1L << 20)
+                .setOptimizeFiltersForHits(true)
+                .setSkipStatsUpdateOnDbOpen(true)
+                .setCompactionStyle(CompactionStyle.LEVEL)
+                .setCompactionReadaheadSize(4L << 20L)
+                .setAdviseRandomOnOpen(false)
+                .setCompressionType(CompressionType.NO_COMPRESSION)
+                .setAllowConcurrentMemtableWrite(true)
+                .setIncreaseParallelism(CPU_COUNT)
+                .setAllowMmapReads(true)
+                .setAllowMmapWrites(true);
+        //.setMergeOperatorName("sortlist")
+
         READ_OPTIONS = new ReadOptions();
         WRITE_OPTIONS = new WriteOptions();
-        FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true);
+        FLUSH_OPTIONS = new FlushOptions()
+                .setWaitForFlush(true);
     }
 
+    protected final Options options;
     protected final RocksDB delegate;
     protected final OffHeapAtomicLong maxValueSize;
 
     public DB(@NonNull Path root, @NonNull String name) throws Exception {
-        this.delegate = RocksDB.open(OPTIONS, root.resolve(name).toString());
+        this(OPTIONS, root, name);
+    }
+
+    public DB(@NonNull Options options, @NonNull Path root, @NonNull String name) throws Exception {
+        this.options = options;
+        this.delegate = RocksDB.open(options, root.resolve(name).toString());
+
         this.maxValueSize = new OffHeapAtomicLong(root.resolve(name + "_maxValueSize"), 0L);
     }
 

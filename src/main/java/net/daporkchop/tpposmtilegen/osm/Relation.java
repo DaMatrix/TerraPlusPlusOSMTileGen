@@ -27,10 +27,19 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.primitive.map.IntObjMap;
+import net.daporkchop.lib.primitive.map.LongObjMap;
+import net.daporkchop.lib.primitive.map.open.IntObjOpenHashMap;
+import net.daporkchop.lib.primitive.map.open.LongObjOpenHashMap;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
+import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -93,7 +102,110 @@ public final class Relation extends Element {
 
     @Override
     public Area toArea(@NonNull Storage storage) throws Exception {
-        return null; //TODO
+        if (!AreaKeys.isRelationArea(this.tags)) { //this relations's tags don't indicate that it's an area, don't bother making it into one
+            return null;
+        }
+
+        {
+            boolean hasOuter = false;
+            for (Member member : this.members) {
+                int type = member.getType();
+                checkState(type == Way.TYPE, "invalid member of type %d in area relation %d", type, this.id);
+                if ("outer".equals(member.role)) {
+                    hasOuter = true;
+                } else if ("inner".equals(member.role)) {
+                    checkState(hasOuter, "relation %d has inner loop before outer!", this.id);
+                } else {
+                    return null;
+                }
+            }
+            if (!hasOuter) { //relation has no outer loops, skip
+                return null;
+            }
+        }
+
+        List<Shape> shapes = new ArrayList<>();
+        double[][] outerRing = null;
+        List<double[][]> linesOut = new ArrayList<>();
+        List<Long> boxedIds = new ArrayList<>();
+        LongObjMap<long[]> endsToWays = new LongObjOpenHashMap<>();
+
+        boolean prevType = false;
+        for (Member member : this.members) {
+            boolean currType = "outer".equals(member.role);
+            if (currType != prevType && !endsToWays.isEmpty()) {
+                throw new IllegalStateException(PStrings.fastFormat("transitioned from outer:%v to outer:%b, but there were still unused ways!", prevType, currType));
+            }
+
+            long[] ids = storage.ways().get(member.getId()).nodes;
+            if (ids[0] != ids[ids.length - 1]) {
+                long[] neighborFront = endsToWays.get(ids[0]);
+                if (neighborFront != null) { //merge with other way at front
+                    long[] newArr = new long[(neighborFront.length - 1) + ids.length];
+                    System.arraycopy(neighborFront, 0, newArr, 0, neighborFront.length - 1);
+                    System.arraycopy(ids, 0, newArr, neighborFront.length - 1, ids.length);
+                    ids = newArr;
+                    checkState(endsToWays.replace(neighborFront[0], neighborFront, ids));
+                    checkState(endsToWays.remove(ids[0], neighborFront));
+                    endsToWays.put(ids[ids.length - 1], ids);
+                }
+
+                if (ids[0] != ids[ids.length - 1]) {
+                    long[] neighborBack = endsToWays.get(ids[ids.length - 1]);
+                    if (neighborBack != null) { //merge with other way at back
+                        long[] newArr = new long[(ids.length - 1) + neighborBack.length];
+                        System.arraycopy(ids, 0, newArr, 0, ids.length - 1);
+                        System.arraycopy(neighborBack, 0, newArr, ids.length - 1, neighborBack.length);
+                        ids = newArr;
+                        checkState(endsToWays.replace(neighborBack[neighborBack.length - 1], neighborBack, ids));
+                        checkState(endsToWays.remove(ids[ids.length - 1], neighborBack));
+                        endsToWays.put(ids[0], ids);
+                    }
+                }
+            }
+
+            if (ids[0] == ids[ids.length - 1]) { //the line is closed, emit it
+                //remove end mappings
+                endsToWays.remove(ids[0], ids);
+                endsToWays.remove(ids[ids.length - 1], ids);
+
+                //box IDs
+                for (int i = 0; i < ids.length - 1; i++) { //skip last point because otherwise it'll be retrieved and deserialized twice
+                    boxedIds.add(ids[i]);
+                }
+
+                //get nodes by their IDs
+                List<Node> nodes = storage.nodes().getAll(boxedIds);
+
+                //convert nodes to points
+                double[][] ring = new double[ids.length][];
+                for (int i = 0; i < ids.length - 1; i++) {
+                    ring[i] = nodes.get(i).toPoint();
+                }
+                ring[ids.length - 1] = ring[0]; //set last point to first point
+
+                if (currType) {
+                    if (outerRing != null) { //beginning a second outer ring, flush currently pending ring
+                        shapes.add(new Shape(outerRing, linesOut.toArray(new double[0][][])));
+                        linesOut.clear();
+                    }
+                    outerRing = ring;
+                } else {
+                    linesOut.add(ring);
+                }
+            }
+
+            prevType = currType;
+        }
+
+        if (!endsToWays.isEmpty()) {
+            throw new IllegalStateException(PStrings.fastFormat("transitioned from outer:%v to end, but there were still unused ways!", prevType));
+        }
+        checkState(outerRing != null, "no geometry left at end?!?");
+
+        shapes.add(new Shape(outerRing, linesOut.toArray(new double[0][][])));
+
+        return new Area(Area.elementIdToAreaId(this), shapes.toArray(new Shape[0]));
     }
 
     /**

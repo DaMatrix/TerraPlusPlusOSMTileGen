@@ -21,12 +21,20 @@
 package net.daporkchop.tpposmtilegen.mode.testindex;
 
 import lombok.NonNull;
+import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.mode.IMode;
+import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import org.rocksdb.Options;
+import org.rocksdb.RocksDB;
+import org.rocksdb.WriteOptions;
 
+import java.io.File;
 import java.nio.file.Paths;
+import java.util.Objects;
 import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -38,24 +46,44 @@ public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         try (Storage storage = new Storage(Paths.get(args[0]))) {
-            System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
+            //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
 
-            StreamSupport.longStream(storage.wayFlags().spliterator(), false)
-                    .forEach(id -> {
-                        try {
-                            Way way = storage.ways().get(id);
-                            checkState(way != null, "unknown way with id: %d", id);
+            try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
+                System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
+                        .mapToObj(id -> {
+                            try {
+                                Way way = storage.ways().get(id);
+                                checkState(way != null, "unknown way with id: %d", id);
 
-                            Area area = way.toArea(storage);
-                            if (area != null) {
-                                System.out.printf("way %d -> area %d\n", id, area.id());
-                            } else {
-                                System.out.printf("way %d is not an area\n", id);
+                                notifier.step(0);
+
+                                return way.toArea(storage);
+                            } catch (Exception e) {
+                                throw new RuntimeException(String.valueOf(id), e);
                             }
+                        })
+                        .filter(Objects::nonNull)
+                        .peek(a -> notifier.step(1))
+                        .count());
+            }
+
+            if (true) {
+                return;
+            }
+
+            System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
+                    .mapToObj(id -> {
+                        try {
+                            Relation relation = storage.relations().get(id);
+                            checkState(relation != null, "unknown relation with id: %d", id);
+
+                            return relation.toArea(storage);
                         } catch (Exception e) {
                             throw new RuntimeException(String.valueOf(id), e);
                         }
-                    });
+                    })
+                    .filter(Objects::nonNull)
+                    .count());
         }
     }
 }
