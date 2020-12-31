@@ -22,10 +22,14 @@ package net.daporkchop.tpposmtilegen.mode.testindex;
 
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.mode.IMode;
+import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.nio.file.Paths;
 import java.util.stream.StreamSupport;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -35,6 +39,23 @@ public class TestIndex implements IMode {
     public void run(@NonNull String... args) throws Exception {
         try (Storage storage = new Storage(Paths.get(args[0]))) {
             System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
+
+            StreamSupport.longStream(storage.wayFlags().spliterator(), false)
+                    .forEach(id -> {
+                        try {
+                            Way way = storage.ways().get(id);
+                            checkState(way != null, "unknown way with id: %d", id);
+
+                            Area area = way.toArea(storage);
+                            if (area != null) {
+                                System.out.printf("way %d -> area %d\n", id, area.id());
+                            } else {
+                                System.out.printf("way %d is not an area\n", id);
+                            }
+                        } catch (Exception e) {
+                            throw new RuntimeException(String.valueOf(id), e);
+                        }
+                    });
         }
     }
 }

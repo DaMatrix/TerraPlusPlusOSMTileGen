@@ -75,7 +75,7 @@ public final class ProgressNotifier implements AutoCloseable {
                 this.builder.append('0');
             } else {
                 boolean firstSection = true;
-                for (long div = 1_000_000L; div > 0L; div /= 1000L) {
+                for (long div = 1_000_000_000L; div > 0L; div /= 1000L) {
                     if (l / div > 0L) {
                         long section = (l / div) % 1000L;
                         if (firstSection) {

@@ -18,19 +18,45 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm;
+package net.daporkchop.tpposmtilegen.osm.area;
 
+import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.osm.Relation;
+import net.daporkchop.tpposmtilegen.osm.Way;
+
+import java.util.Map;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
+ * See:
+ * <ul>
+ *     <li><a href="https://wiki.openstreetmap.org/wiki/Area">wiki.openstreetmap.org/wiki/Area</a></li>
+ *     <li><a href="https://wiki.openstreetmap.org/wiki/Relation:multipolygon">wiki.openstreetmap.org/wiki/Relation:multipolygon</a></li>
+ * </ul>
+ *
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
-public class Area {
+@Getter
+public final class Area {
+    public static long elementIdToAreaId(@NonNull Element element) {
+        switch (element.type()) {
+            case Way.TYPE:
+                return element.id() << 1L;
+            case Relation.TYPE:
+                return (element.id() << 1L) | 1L;
+        }
+        throw new IllegalArgumentException("element cannot be converted to area: " + element);
+    }
+
     protected final long id;
-    @NonNull
-    protected final double[][] outer;
-    @NonNull
-    protected final double[][][] inners;
+    protected final Shape[] shapes;
+
+    public Area(long id, @NonNull Shape[] shapes) {
+        this.id = notNegative(id, "id");
+        notNegative(shapes.length, "area must consist of at least one shape!");
+        this.shapes = shapes;
+    }
 }

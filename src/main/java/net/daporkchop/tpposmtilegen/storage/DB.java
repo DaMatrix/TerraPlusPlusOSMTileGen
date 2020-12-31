@@ -150,7 +150,10 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
         List<V> values = uncheckedCast(keyBytes); //re-use list that was previously used for storing encoded keys
 
         for (int i = 0; i < size; i++) {
-            values.add(this.valueFromBytes(keys.get(i), Unpooled.wrappedBuffer(valueBytes.get(i))));
+            byte[] value = valueBytes.get(i);
+            K key = keys.get(i);
+            checkState(value != null, "missing entry: %s", key);
+            values.add(this.valueFromBytes(key, Unpooled.wrappedBuffer(value)));
         }
 
         return values;

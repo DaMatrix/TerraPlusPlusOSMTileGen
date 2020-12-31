@@ -27,6 +27,8 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
@@ -64,7 +66,7 @@ public final class Relation extends Element {
     }
 
     @Override
-    public long type() {
+    public int type() {
         return TYPE;
     }
 
@@ -87,6 +89,11 @@ public final class Relation extends Element {
         }
 
         super.fromBytes(src);
+    }
+
+    @Override
+    public Area toArea(@NonNull Storage storage) throws Exception {
+        return null; //TODO
     }
 
     /**

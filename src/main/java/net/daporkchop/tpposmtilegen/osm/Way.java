@@ -25,8 +25,16 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
+import net.daporkchop.tpposmtilegen.osm.area.Shape;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * @author DaPorkchop_
@@ -56,7 +64,7 @@ public final class Way extends Element {
     }
 
     @Override
-    public long type() {
+    public int type() {
         return TYPE;
     }
 
@@ -79,5 +87,43 @@ public final class Way extends Element {
         }
 
         super.fromBytes(src);
+    }
+
+    @Override
+    public Area toArea(@NonNull Storage storage) throws Exception {
+        if (this.nodes.length < 3) { //less than 3 points -> it can't be a valid polygon
+            return null;
+        }
+
+        int count = this.nodes.length;
+        if (this.nodes[0] != this.nodes[count - 1]) { //first and last points aren't the same -> not a closed way
+            return null;
+        }
+
+        if (!AreaKeys.isWayArea(this.tags)) { //this way's tags don't indicate that it's an area, don't bother making it into one
+            return null;
+        }
+
+        //the resulting area consists of a single outer line, no holes, no multipolygons
+
+        //box IDs
+        List<Long> boxedIds = new ArrayList<>(count);
+        for (int i = 0; i < count - 1; i++) { //skip last point because otherwise it'll be retrieved and deserialized twice
+            boxedIds.add(this.nodes[i]);
+        }
+
+        //get nodes by their IDs
+        List<Node> nodes = storage.nodes().getAll(boxedIds);
+
+        //convert nodes to points
+        double[][] outerRing = new double[count][];
+        for (int i = 0; i < count - 1; i++) {
+            outerRing[i] = nodes.get(i).toPoint();
+        }
+        outerRing[count - 1] = outerRing[0]; //set last point to first point
+
+        return new Area(Area.elementIdToAreaId(this), new Shape[]{
+                new Shape(outerRing, new double[0][][])
+        });
     }
 }

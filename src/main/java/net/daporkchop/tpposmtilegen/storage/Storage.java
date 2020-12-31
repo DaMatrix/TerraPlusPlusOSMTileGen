@@ -42,6 +42,7 @@ public class Storage implements AutoCloseable {
     protected final PersistentMap<Long, Relation> relations;
 
     protected final OffHeapBitSet nodeFlags;
+    protected final OffHeapBitSet taggedNodeFlags;
     protected final OffHeapBitSet wayFlags;
     protected final OffHeapBitSet relationFlags;
 
@@ -54,11 +55,31 @@ public class Storage implements AutoCloseable {
         this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
 
         this.nodeFlags = new OffHeapBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
+        this.taggedNodeFlags = new OffHeapBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
         this.wayFlags = new OffHeapBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
         this.relationFlags = new OffHeapBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
 
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
+    }
+
+    public void putNode(@NonNull Node node) throws Exception {
+        this.nodes.put(node.id(), node);
+        this.nodeFlags.set(node.id());
+
+        if (!node.tags().isEmpty()) {
+            this.taggedNodeFlags.set(node.id());
+        }
+    }
+
+    public void putWay(@NonNull Way way) throws Exception {
+        this.ways.put(way.id(), way);
+        this.wayFlags.set(way.id());
+    }
+
+    public void putRelation(@NonNull Relation relation) throws Exception {
+        this.relations.put(relation.id(), relation);
+        this.relationFlags.set(relation.id());
     }
 
     public void flush() throws Exception {

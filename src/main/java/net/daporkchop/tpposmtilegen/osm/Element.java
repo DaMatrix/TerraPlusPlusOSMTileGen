@@ -27,9 +27,12 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -59,40 +62,40 @@ public abstract class Element {
         this.fromBytes(data);
     }
 
-    public abstract long type();
-
-    /**
-     * @return the state of this element, encoded as a {@code byte[]}
-     */
-    public byte[] toByteArray() {
-        ByteBuf dst = ENCODING_BUFFER_CACHE.get().clear();
-        this.toBytes(dst);
-        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
-    }
+    public abstract int type();
 
     public void toBytes(@NonNull ByteBuf dst) {
-        int countIndex = dst.writerIndex();
-        dst.writeInt(-1);
-        this.tags.forEach((k, v) -> {
-            int startIndex = dst.writerIndex();
-            int bytes = dst.writeInt(-1).writeCharSequence(k, StandardCharsets.UTF_8);
-            dst.setInt(startIndex, bytes);
+        if (this.tags.isEmpty()) {
+            dst.writeInt(0);
+        } else {
+            int countIndex = dst.writerIndex();
+            dst.writeInt(-1);
+            this.tags.forEach((k, v) -> {
+                int startIndex = dst.writerIndex();
+                int bytes = dst.writeInt(-1).writeCharSequence(k, StandardCharsets.UTF_8);
+                dst.setInt(startIndex, bytes);
 
-            startIndex = dst.writerIndex();
-            bytes = dst.writeInt(-1).writeCharSequence(v, StandardCharsets.UTF_8);
-            dst.setInt(startIndex, bytes);
-        });
-        dst.setInt(countIndex, this.tags.size());
-    }
-
-    public void fromBytes(@NonNull ByteBuf src) {
-        this.tags = new HashMap<>();
-        for (int i = 0, count = src.readInt(); i < count; i++) {
-            String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
-            String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
-            this.tags.put(k, v);
+                startIndex = dst.writerIndex();
+                bytes = dst.writeInt(-1).writeCharSequence(v, StandardCharsets.UTF_8);
+                dst.setInt(startIndex, bytes);
+            });
+            dst.setInt(countIndex, this.tags.size());
         }
     }
 
-    //public abstract Area[] areas();
+    public void fromBytes(@NonNull ByteBuf src) {
+        int count = src.readInt();
+        if (count == 0) {
+            this.tags = Collections.emptyMap();
+        } else {
+            this.tags = new HashMap<>();
+            for (int i = 0; i < count; i++) {
+                String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+                String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+                this.tags.put(k, v);
+            }
+        }
+    }
+
+    public abstract Area toArea(@NonNull Storage storage) throws Exception;
 }

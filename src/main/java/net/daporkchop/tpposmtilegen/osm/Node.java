@@ -25,6 +25,8 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.util.Map;
 
@@ -57,7 +59,7 @@ public final class Node extends Element {
     }
 
     @Override
-    public long type() {
+    public int type() {
         return TYPE;
     }
 
@@ -74,5 +76,14 @@ public final class Node extends Element {
         this.lat = src.readDouble();
 
         super.fromBytes(src);
+    }
+
+    @Override
+    public Area toArea(@NonNull Storage storage) throws Exception {
+        return null; //a single node can never be an area
+    }
+
+    public double[] toPoint() {
+        return new double[]{ this.lon, this.lat };
     }
 }

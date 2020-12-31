@@ -1,0 +1,18 @@
+[
+  {
+    "natural": "water"
+  },
+  {
+    "water": null
+  },
+  {
+    "waterway": null
+  },
+  {
+    "landuse": [
+      "basin",
+      "reservoir",
+      "pond"
+    ]
+  }
+]
