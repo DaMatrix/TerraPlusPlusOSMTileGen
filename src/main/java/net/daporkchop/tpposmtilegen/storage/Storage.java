@@ -58,7 +58,7 @@ public class Storage implements AutoCloseable {
         this.relationFlags = new OffHeapBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
 
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
-        this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationNumber"), -1L);
+        this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
     }
 
     public void flush() throws Exception {

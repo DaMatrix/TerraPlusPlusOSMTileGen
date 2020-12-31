@@ -64,6 +64,11 @@ public final class Relation extends Element {
     }
 
     @Override
+    public long type() {
+        return TYPE;
+    }
+
+    @Override
     public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.members.length);
         for (Member member : this.members) {

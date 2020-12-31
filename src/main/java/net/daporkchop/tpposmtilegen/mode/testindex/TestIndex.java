@@ -21,15 +21,11 @@
 package net.daporkchop.tpposmtilegen.mode.testindex;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
-import java.io.File;
-import java.util.BitSet;
-import java.util.concurrent.ThreadLocalRandom;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.nio.file.Paths;
+import java.util.stream.StreamSupport;
 
 /**
  * @author DaPorkchop_
@@ -37,33 +33,8 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        BitSet java = new BitSet();
-        int max = 10000000;
-
-        PFiles.rm(new File(args[0], "bitset"));
-        try (OffHeapBitSet bitSet = new OffHeapBitSet(PFiles.ensureFileExists(new File(args[0], "bitset")).toPath(), 1L << 40L)) {
-            if (true) {
-                for (int i = 0; i < 10000; i++) {
-                    int j = ThreadLocalRandom.current().nextInt(max);
-                    bitSet.set(j);
-                    java.set(j);
-                }
-            } else {
-                for (int i = 0; i < max; i += ThreadLocalRandom.current().nextInt(4)) {
-                    bitSet.set(i);
-                    java.set(i);
-                }
-            }
-
-            for (int i = 0; i < max; i++) {
-                checkState(java.get(i) == bitSet.get(i), "bit %d (byte %d, word %d)", i, i >> 3, i >> 6);
-            }
-        }
-
-        try (OffHeapBitSet bitSet = new OffHeapBitSet(new File(args[0], "bitset").toPath(), 1L << 40L)) {
-            for (int i = 0; i < max; i++) {
-                checkState(java.get(i) == bitSet.get(i), "bit %d (byte %d, word %d)", i, i >> 3, i >> 6);
-            }
+        try (Storage storage = new Storage(Paths.get(args[0]))) {
+            System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
         }
     }
 }

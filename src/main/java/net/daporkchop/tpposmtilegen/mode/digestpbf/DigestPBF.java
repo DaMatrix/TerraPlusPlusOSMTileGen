@@ -37,7 +37,6 @@ import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -58,15 +57,10 @@ public class DigestPBF implements IMode {
 
         try (ProgressNotifier notifier = new ProgressNotifier("  Read PBF: ", 5000L, "nodes", "ways", "relations");
              Storage storage = new Storage(dst.toPath());
-             InputStream is = new FileInputStream(src);) {
+             InputStream is = new FileInputStream(src)) {
 
-            List<Thread> threads = new ArrayList<>();
             new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
-                    .setThreadFactory(r -> {
-                        Thread thread = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
-                        threads.add(thread);
-                        return thread;
-                    })
+                    .setThreadFactory(PThreadFactories.DEFAULT_THREAD_FACTORY)
                     .onHeader(header -> {
                         System.out.println(header);
                         if (header.getReplicationSequenceNumber() != null) {
@@ -113,12 +107,6 @@ public class DigestPBF implements IMode {
                         notifier.step(Relation.TYPE);
                     })
                     .parse();
-
-            //ensure all threads are totally stopped
-            threads.forEach((EConsumer<Thread>) Thread::join);
-
-            //ensure everything is written to disk before advancing
-            storage.flush();
         }
     }
 }

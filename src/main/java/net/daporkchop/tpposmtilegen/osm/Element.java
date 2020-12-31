@@ -59,6 +59,8 @@ public abstract class Element {
         this.fromBytes(data);
     }
 
+    public abstract long type();
+
     /**
      * @return the state of this element, encoded as a {@code byte[]}
      */
@@ -91,4 +93,6 @@ public abstract class Element {
             this.tags.put(k, v);
         }
     }
+
+    //public abstract Area[] areas();
 }

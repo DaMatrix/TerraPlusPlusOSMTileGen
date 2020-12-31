@@ -20,12 +20,18 @@
 
 package net.daporkchop.tpposmtilegen.util.offheap;
 
+import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.util.Prefetcher;
 import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.AbstractSparseAllocator;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.Spliterator;
+import java.util.function.IntConsumer;
+import java.util.function.LongConsumer;
 
 /**
  * An off-heap, memory-mapped bitset which supports 64-bit indexing.
@@ -114,5 +120,83 @@ public class OffHeapBitSet extends AbstractSparseAllocator {
     @Override
     public void free(long base) {
         throw new UnsupportedOperationException();
+    }
+
+    public Spliterator.OfLong spliterator() {
+        Prefetcher.prefetch(this.addr, this.actualSize0());
+
+        @AllArgsConstructor
+        class BitSetSpliterator implements java.util.Spliterator.OfLong {
+            protected final long addr;
+            protected long index;
+            protected final long end;
+
+            @Override
+            public OfLong trySplit() {
+                long index = this.index;
+                long sizeWords = (this.end - index) >>> 6L;
+                if (sizeWords >= 256L) {
+                    long middle = (index + this.end) >>> 1L;
+                    this.index = middle;
+                    return new BitSetSpliterator(this.addr, index, middle);
+                }
+                return null;
+            }
+
+            @Override
+            public boolean tryAdvance(@NonNull LongConsumer action) {
+                while (true) { //dumb and slow implementation that will likely almost never be used
+                    long index = this.index;
+                    if (index < this.end) {
+                        this.index = index + 1L;
+                        if ((PUnsafe.getLong(this.addr + (index >>> 6L << 3L)) & (1L << (index & 0x3FL))) != 0L) {
+                            action.accept(index);
+                            return true;
+                        }
+                    } else {
+                        return false;
+                    }
+                }
+            }
+
+            @Override
+            public void forEachRemaining(@NonNull LongConsumer action) {
+                while ((this.index & 0x3FL) != 0L) {
+                    if (!this.tryAdvance(action)) {
+                        return;
+                    }
+                }
+
+                for (long word = this.index >>> 6L, endWord = this.end >>> 6L; word < endWord; word++, this.index += 64L) {
+                    long v = PUnsafe.getLong(this.addr + (word << 3L));
+                    if (v != 0L) {
+                        for (long shift = 0L; shift < 64L; shift++) {
+                            if ((v & (1L << shift)) != 0L) {
+                                action.accept((word << 6L) + shift);
+                            }
+                        }
+                    }
+                }
+
+                while (this.index < this.end) {
+                    if (!this.tryAdvance(action)) {
+                        return;
+                    }
+                }
+            }
+
+            @Override
+            public long estimateSize() {
+                return this.end - this.index;
+            }
+
+            @Override
+            public int characteristics() {
+                return Spliterator.ORDERED | Spliterator.DISTINCT;
+            }
+        }
+
+        long beginAddr = this.addr + this.base + 8L;
+        return new BitSetSpliterator(beginAddr, 0L, (PUnsafe.getLongVolatile(null, this.addr + this.base) + 8L) << 6L);
     }
 }

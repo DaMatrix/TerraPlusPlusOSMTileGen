@@ -56,6 +56,11 @@ public final class Way extends Element {
     }
 
     @Override
+    public long type() {
+        return TYPE;
+    }
+
+    @Override
     public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.nodes.length);
         for (long node : this.nodes) {

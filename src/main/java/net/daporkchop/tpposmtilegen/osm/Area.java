@@ -20,59 +20,17 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
-import io.netty.buffer.ByteBuf;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
-
-import java.util.Map;
+import lombok.RequiredArgsConstructor;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
-@Setter
-@ToString(callSuper = true)
-public final class Node extends Element {
-    public static final int TYPE = 0;
-
-    protected double lon;
-    protected double lat;
-
-    public Node(long id, Map<String, String> tags, double lon, double lat) {
-        super(id, tags);
-
-        this.lon = lon;
-        this.lat = lat;
-    }
-
-    public Node(long id, ByteBuf data) {
-        super(id, data);
-    }
-
-    public Node tags(@NonNull Map<String, String> tags) {
-        super.tags = tags;
-        return this;
-    }
-
-    @Override
-    public long type() {
-        return TYPE;
-    }
-
-    @Override
-    public void toBytes(@NonNull ByteBuf dst) {
-        dst.writeDouble(this.lon).writeDouble(this.lat);
-
-        super.toBytes(dst);
-    }
-
-    @Override
-    public void fromBytes(@NonNull ByteBuf src) {
-        this.lon = src.readDouble();
-        this.lat = src.readDouble();
-
-        super.fromBytes(src);
-    }
+@RequiredArgsConstructor
+public class Area {
+    protected final long id;
+    @NonNull
+    protected final double[][] outer;
+    @NonNull
+    protected final double[][][] inners;
 }

@@ -107,7 +107,11 @@ public final class ProgressNotifier implements AutoCloseable {
     }
 
     @Override
-    public void close() {
+    public void close() throws InterruptedException {
         this.thread.interrupt();
+        this.thread.join();
+
+        this.print();
+        System.out.println("Done!");
     }
 }
