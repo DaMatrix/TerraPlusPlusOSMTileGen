@@ -31,10 +31,8 @@ import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * @author DaPorkchop_
@@ -112,34 +110,18 @@ public final class Way extends Element {
             boxedIds.add(this.nodes[i]);
         }
 
-        if (true) {
-            //get nodes by their IDs
-            List<Node> nodes = storage.nodes().getAll(boxedIds);
+        //get nodes by their IDs
+        List<Node> nodes = storage.nodes().getAll(boxedIds);
 
-            //convert nodes to points
-            double[][] outerRing = new double[count][];
-            for (int i = 0; i < count - 1; i++) {
-                outerRing[i] = nodes.get(i).toPoint();
-            }
-            outerRing[count - 1] = outerRing[0]; //set last point to first point
-
-            return new Area(Area.elementIdToAreaId(this), new Shape[]{
-                    new Shape(outerRing, new double[0][][])
-            });
-        } else {
-            //get points by their IDs
-            List<double[]> points = storage.points().getAll(boxedIds);
-
-            //convert nodes to points
-            double[][] outerRing = new double[count][];
-            for (int i = 0; i < count - 1; i++) {
-                outerRing[i] = points.get(i);
-            }
-            outerRing[count - 1] = outerRing[0]; //set last point to first point
-
-            return new Area(Area.elementIdToAreaId(this), new Shape[]{
-                    new Shape(outerRing, new double[0][][])
-            });
+        //convert nodes to points
+        double[][] outerRing = new double[count][];
+        for (int i = 0; i < count - 1; i++) {
+            outerRing[i] = nodes.get(i).toPoint();
         }
+        outerRing[count - 1] = outerRing[0]; //set last point to first point
+
+        return new Area(Area.elementIdToAreaId(this), new Shape[]{
+                new Shape(outerRing, new double[0][][])
+        });
     }
 }

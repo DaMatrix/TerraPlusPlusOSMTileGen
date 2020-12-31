@@ -45,6 +45,8 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
+        System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "1");
+
         if (false) {
             File file = new File("test");
             PFiles.rm(file);
@@ -70,38 +72,47 @@ public class TestIndex implements IMode {
         try (Storage storage = new Storage(Paths.get(args[0]))) {
             //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
 
-            try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
-                System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
-                        .mapToObj(id -> {
-                            try {
-                                Way way = storage.ways().get(id);
-                                checkState(way != null, "unknown way with id: %d", id);
+            if (false) {
+                try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
+                    System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
+                            .mapToObj(id -> {
+                                try {
+                                    Way way = storage.ways().get(id);
+                                    checkState(way != null, "unknown way with id: %d", id);
 
-                                notifier.step(0);
+                                    notifier.step(0);
 
-                                return way.toArea(storage);
-                            } catch (Exception e) {
-                                throw new RuntimeException(String.valueOf(id), e);
-                            }
-                        })
-                        .filter(Objects::nonNull)
-                        .peek(a -> notifier.step(1))
-                        .count());
+                                    return way.toArea(storage);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(String.valueOf(id), e);
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .peek(a -> notifier.step(1))
+                            .count());
+                }
             }
 
-            /*System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
-                    .mapToObj(id -> {
-                        try {
-                            Relation relation = storage.relations().get(id);
-                            checkState(relation != null, "unknown relation with id: %d", id);
+            if (true) {
+                try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
+                    System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
+                            .mapToObj(id -> {
+                                try {
+                                    Relation relation = storage.relations().get(id);
+                                    checkState(relation != null, "unknown relation with id: %d", id);
 
-                            return relation.toArea(storage);
-                        } catch (Exception e) {
-                            throw new RuntimeException(String.valueOf(id), e);
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .count());*/
+                                    notifier.step(0);
+
+                                    return relation.toArea(storage);
+                                } catch (Exception e) {
+                                    throw new RuntimeException(String.valueOf(id), e);
+                                }
+                            })
+                            .filter(Objects::nonNull)
+                            .peek(a -> notifier.step(1))
+                            .count());
+                }
+            }
         }
         long end = System.currentTimeMillis();
         System.out.printf(" took %.2fs\n", (end - start) / 1000.0d);

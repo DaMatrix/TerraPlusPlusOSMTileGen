@@ -28,9 +28,7 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.common.misc.string.PStrings;
-import net.daporkchop.lib.primitive.map.IntObjMap;
 import net.daporkchop.lib.primitive.map.LongObjMap;
-import net.daporkchop.lib.primitive.map.open.IntObjOpenHashMap;
 import net.daporkchop.lib.primitive.map.open.LongObjOpenHashMap;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
@@ -106,23 +104,18 @@ public final class Relation extends Element {
             return null;
         }
 
-        {
-            boolean hasOuter = false;
-            for (Member member : this.members) {
-                int type = member.getType();
-                checkState(type == Way.TYPE, "invalid member of type %d in area relation %d", type, this.id);
-                if ("outer".equals(member.role)) {
-                    hasOuter = true;
-                } else if ("inner".equals(member.role)) {
-                    checkState(hasOuter, "relation %d has inner loop before outer!", this.id);
-                } else {
-                    return null;
-                }
-            }
-            if (!hasOuter) { //relation has no outer loops, skip
+        int outerCount = 0;
+        for (Member member : this.members) {
+            int type = member.getType();
+            checkState(type == Way.TYPE, "invalid member of type %d in area relation %d", type, this.id);
+            if ("outer".equals(member.role)) {
+                outerCount++;
+            } else if ("inner".equals(member.role)) {
+            } else {
                 return null;
             }
         }
+        checkState(outerCount > 0, "relation %d has no outer loops!", this.id);
 
         List<Shape> shapes = new ArrayList<>();
         double[][] outerRing = null;
@@ -134,32 +127,43 @@ public final class Relation extends Element {
         for (Member member : this.members) {
             boolean currType = "outer".equals(member.role);
             if (currType != prevType && !endsToWays.isEmpty()) {
-                throw new IllegalStateException(PStrings.fastFormat("transitioned from outer:%v to outer:%b, but there were still unused ways!", prevType, currType));
+                throw new IllegalStateException(PStrings.fastFormat("relation %d transitioned from outer:%b to outer:%b, but there were still unused ways!", this.id, prevType, currType));
             }
 
             long[] ids = storage.ways().get(member.getId()).nodes;
             if (ids[0] != ids[ids.length - 1]) {
                 long[] neighborFront = endsToWays.get(ids[0]);
                 if (neighborFront != null) { //merge with other way at front
+                    checkState(endsToWays.remove(neighborFront[0], neighborFront));
+                    checkState(endsToWays.remove(neighborFront[neighborFront.length - 1], neighborFront));
+
+                    if (neighborFront[0] == ids[0]) { //reverse way
+                        reverse(neighborFront);
+                    }
                     long[] newArr = new long[(neighborFront.length - 1) + ids.length];
                     System.arraycopy(neighborFront, 0, newArr, 0, neighborFront.length - 1);
                     System.arraycopy(ids, 0, newArr, neighborFront.length - 1, ids.length);
                     ids = newArr;
-                    checkState(endsToWays.replace(neighborFront[0], neighborFront, ids));
-                    checkState(endsToWays.remove(ids[0], neighborFront));
-                    endsToWays.put(ids[ids.length - 1], ids);
                 }
 
                 if (ids[0] != ids[ids.length - 1]) {
                     long[] neighborBack = endsToWays.get(ids[ids.length - 1]);
                     if (neighborBack != null) { //merge with other way at back
+                        checkState(endsToWays.remove(neighborBack[0], neighborBack));
+                        checkState(endsToWays.remove(neighborBack[neighborBack.length - 1], neighborBack));
+
+                        if (neighborBack[neighborBack.length - 1] == ids[ids.length - 1]) { //reverse way
+                            reverse(neighborBack);
+                        }
                         long[] newArr = new long[(ids.length - 1) + neighborBack.length];
                         System.arraycopy(ids, 0, newArr, 0, ids.length - 1);
                         System.arraycopy(neighborBack, 0, newArr, ids.length - 1, neighborBack.length);
                         ids = newArr;
-                        checkState(endsToWays.replace(neighborBack[neighborBack.length - 1], neighborBack, ids));
-                        checkState(endsToWays.remove(ids[ids.length - 1], neighborBack));
+                    }
+
+                    if (ids[0] != ids[ids.length - 1]) {
                         endsToWays.put(ids[0], ids);
+                        endsToWays.put(ids[ids.length - 1], ids);
                     }
                 }
             }
@@ -176,6 +180,7 @@ public final class Relation extends Element {
 
                 //get nodes by their IDs
                 List<Node> nodes = storage.nodes().getAll(boxedIds);
+                boxedIds.clear();
 
                 //convert nodes to points
                 double[][] ring = new double[ids.length][];
@@ -206,6 +211,15 @@ public final class Relation extends Element {
         shapes.add(new Shape(outerRing, linesOut.toArray(new double[0][][])));
 
         return new Area(Area.elementIdToAreaId(this), shapes.toArray(new Shape[0]));
+    }
+
+    protected static void reverse(@NonNull long[] arr) {
+        for (int i = 0; i < arr.length >> 1; i++) {
+            int j = arr.length - 1 - i;
+            long l = arr[i];
+            arr[i] = arr[j];
+            arr[j] = l;
+        }
     }
 
     /**

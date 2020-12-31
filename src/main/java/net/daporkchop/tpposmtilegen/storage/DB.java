@@ -191,6 +191,7 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
 
     @Override
     public void close() throws Exception {
+        this.delegate.flush(FLUSH_OPTIONS);
         this.delegate.close();
         this.maxValueSize.close();
     }
