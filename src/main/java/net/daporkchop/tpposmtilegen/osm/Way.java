@@ -112,18 +112,34 @@ public final class Way extends Element {
             boxedIds.add(this.nodes[i]);
         }
 
-        //get nodes by their IDs
-        List<Node> nodes = storage.nodes().getAll(boxedIds);
+        if (true) {
+            //get nodes by their IDs
+            List<Node> nodes = storage.nodes().getAll(boxedIds);
 
-        //convert nodes to points
-        double[][] outerRing = new double[count][];
-        for (int i = 0; i < count - 1; i++) {
-            outerRing[i] = nodes.get(i).toPoint();
+            //convert nodes to points
+            double[][] outerRing = new double[count][];
+            for (int i = 0; i < count - 1; i++) {
+                outerRing[i] = nodes.get(i).toPoint();
+            }
+            outerRing[count - 1] = outerRing[0]; //set last point to first point
+
+            return new Area(Area.elementIdToAreaId(this), new Shape[]{
+                    new Shape(outerRing, new double[0][][])
+            });
+        } else {
+            //get points by their IDs
+            List<double[]> points = storage.points().getAll(boxedIds);
+
+            //convert nodes to points
+            double[][] outerRing = new double[count][];
+            for (int i = 0; i < count - 1; i++) {
+                outerRing[i] = points.get(i);
+            }
+            outerRing[count - 1] = outerRing[0]; //set last point to first point
+
+            return new Area(Area.elementIdToAreaId(this), new Shape[]{
+                    new Shape(outerRing, new double[0][][])
+            });
         }
-        outerRing[count - 1] = outerRing[0]; //set last point to first point
-
-        return new Area(Area.elementIdToAreaId(this), new Shape[]{
-                new Shape(outerRing, new double[0][][])
-        });
     }
 }

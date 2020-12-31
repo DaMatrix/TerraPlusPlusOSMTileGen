@@ -18,11 +18,12 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.sql.node;
+package net.daporkchop.tpposmtilegen.storage.sql.point;
 
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.storage.sql.SqliteDB;
+import org.sqlite.SQLiteDataSource;
 
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -32,21 +33,21 @@ import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.tpposmtilegen.storage.sql.node.NodeDB.*;
+import static net.daporkchop.tpposmtilegen.storage.sql.point.PointDB.*;
 
 /**
  * @author DaPorkchop_
  */
-public class ReadNodeDB extends SqliteDB {
-    protected final PreparedStatement[] getNodes = new PreparedStatement[FAST_BATCH_NODE_COUNT];
+final class ReadPointDB extends SqliteDB {
+    protected final PreparedStatement[] getPoints = new PreparedStatement[FAST_BATCH_POINT_COUNT];
 
-    public ReadNodeDB(@NonNull SQLiteDataSource dataSource) throws SQLException {
+    public ReadPointDB(@NonNull SQLiteDataSource dataSource) throws SQLException {
         super(dataSource);
 
-        for (int i = 0; i < FAST_BATCH_NODE_COUNT; i++) {
-            this.getNodes[i] = this.connection.prepareStatement(IntStream.rangeClosed(0, i)
+        for (int i = 0; i < FAST_BATCH_POINT_COUNT; i++) {
+            this.getPoints[i] = this.connection.prepareStatement(IntStream.rangeClosed(0, i)
                     .mapToObj(j -> "?")
-                    .collect(Collectors.joining(", ", "SELECT data FROM nodes WHERE id IN (", ");")));
+                    .collect(Collectors.joining(", ", "SELECT lon, lat FROM points WHERE id IN (", ");")));
         }
     }
 
@@ -55,24 +56,35 @@ public class ReadNodeDB extends SqliteDB {
         return CREATE_TABLES;
     }
 
-    public Node[] getNodes(@NonNull long... ids) throws SQLException {
-        positive(ids.length, "ids.length");
-        checkArg(ids.length <= FAST_BATCH_NODE_COUNT, "can get at most %d nodes at a time!", FAST_BATCH_NODE_COUNT);
+    public double[] getPoint(long id) throws SQLException {
+        PreparedStatement statement = this.getPoints[0];
+        statement.setLong(1, id);
 
-        PreparedStatement statement = this.getNodes[ids.length - 1];
+        try (ResultSet resultSet = statement.executeQuery()) {
+            return resultSet.next() ? new double[]{ resultSet.getDouble(1), resultSet.getDouble(2) } : null;
+        } finally {
+            statement.clearParameters();
+        }
+    }
+
+    public double[][] getPoints(@NonNull long... ids) throws SQLException {
+        positive(ids.length, "ids.length");
+        checkArg(ids.length <= FAST_BATCH_POINT_COUNT, "can get at most %d points at a time!", FAST_BATCH_POINT_COUNT);
+
+        PreparedStatement statement = this.getPoints[ids.length - 1];
         for (int i = 0; i < ids.length; i++) {
             statement.setLong(i + 1, ids[i]);
         }
 
         try (ResultSet resultSet = statement.executeQuery()) {
-            Node[] nodes = new Node[ids.length];
+            double[][] points = new double[ids.length][];
             int i = 0;
             while (resultSet.next()) {
-                nodes[i] = new Node(ids[i], resultSet.getBytes(1));
+                points[i] = new double[]{ resultSet.getDouble(1), resultSet.getDouble(2) };
                 i++;
             }
-            checkState(i == nodes.length, "not all nodes were found!");
-            return nodes;
+            checkState(i == points.length, "not all points were found!");
+            return points;
         } finally {
             statement.clearParameters();
         }

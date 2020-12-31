@@ -64,6 +64,15 @@ public abstract class Element {
 
     public abstract int type();
 
+    /**
+     * @return the state of this element, encoded as a {@code byte[]}
+     */
+    public byte[] toByteArray() {
+        ByteBuf dst = ENCODING_BUFFER_CACHE.get().clear();
+        this.toBytes(dst);
+        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
+    }
+
     public void toBytes(@NonNull ByteBuf dst) {
         if (this.tags.isEmpty()) {
             dst.writeInt(0);

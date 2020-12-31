@@ -26,6 +26,7 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import lombok.NonNull;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
@@ -72,10 +73,10 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
                 .setSkipStatsUpdateOnDbOpen(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
                 .setCompactionReadaheadSize(4L << 20L)
-                .setAdviseRandomOnOpen(false)
                 .setCompressionType(CompressionType.NO_COMPRESSION)
                 .setAllowConcurrentMemtableWrite(true)
                 .setIncreaseParallelism(CPU_COUNT)
+                .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true);
         //.setMergeOperatorName("sortlist")

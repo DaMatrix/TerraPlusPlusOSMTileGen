@@ -67,7 +67,7 @@ public final class Node extends Element {
     public void toBytes(@NonNull ByteBuf dst) {
         dst.writeDouble(this.lon).writeDouble(this.lat);
 
-        super.toBytes(dst);
+        //super.toBytes(dst);
     }
 
     @Override
@@ -75,7 +75,7 @@ public final class Node extends Element {
         this.lon = src.readDouble();
         this.lat = src.readDouble();
 
-        super.fromBytes(src);
+        //super.fromBytes(src);
     }
 
     @Override

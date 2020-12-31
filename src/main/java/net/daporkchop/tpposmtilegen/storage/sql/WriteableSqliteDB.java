@@ -34,45 +34,14 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 public abstract class WriteableSqliteDB extends SqliteDB {
-    protected int writeQueue = 0;
     protected boolean uncommitedChanges = false;
 
     public WriteableSqliteDB(@NonNull SQLiteDataSource dataSource) throws SQLException {
         super(dataSource);
     }
 
-    protected void incrementWriteQueue() throws SQLException {
-        if (++this.writeQueue == 100000) {
-            checkState(this.flushWriteQueue(), "write queue was applied, but caused no changes?!?");
-        }
-    }
-
-    protected boolean flushWriteQueue() throws SQLException {
-        this.writeQueue = 0;
-        int maxAffected = 0;
-        for (long off : getPreparedStatementOffsets(this.getClass())) {
-            Object obj = PUnsafe.getObject(this, off);
-            if (obj instanceof PreparedStatement) {
-                for (int affected : ((PreparedStatement) obj).executeBatch()) {
-                    maxAffected = max(maxAffected, affected);
-                }
-            } else if (obj instanceof PreparedStatement[]) {
-                for (PreparedStatement statement : (PreparedStatement[]) obj) {
-                    for (int affected : statement.executeBatch()) {
-                        maxAffected = max(maxAffected, affected);
-                    }
-                }
-            }
-        }
-
-        if (maxAffected != 0) {
-            this.uncommitedChanges = true;
-        }
-        return maxAffected != 0;
-    }
-
     public synchronized void commit() throws SQLException {
-        if (this.uncommitedChanges | (this.writeQueue != 0 && this.flushWriteQueue())) {
+        if (this.uncommitedChanges) {
             this.uncommitedChanges = false;
             System.out.println(Thread.currentThread() + " committing");
             this.connection.commit();

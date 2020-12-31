@@ -45,6 +45,28 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
+        if (false) {
+            File file = new File("test");
+            PFiles.rm(file);
+            Options options = new Options().setCreateIfMissing(true).setMergeOperatorName("sortlist");
+            WriteOptions wopts = new WriteOptions().setSync(true);
+            try (RocksDB db = RocksDB.open(options, file.toString())) {
+                db.merge(wopts, "key".getBytes(), "12356".getBytes());
+                System.out.println(new String(db.get("key".getBytes())));
+                db.merge("key".getBytes(), "634235".getBytes());
+                System.out.println(new String(db.get("key".getBytes())));
+                db.merge("key".getBytes(), "9047".getBytes());
+                System.out.println(new String(db.get("key".getBytes())));
+                db.merge("key".getBytes(), "123456".getBytes());
+                System.out.println(new String(db.get("key".getBytes())));
+            } finally {
+                wopts.close();
+                options.close();
+            }
+            return;
+        }
+
+        long start = System.currentTimeMillis();
         try (Storage storage = new Storage(Paths.get(args[0]))) {
             //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
 
@@ -67,11 +89,7 @@ public class TestIndex implements IMode {
                         .count());
             }
 
-            if (true) {
-                return;
-            }
-
-            System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
+            /*System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
                     .mapToObj(id -> {
                         try {
                             Relation relation = storage.relations().get(id);
@@ -83,7 +101,9 @@ public class TestIndex implements IMode {
                         }
                     })
                     .filter(Objects::nonNull)
-                    .count());
+                    .count());*/
         }
+        long end = System.currentTimeMillis();
+        System.out.printf(" took %.2fs\n", (end - start) / 1000.0d);
     }
 }

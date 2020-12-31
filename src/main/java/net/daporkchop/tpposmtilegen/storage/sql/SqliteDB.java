@@ -27,6 +27,7 @@ import net.daporkchop.lib.primitive.list.LongList;
 import net.daporkchop.lib.primitive.list.array.LongArrayList;
 import net.daporkchop.lib.primitive.map.concurrent.ObjObjConcurrentHashMap;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.sqlite.SQLiteConfig;
 import org.sqlite.SQLiteDataSource;
 import org.sqlite.SQLiteOpenMode;
@@ -64,9 +65,9 @@ public abstract class SqliteDB implements AutoCloseable {
     public static SQLiteDataSource dataSource(@NonNull File file) {
         SQLiteDataSource dataSource = new SQLiteDataSource();
         dataSource.setUrl("jdbc:sqlite:file:" + file);
-        dataSource.getConfig().setSynchronous(SQLiteConfig.SynchronousMode.OFF);
-        dataSource.getConfig().setOpenMode(SQLiteOpenMode.FULLMUTEX);
-        dataSource.getConfig().setLockingMode(SQLiteConfig.LockingMode.NORMAL);
+        //dataSource.getConfig().setSynchronous(SQLiteConfig.SynchronousMode.OFF);
+        //dataSource.getConfig().setOpenMode(SQLiteOpenMode.FULLMUTEX);
+        //dataSource.getConfig().setLockingMode(SQLiteConfig.LockingMode.NORMAL);
         return dataSource;
     }
 
@@ -82,6 +83,7 @@ public abstract class SqliteDB implements AutoCloseable {
 
             statement.executeBatch();
         }
+        this.connection.commit();
     }
 
     protected abstract Map<String, String> createTables();
