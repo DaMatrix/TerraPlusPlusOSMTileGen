@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,10 +18,21 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.area;
+package net.daporkchop.tpposmtilegen.natives;
+
+import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.natives.NativeFeature;
 
 /**
  * @author DaPorkchop_
  */
-public class Ring {
+@UtilityClass
+class Natives {
+    static {
+        try {
+            NativeFeature.loadNativeLibrary("", PolygonAssembler.class.getCanonicalName(), PolygonAssembler.class.getClassLoader());
+        } catch (Throwable t) {
+            throw new AssertionError("unable to load native libs", t);
+        }
+    }
 }

@@ -15,3 +15,10 @@ run/
 *.cfg
 
 classes/
+
+# native libraries
+/**/*.so
+/**/*.dll
+/**/*.o
+
+*.tar.gz

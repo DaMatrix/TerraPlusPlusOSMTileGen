@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.osm.area;
 
 import lombok.NonNull;
+import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -32,6 +33,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  *
  * @author DaPorkchop_
  */
+@ToString
 public final class Shape {
     protected final Point[] outerLoop;
     protected final Point[][] innerLoops;

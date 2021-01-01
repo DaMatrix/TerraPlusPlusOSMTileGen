@@ -68,6 +68,7 @@ dependencies {
     shade "net.daporkchop.lib:compression-zstd:$porklibVersion"
     shade "net.daporkchop.lib:encoding:$porklibVersion"
     shade "net.daporkchop.lib:primitive:$porklibVersion"
+    shade "net.daporkchop.lib:natives:$porklibVersion"
 
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
 
@@ -103,4 +104,22 @@ jar {
                 "Implementation-Version": version,
                 "Main-Class": "net.daporkchop.tpposmtilegen.Main"
     }
+}
+
+if (System.getProperty("os.name", "").toLowerCase().replaceAll("[^a-z0-9]+", "").startsWith("windows")) {
+    throw new IllegalStateException("You are running Windows, which is bad and you should feel bad.\nThis means that native libraries cannot be built.")
+} else {
+    task compileNatives(type: Exec) {
+        workingDir "$projectDir"
+        commandLine "make", String.format("-j%d", Runtime.getRuntime().availableProcessors())
+    }
+
+    compileJava.dependsOn(compileNatives)
+
+    task cleanNatives(type: Exec) {
+        workingDir "$projectDir"
+        commandLine "make", "clean"
+    }
+
+    clean.dependsOn(cleanNatives)
 }

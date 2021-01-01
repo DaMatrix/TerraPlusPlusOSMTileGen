@@ -21,10 +21,13 @@
 package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
 import net.daporkchop.tpposmtilegen.osm.area.Shape;
@@ -107,22 +110,25 @@ public final class Way extends Element<Way> {
 
         //the resulting area consists of a single outer line, no holes, no multipolygons
 
-        //box IDs
-        List<Long> boxedIds = new ArrayList<>(count);
-        for (int i = 0; i < count - 1; i++) { //skip last point because otherwise it'll be retrieved and deserialized twice
-            boxedIds.add(this.nodes[i]);
+        //get points by their IDs
+        // skip last point because otherwise it'll be retrieved and deserialized twice
+        List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes, count - 1));
+
+        for (int i = 0; i < count - 1; i++) {
+            checkState(points.get(i) != null, "unable to find node: %d", this.nodes[i]);
         }
 
-        //get points by their IDs
-        List<Point> points = storage.points().getAll(boxedIds);
+        long addr = PUnsafe.allocateMemory(count * (8L + 4L + 4L));
+        try {
+            long base = addr;
+            for (int i = 0; i < count - 1; i++) {
+                base = PolygonAssembler.putPoint(base, this.nodes[i], points.get(i));
+            }
+            PolygonAssembler.putPoint(base, this.nodes[0], points.get(0)); //set last point to first point
 
-        //gather points into array
-        Point[] outerRing = new Point[count];
-        checkState(outerRing == points.toArray(outerRing));
-        outerRing[count - 1] = outerRing[0]; //set last point to first point
-
-        return new Area(Area.elementIdToAreaId(this), new Shape[]{
-                new Shape(outerRing, new Point[0][])
-        });
+            return PolygonAssembler.assembleWay(Area.elementIdToAreaId(this), this.id, addr, count);
+        } finally {
+            PUnsafe.freeMemory(addr);
+        }
     }
 }

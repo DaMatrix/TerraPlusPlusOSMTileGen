@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,27 +18,35 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.area;
+package net.daporkchop.tpposmtilegen.natives;
+
+import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.util.Point;
 
 /**
  * @author DaPorkchop_
  */
-public enum Role {
-    UNKNOWN,
-    OUTER,
-    INNER,
-    EMPTY;
+@UtilityClass
+public class PolygonAssembler {
+    static {
+        PUnsafe.ensureClassInitialized(Natives.class);
+        init();
+    }
 
-    public static Role parse(String name) {
-        switch (name) {
-            case "outer":
-                return OUTER;
-            case "inner":
-                return INNER;
-            case "":
-                return EMPTY;
-            default:
-                return UNKNOWN;
-        }
+    private static native void init();
+
+    public static native Area assembleWay(long id, long wayId, long coordsAddr, int coordsCount);
+
+    public static long putPoint(long addr, long id, Point point) {
+        return putPoint(addr, id, point.x(), point.y());
+    }
+
+    public static long putPoint(long addr, long id, int x, int y) {
+        PUnsafe.putLong(addr, id);
+        PUnsafe.putInt(addr + 8L, x);
+        PUnsafe.putInt(addr + 12L, y);
+        return addr + 16L;
     }
 }

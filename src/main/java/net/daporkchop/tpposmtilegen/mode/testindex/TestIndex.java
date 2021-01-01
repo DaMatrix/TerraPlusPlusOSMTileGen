@@ -22,10 +22,12 @@ package net.daporkchop.tpposmtilegen.mode.testindex;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.mode.IMode;
+import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.rocksdb.Options;
@@ -45,6 +47,24 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
+        if (false) {
+            long l = PUnsafe.allocateMemory(16L * 4L);
+            PUnsafe.putLong(l + 0L, 0);
+            PUnsafe.putInt(l + 8L, -1);
+            PUnsafe.putInt(l + 12L, -1);
+            PUnsafe.putLong(l + 16L + 0L, 1);
+            PUnsafe.putInt(l + 16L + 8L, 1);
+            PUnsafe.putInt(l + 16L + 12L, -1);
+            PUnsafe.putLong(l + 32L + 0L, 2);
+            PUnsafe.putInt(l + 32L + 8L, 0);
+            PUnsafe.putInt(l + 32L + 12L, 1);
+            PUnsafe.putLong(l + 48L + 0L, 0);
+            PUnsafe.putInt(l + 48L + 8L, -1);
+            PUnsafe.putInt(l + 48L + 12L, -1);
+            System.out.println(PolygonAssembler.assembleWay(1L, 0L, l, 4));
+            return;
+        }
+
         System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "1");
 
         if (false) {
@@ -72,7 +92,7 @@ public class TestIndex implements IMode {
         try (Storage storage = new Storage(Paths.get(args[0]))) {
             //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
 
-            if (false) {
+            if (true) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
                     System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
                             .mapToObj(id -> {
@@ -84,7 +104,9 @@ public class TestIndex implements IMode {
 
                                     return way.toArea(storage);
                                 } catch (Exception e) {
-                                    throw new RuntimeException(String.valueOf(id), e);
+                                    RuntimeException re = new RuntimeException(String.valueOf(id), e);
+                                    re.printStackTrace();
+                                    throw re;
                                 }
                             })
                             .filter(Objects::nonNull)
@@ -93,7 +115,7 @@ public class TestIndex implements IMode {
                 }
             }
 
-            if (true) {
+            if (false) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
                     System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
                             .mapToObj(id -> {

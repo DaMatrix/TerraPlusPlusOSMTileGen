@@ -22,11 +22,10 @@ package net.daporkchop.tpposmtilegen.osm.area;
 
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
-
-import java.util.Map;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -40,6 +39,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @Getter
+@ToString
 public final class Area {
     public static long elementIdToAreaId(@NonNull Element element) {
         switch (element.type()) {
