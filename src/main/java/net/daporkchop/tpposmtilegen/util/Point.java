@@ -73,6 +73,10 @@ public final class Point implements Comparable<Point>, Persistent<Point> {
         return this.x >= -180 * PRECISION && this.x <= 180 * PRECISION && this.y >= -90 * PRECISION && this.y <= 90 * PRECISION;
     }
 
+    public boolean isCompletelyDefined() {
+        return this.x != UNDEFINED_COORDINATE && this.y != UNDEFINED_COORDINATE;
+    }
+
     public boolean isDefined() {
         return this.x != UNDEFINED_COORDINATE || this.y != UNDEFINED_COORDINATE;
     }
@@ -102,9 +106,9 @@ public final class Point implements Comparable<Point>, Persistent<Point> {
     @Override
     public int compareTo(Point o) {
         if (this.x != o.x) {
-            return this.x - o.x;
+            return Integer.compare(this.x, o.x);
         } else {
-            return this.y - o.y;
+            return Integer.compare(this.y, o.y);
         }
     }
 

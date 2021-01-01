@@ -176,9 +176,7 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
 
         for (int i = 0; i < size; i++) {
             byte[] value = valueBytes.get(i);
-            K key = keys.get(i);
-            checkState(value != null, "missing entry: %s", key);
-            values.add(this.valueFromBytes(key, Unpooled.wrappedBuffer(value)));
+            values.add(value != null ? this.valueFromBytes(keys.get(i), Unpooled.wrappedBuffer(value)) : null);
         }
 
         return values;

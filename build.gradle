@@ -26,6 +26,7 @@ ext {
     programVersion = "0.0.1"
 
     //dependency things
+    fastutilVersion = "8.4.4"
     guavaVersion = "21.0"
     jacksonVersion = "2.11.2"
     junitVersion = "4.12"
@@ -74,6 +75,8 @@ dependencies {
     shade "org.rocksdb:rocksdbjni:$rocksdbVersion"
 
     shade "com.google.guava:guava:$guavaVersion"
+
+    shade "it.unimi.dsi:fastutil:$fastutilVersion"
 
     testCompile "junit:junit:$junitVersion"
 
