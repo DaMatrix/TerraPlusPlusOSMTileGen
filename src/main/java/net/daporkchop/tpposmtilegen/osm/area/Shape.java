@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.osm.area;
 
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.Point;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -32,13 +33,13 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 public final class Shape {
-    protected final double[][] outerLoop;
-    protected final double[][][] innerLoops;
+    protected final Point[] outerLoop;
+    protected final Point[][] innerLoops;
 
-    public Shape(@NonNull double[][] outerLoop, @NonNull double[][][] innerLoops) {
+    public Shape(@NonNull Point[] outerLoop, @NonNull Point[][] innerLoops) {
         checkArg(outerLoop.length >= 3, "outerLoop must contain at least 3 points! (found: %d)", outerLoop.length);
         for (int i = 0; i < innerLoops.length; i++) {
-            double[][] innerLoop = innerLoops[i];
+            Point[] innerLoop = innerLoops[i];
             checkArg(innerLoop.length >= 3, "innerLoop[%d] must contain at least 3 points! (found: %d)", i, innerLoop.length);
         }
 

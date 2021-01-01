@@ -34,6 +34,7 @@ import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
 import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -48,7 +49,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Relation extends Element {
+public final class Relation extends Element<Relation> {
     public static final int TYPE = 2;
 
     private static final long TYPE_SHIFT = 62L;
@@ -88,14 +89,14 @@ public final class Relation extends Element {
     }
 
     @Override
-    public void fromBytes(@NonNull ByteBuf src) {
+    public Relation fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.members = new Member[count];
         for (int i = 0; i < count; i++) {
             this.members[i] = new Member(src);
         }
 
-        super.fromBytes(src);
+        return super.fromBytes(src);
     }
 
     @Override
@@ -118,8 +119,8 @@ public final class Relation extends Element {
         checkState(outerCount > 0, "relation %d has no outer loops!", this.id);
 
         List<Shape> shapes = new ArrayList<>();
-        double[][] outerRing = null;
-        List<double[][]> linesOut = new ArrayList<>();
+        Point[] outerRing = null;
+        List<Point[]> linesOut = new ArrayList<>();
         List<Long> boxedIds = new ArrayList<>();
         LongObjMap<long[]> endsToWays = new LongObjOpenHashMap<>();
 
@@ -178,20 +179,18 @@ public final class Relation extends Element {
                     boxedIds.add(ids[i]);
                 }
 
-                //get nodes by their IDs
-                List<Node> nodes = storage.nodes().getAll(boxedIds);
+                //get points by their IDs
+                List<Point> points = storage.points().getAll(boxedIds);
                 boxedIds.clear();
 
-                //convert nodes to points
-                double[][] ring = new double[ids.length][];
-                for (int i = 0; i < ids.length - 1; i++) {
-                    ring[i] = nodes.get(i).toPoint();
-                }
+                //gather points into array
+                Point[] ring = new Point[ids.length];
+                checkState(ring == points.toArray(ring));
                 ring[ids.length - 1] = ring[0]; //set last point to first point
 
                 if (currType) {
                     if (outerRing != null) { //beginning a second outer ring, flush currently pending ring
-                        shapes.add(new Shape(outerRing, linesOut.toArray(new double[0][][])));
+                        shapes.add(new Shape(outerRing, linesOut.toArray(new Point[0][])));
                         linesOut.clear();
                     }
                     outerRing = ring;
@@ -208,7 +207,7 @@ public final class Relation extends Element {
         }
         checkState(outerRing != null, "no geometry left at end?!?");
 
-        shapes.add(new Shape(outerRing, linesOut.toArray(new double[0][][])));
+        shapes.add(new Shape(outerRing, linesOut.toArray(new Point[0][])));
 
         return new Area(Area.elementIdToAreaId(this), shapes.toArray(new Shape[0]));
     }

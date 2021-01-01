@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,32 +18,16 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.geojson.geometry;
+package net.daporkchop.tpposmtilegen.util;
 
-import com.fasterxml.jackson.annotation.JsonCreator;
-import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
-import lombok.Getter;
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import lombok.ToString;
-
-import java.util.Arrays;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
-@ToString
-@JsonDeserialize
-public class LineString implements Geometry {
-    protected final Point[] points;
+public interface Persistent<I> {
+    void toBytes(@NonNull ByteBuf dst);
 
-    @JsonCreator
-    public LineString(@JsonProperty("coordinates") @NonNull double[][] coordinates) {
-        checkArg(coordinates.length >= 2, "LineString must have at least 2 points!");
-
-        this.points = Arrays.stream(coordinates).map(Point::new).toArray(Point[]::new);
-    }
+    I fromBytes(@NonNull ByteBuf src);
 }

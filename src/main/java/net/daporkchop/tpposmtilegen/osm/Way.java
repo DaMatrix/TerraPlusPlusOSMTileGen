@@ -29,10 +29,13 @@ import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
 import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -40,7 +43,7 @@ import java.util.Map;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Way extends Element {
+public final class Way extends Element<Way> {
     public static final int TYPE = 1;
 
     @NonNull
@@ -77,14 +80,14 @@ public final class Way extends Element {
     }
 
     @Override
-    public void fromBytes(@NonNull ByteBuf src) {
+    public Way fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.nodes = new long[count];
         for (int i = 0; i < count; i++) {
             this.nodes[i] = src.readLong();
         }
 
-        super.fromBytes(src);
+        return super.fromBytes(src);
     }
 
     @Override
@@ -110,18 +113,16 @@ public final class Way extends Element {
             boxedIds.add(this.nodes[i]);
         }
 
-        //get nodes by their IDs
-        List<Node> nodes = storage.nodes().getAll(boxedIds);
+        //get points by their IDs
+        List<Point> points = storage.points().getAll(boxedIds);
 
-        //convert nodes to points
-        double[][] outerRing = new double[count][];
-        for (int i = 0; i < count - 1; i++) {
-            outerRing[i] = nodes.get(i).toPoint();
-        }
+        //gather points into array
+        Point[] outerRing = new Point[count];
+        checkState(outerRing == points.toArray(outerRing));
         outerRing[count - 1] = outerRing[0]; //set last point to first point
 
         return new Area(Area.elementIdToAreaId(this), new Shape[]{
-                new Shape(outerRing, new double[0][][])
+                new Shape(outerRing, new Point[0][])
         });
     }
 }

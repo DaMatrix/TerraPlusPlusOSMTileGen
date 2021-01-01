@@ -27,6 +27,7 @@ import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
 
@@ -36,17 +37,20 @@ import java.util.Map;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Node extends Element {
+public final class Node extends Element<Node> {
     public static final int TYPE = 0;
 
-    protected double lon;
-    protected double lat;
+    @NonNull
+    protected Point point;
 
     public Node(long id, Map<String, String> tags, double lon, double lat) {
+        this(id, tags, new Point(lon, lat));
+    }
+
+    public Node(long id, Map<String, String> tags, @NonNull Point point) {
         super(id, tags);
 
-        this.lon = lon;
-        this.lat = lat;
+        this.point = point;
     }
 
     public Node(long id, ByteBuf data) {
@@ -65,25 +69,21 @@ public final class Node extends Element {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
-        dst.writeDouble(this.lon).writeDouble(this.lat);
+        this.point.toBytes(dst);
 
-        //super.toBytes(dst);
+        super.toBytes(dst);
     }
 
     @Override
-    public void fromBytes(@NonNull ByteBuf src) {
-        this.lon = src.readDouble();
-        this.lat = src.readDouble();
+    public Node fromBytes(@NonNull ByteBuf src) {
+        this.point = new Point(src);
 
-        //super.fromBytes(src);
+        super.fromBytes(src);
+        return this;
     }
 
     @Override
     public Area toArea(@NonNull Storage storage) throws Exception {
         return null; //a single node can never be an area
-    }
-
-    public double[] toPoint() {
-        return new double[]{ this.lon, this.lat };
     }
 }

@@ -25,6 +25,7 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.util.Point;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
 import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
@@ -38,6 +39,7 @@ import java.nio.file.Path;
 @Getter
 public class Storage implements AutoCloseable {
     protected final PersistentMap<Long, Node> nodes;
+    protected final PersistentMap<Long, Point> points;
     protected final PersistentMap<Long, Way> ways;
     protected final PersistentMap<Long, Relation> relations;
 
@@ -51,6 +53,7 @@ public class Storage implements AutoCloseable {
 
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
+        this.points = new BufferedPersistentMap<>(new PointDB(root, "osm_node_locations"), 100_000);
         this.ways = new BufferedPersistentMap<>(new WayDB(root, "osm_ways"), 10_000);
         this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
 
@@ -64,7 +67,9 @@ public class Storage implements AutoCloseable {
     }
 
     public void putNode(@NonNull Node node) throws Exception {
-        this.nodes.put(node.id(), node);
+        Long id = node.id(); //only allocate boxed ID once
+        this.nodes.put(id, node);
+        this.points.put(id, node.point());
         this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {
@@ -84,6 +89,7 @@ public class Storage implements AutoCloseable {
 
     public void flush() throws Exception {
         this.nodes.flush();
+        this.points.flush();
         this.ways.flush();
         this.relations.flush();
     }
@@ -91,6 +97,7 @@ public class Storage implements AutoCloseable {
     @Override
     public void close() throws Exception {
         this.nodes.close();
+        this.points.close();
         this.ways.close();
         this.relations.close();
 

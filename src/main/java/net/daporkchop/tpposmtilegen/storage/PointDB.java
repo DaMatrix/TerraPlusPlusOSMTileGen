@@ -18,13 +18,42 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.geojson;
+package net.daporkchop.tpposmtilegen.storage;
 
-import com.fasterxml.jackson.databind.annotation.JsonDeserialize;
+import io.netty.buffer.ByteBuf;
+import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
+
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Point}s.
+ *
  * @author DaPorkchop_
  */
-@JsonDeserialize(using = ObjectDeserializer.class)
-public interface GeoJSONObject {
+final class PointDB extends DB<Long, Point> {
+    public PointDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
+    }
+
+    @Override
+    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
+        dst.writeLong(key);
+    }
+
+    @Override
+    protected void valueToBytes(@NonNull Point value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
+    }
+
+    @Override
+    protected Point valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+        return new Point(valueBytes);
+    }
+
+    @Override
+    protected Point valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
+        return new Point(valueBytes);
+    }
 }

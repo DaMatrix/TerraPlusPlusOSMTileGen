@@ -29,12 +29,15 @@ import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
+
+import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
  * Representation of an OpenStreetMap element stored in the CQEngine database.
@@ -44,7 +47,7 @@ import java.util.Map;
 @RequiredArgsConstructor
 @Getter
 @ToString
-public abstract class Element {
+public abstract class Element<I extends Element<I>> implements Persistent<I> {
     protected static final FastThreadLocal<ByteBuf> ENCODING_BUFFER_CACHE = new FastThreadLocal<ByteBuf>() {
         @Override
         protected ByteBuf initialValue() throws Exception {
@@ -73,6 +76,7 @@ public abstract class Element {
         return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
     }
 
+    @Override
     public void toBytes(@NonNull ByteBuf dst) {
         if (this.tags.isEmpty()) {
             dst.writeInt(0);
@@ -92,7 +96,8 @@ public abstract class Element {
         }
     }
 
-    public void fromBytes(@NonNull ByteBuf src) {
+    @Override
+    public I fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         if (count == 0) {
             this.tags = Collections.emptyMap();
@@ -104,6 +109,7 @@ public abstract class Element {
                 this.tags.put(k, v);
             }
         }
+        return uncheckedCast(this);
     }
 
     public abstract Area toArea(@NonNull Storage storage) throws Exception;
