@@ -50,7 +50,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class DigestPBF implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: digest_pbf <src> <dst>");
+        checkArg(args.length == 2, "Usage: digest_pbf <pbf> <index_dir>");
         File src = PFiles.assertFileExists(new File(args[0]));
         File dst = new File(args[1]);
 

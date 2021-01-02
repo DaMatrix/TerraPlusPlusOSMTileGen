@@ -21,72 +21,38 @@
 package net.daporkchop.tpposmtilegen.util;
 
 import lombok.AccessLevel;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
-import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
-import net.daporkchop.lib.common.misc.Cloneable;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+
+import static java.lang.Math.*;
 
 /**
- * A 2-dimensional double-precision floating-point bounding box.
+ * A 2-dimensional bounding box.
  *
  * @author DaPorkchop_
  */
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
+@AllArgsConstructor(access = AccessLevel.PRIVATE)
 @Getter
 @Setter
 @ToString
-public final class Bounds2d implements AutoCloseable, Cloneable<Bounds2d> {
-    private static final Ref<Recycler> RECYCLER = ThreadRef.soft(Recycler::new);
-
-    public static Bounds2d blank() {
-        return RECYCLER.get().get();
+public final class Bounds2d {
+    public static Bounds2d of(int x0, int x1, int z0, int z1) {
+        return new Bounds2d(min(x0, x1), max(x0, x1), min(z0, z1), max(z0, z1));
     }
 
-    public static Bounds2d of(double minX, double maxX, double minZ, double maxZ) {
-        return blank().minX(minX).maxX(maxX).minZ(minZ).maxZ(maxZ);
-    }
-
-    protected double minX = Double.NaN;
-    protected double maxX = Double.NaN;
-    protected double minZ = Double.NaN;
-    protected double maxZ = Double.NaN;
+    private final int minX;
+    private final int maxX;
+    private final int minZ;
+    private final int maxZ;
 
     public boolean contains(@NonNull Bounds2d other) {
         return this.contains(other.minX(), other.maxX(), other.minZ(), other.maxZ());
     }
 
-    public boolean contains(double minX, double maxX, double minZ, double maxZ) {
+    public boolean contains(int minX, int maxX, int minZ, int maxZ) {
         return this.minX <= minX && this.maxX >= maxX && this.minZ <= minZ && this.maxZ >= maxZ;
-    }
-
-    @Override
-    public void close() {
-        RECYCLER.get().release(this);
-    }
-
-    @Override
-    public Bounds2d clone() {
-        return of(this.minX, this.maxX, this.minZ, this.maxZ);
-    }
-
-    /**
-     * {@link SimpleRecycler} implementation for {@link Bounds2d} instances.
-     *
-     * @author DaPorkchop_
-     */
-    private static final class Recycler extends SimpleRecycler<Bounds2d> {
-        @Override
-        protected Bounds2d newInstance0() {
-            return new Bounds2d();
-        }
-
-        @Override
-        protected void reset0(@NonNull Bounds2d value) {
-            value.minX(Double.NaN).maxX(Double.NaN).minZ(Double.NaN).maxZ(Double.NaN);
-        }
     }
 }

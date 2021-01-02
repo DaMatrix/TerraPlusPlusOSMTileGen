@@ -28,6 +28,7 @@ import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.lib.common.misc.string.PStrings;
 
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.math.PMath.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -43,8 +44,8 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Setter
 @EqualsAndHashCode
 public final class Point implements Comparable<Point>, Persistent<Point> {
-    private static final int PRECISION = 10_000_000;
-    private static final int UNDEFINED_COORDINATE = 2147483647;
+    public static final int PRECISION = 10_000_000;
+    public static final int UNDEFINED_COORDINATE = 2147483647;
 
     public static int doubleToFix(double v) {
         return floorI(v * PRECISION);
@@ -52,6 +53,32 @@ public final class Point implements Comparable<Point>, Persistent<Point> {
 
     public static double fixToDouble(int v) {
         return v * (1.0d / PRECISION);
+    }
+
+    public static void appendCoordinate(int c, StringBuilder dst) {
+        if (c < 0) {
+            dst.append('-');
+            c = -c;
+        }
+
+        int minD = PRECISION * 100;
+        int maxD = 1;
+        for (int d = PRECISION * 100; d > 0; d /= 10) {
+            if ((c / d) % 10 != 0) {
+                minD = min(minD, d);
+                maxD = max(maxD, d);
+            }
+        }
+
+        minD = min(minD, PRECISION / 10);
+        maxD = max(maxD, PRECISION);
+
+        for (int d = maxD; d >= minD; d /= 10) {
+            dst.append((char) ((c / d) % 10 + '0'));
+            if (d == PRECISION) {
+                dst.append('.');
+            }
+        }
     }
 
     private int x;

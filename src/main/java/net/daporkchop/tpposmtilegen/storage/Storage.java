@@ -52,6 +52,9 @@ public class Storage implements AutoCloseable {
     protected final OffHeapAtomicLong replicationTimestamp;
 
     protected final ReferenceDB references;
+    protected final TileDB tiles;
+
+    protected final OffHeapBitSet dirtyTiles;
 
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
@@ -68,6 +71,8 @@ public class Storage implements AutoCloseable {
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
         this.references = new ReferenceDB(root, "refs");
+        this.tiles = new TileDB(root, "tiles");
+        this.dirtyTiles = new OffHeapBitSet(root.resolve("tiles_dirty"), 1L << 40L);
     }
 
     public void putNode(@NonNull Node node) throws Exception {
@@ -97,6 +102,7 @@ public class Storage implements AutoCloseable {
         this.relations.flush();
 
         this.references.flush();
+        this.tiles.flush();
     }
 
     @Override
@@ -115,5 +121,8 @@ public class Storage implements AutoCloseable {
         this.replicationTimestamp.close();
 
         this.references.close();
+        this.tiles.close();
+
+        this.dirtyTiles.close();
     }
 }

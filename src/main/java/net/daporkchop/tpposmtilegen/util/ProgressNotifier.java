@@ -56,8 +56,6 @@ public final class ProgressNotifier implements AutoCloseable {
                 }
             } catch (InterruptedException e) {
                 //ignore
-            } finally {
-                System.out.println("Done!");
             }
         }, "progress notifier thread");
         this.thread.start();
@@ -112,6 +110,6 @@ public final class ProgressNotifier implements AutoCloseable {
         this.thread.join();
 
         this.print();
-        System.out.println("Done!");
+        System.out.println(this.prefix + "done.");
     }
 }

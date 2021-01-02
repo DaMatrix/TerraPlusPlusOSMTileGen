@@ -41,6 +41,8 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @ToString
 public final class Area {
+    public static final int TYPE = 3;
+
     public static long elementIdToAreaId(@NonNull Element element) {
         switch (element.type()) {
             case Way.TYPE:

@@ -4,8 +4,8 @@ import io.netty.util.concurrent.FastThreadLocalThread;
 import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.mode.buildrefs.BuildRefs;
 import net.daporkchop.tpposmtilegen.mode.digestpbf.DigestPBF;
+import net.daporkchop.tpposmtilegen.mode.rebuildplanet.RebuildPlanet;
 import net.daporkchop.tpposmtilegen.mode.testindex.TestIndex;
 
 import java.util.Arrays;
@@ -20,8 +20,8 @@ public class Main {
     protected static final Map<String, Supplier<IMode>> MODES = new HashMap<>();
 
     static {
-        MODES.put("build_refs", BuildRefs::new);
         MODES.put("digest_pbf", DigestPBF::new);
+        MODES.put("rebuild_planet", RebuildPlanet::new);
         MODES.put("test_index", TestIndex::new);
     }
 

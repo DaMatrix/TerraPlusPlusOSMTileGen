@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,56 +18,41 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.offheap;
+package net.daporkchop.tpposmtilegen.util;
 
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import com.fasterxml.jackson.core.io.JsonStringEncoder;
+import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.storage.Storage;
+
+import java.util.Map;
 
 /**
- * Off-heap implementation of basic geometry types.
- *
  * @author DaPorkchop_
  */
-public enum OffHeapGeometry {
-    /*
-     * struct vec2 {
-     *   double x;
-     *   double z;
-     * };
-     */
+public interface ToGeoJSONSerializable {
+    Map<String, String> tags();
 
-    POINT {
-        /*
-         * struct Point {
-         *   vec2 pos;
-         * };
-         */
-
-        @Override
-        public Bounds2d bounds(long addr) {
-            double x = PUnsafe.getDouble(addr + 0L);
-            double z = PUnsafe.getDouble(addr + 8L);
-            return Bounds2d.of(x, x, z, z);
+    default void toGeoJSON(@NonNull Storage storage, @NonNull StringBuilder dst) throws Exception {
+        Map<String, String> tags = this.tags();
+        boolean tagsEmpty = tags.isEmpty();
+        if (!tagsEmpty) {
+            dst.append("{\"type\":\"Feature\",\"geometry\":");
         }
-    };
-
-    private static final OffHeapGeometry[] VALUES = values();
-
-    /**
-     * Gets the {@link OffHeapGeometry} with the given ordinal.
-     *
-     * @param ordinal the ordinal
-     * @return the {@link OffHeapGeometry} with the given ordinal
-     */
-    public static OffHeapGeometry fromOrdinal(int ordinal) {
-        return VALUES[ordinal];
+        this._toGeoJSON(storage, dst);
+        if (!tagsEmpty) {
+            dst.append(",\"properties\":{");
+            tags.forEach((k, v) -> {
+                dst.append('"');
+                JsonStringEncoder.getInstance().quoteAsString(k, dst);
+                dst.append('"').append(':').append('"');
+                JsonStringEncoder.getInstance().quoteAsString(k, dst);
+                dst.append('"').append(',');
+            });
+            dst.setCharAt(dst.length() - 1, '}');
+            dst.append('}');
+        }
+        dst.append('\n');
     }
 
-    /**
-     * Gets the minimum bounding box of the given geometry object.
-     *
-     * @param addr pointer to the beginning of the object
-     * @return the minimum bounding box of the given geometry object
-     */
-    public abstract Bounds2d bounds(long addr);
+    void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception;
 }

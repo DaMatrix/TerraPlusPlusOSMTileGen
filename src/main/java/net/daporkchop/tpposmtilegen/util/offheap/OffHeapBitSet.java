@@ -79,7 +79,7 @@ public class OffHeapBitSet extends AbstractSparseAllocator {
 
     protected void ensureCapacity(long wordIndex) {
         long addr = this.addr;
-        long currSize = PUnsafe.getLong(addr + this.base);
+        long currSize = PUnsafe.getLongVolatile(null, addr + this.base);
         if (wordIndex > currSize) { //fill unallocated space with zeroes and then increase size pointer
             synchronized (this) {
                 currSize = PUnsafe.getLongVolatile(null, addr + this.base);
@@ -90,6 +90,24 @@ public class OffHeapBitSet extends AbstractSparseAllocator {
                     PUnsafe.setMemory(fillStart, fillCount, (byte) 0);
                     //update size marker
                     PUnsafe.putLongVolatile(null, addr + this.base, wordIndex);
+                }
+            }
+        }
+    }
+
+    public void clear() {
+        long addr = this.addr;
+        long currSize = PUnsafe.getLongVolatile(null, addr + this.base);
+        if (currSize > 0L) {
+            synchronized (this) {
+                currSize = PUnsafe.getLongVolatile(null, addr + this.base);
+                if (currSize > 0L) {
+                    //fill with zeroes
+                    long fillStart = addr + this.base + 8L;
+                    long fillCount = currSize << 3L;
+                    PUnsafe.setMemory(fillStart, fillCount, (byte) 0);
+                    //update size marker
+                    PUnsafe.putLongVolatile(null, addr + this.base, -1L);
                 }
             }
         }

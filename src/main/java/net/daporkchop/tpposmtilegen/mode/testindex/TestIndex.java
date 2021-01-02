@@ -20,21 +20,16 @@
 
 package net.daporkchop.tpposmtilegen.mode.testindex;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
+import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import org.rocksdb.Options;
-import org.rocksdb.RocksDB;
-import org.rocksdb.WriteOptions;
 
-import java.io.File;
 import java.nio.file.Paths;
 import java.util.Objects;
 import java.util.stream.StreamSupport;
@@ -47,46 +42,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        if (false) {
-            long l = PUnsafe.allocateMemory(16L * 4L);
-            PUnsafe.putLong(l + 0L, 0);
-            PUnsafe.putInt(l + 8L, -1);
-            PUnsafe.putInt(l + 12L, -1);
-            PUnsafe.putLong(l + 16L + 0L, 1);
-            PUnsafe.putInt(l + 16L + 8L, 1);
-            PUnsafe.putInt(l + 16L + 12L, -1);
-            PUnsafe.putLong(l + 32L + 0L, 2);
-            PUnsafe.putInt(l + 32L + 8L, 0);
-            PUnsafe.putInt(l + 32L + 12L, 1);
-            PUnsafe.putLong(l + 48L + 0L, 0);
-            PUnsafe.putInt(l + 48L + 8L, -1);
-            PUnsafe.putInt(l + 48L + 12L, -1);
-            System.out.println(PolygonAssembler.assembleWay(1L, 0L, l, 4));
-            return;
-        }
-
-        System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "1");
-
-        if (false) {
-            File file = new File("test");
-            PFiles.rm(file);
-            Options options = new Options().setCreateIfMissing(true).setMergeOperatorName("sortlist");
-            WriteOptions wopts = new WriteOptions().setSync(true);
-            try (RocksDB db = RocksDB.open(options, file.toString())) {
-                db.merge(wopts, "key".getBytes(), "12356".getBytes());
-                System.out.println(new String(db.get("key".getBytes())));
-                db.merge("key".getBytes(), "634235".getBytes());
-                System.out.println(new String(db.get("key".getBytes())));
-                db.merge("key".getBytes(), "9047".getBytes());
-                System.out.println(new String(db.get("key".getBytes())));
-                db.merge("key".getBytes(), "123456".getBytes());
-                System.out.println(new String(db.get("key".getBytes())));
-            } finally {
-                wopts.close();
-                options.close();
-            }
-            return;
-        }
+        //System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "1");
 
         long start = System.currentTimeMillis();
         try (Storage storage = new Storage(Paths.get(args[0]))) {
@@ -115,7 +71,7 @@ public class TestIndex implements IMode {
                 }
             }
 
-            if (true) {
+            if (false) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
                     System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), false)
                             .mapToObj(id -> {
@@ -137,6 +93,23 @@ public class TestIndex implements IMode {
                             .peek(a -> notifier.step(1))
                             .count());
                 }
+            }
+
+            if (false) {
+                StreamSupport.longStream(storage.nodeFlags().spliterator(), true)
+                        .forEach(id -> {
+                            try {
+                                LongList dst = new LongArrayList();
+                                storage.references().getReferencesTo(Node.TYPE, id, dst);
+                                if (dst.isEmpty()) {
+                                    System.out.printf("node %d is referenced 0 times\n", id);
+                                } else {
+                                    System.out.printf("node %d is referenced %d times: %s\n", id, dst.size(), dst);
+                                }
+                            } catch (Exception e) {
+                                throw new RuntimeException(String.valueOf(id), e);
+                            }
+                        });
             }
         }
         long end = System.currentTimeMillis();

@@ -101,7 +101,7 @@ public final class Way extends Element<Way> {
 
     @Override
     public Area toArea(@NonNull Storage storage) throws Exception {
-        if (this.nodes.length < 3) { //less than 3 points -> it can't be a valid polygon
+        if (this.nodes.length <= 3) { //less than 4 points -> it can't be a valid polygon
             return null;
         }
 
@@ -114,12 +114,10 @@ public final class Way extends Element<Way> {
             return null;
         }
 
-        //the resulting area consists of a single outer line, no holes, no multipolygons
-
         //get points by their IDs
         List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes));
 
-        for (int i = 0; i < count - 1; i++) {
+        for (int i = 0; i < count; i++) {
             if (points.get(i) == null) {
                 System.err.printf("unknown node %d in area way %d\n", this.nodes[i], this.id);
                 return null;
@@ -137,5 +135,10 @@ public final class Way extends Element<Way> {
         } finally {
             PUnsafe.freeMemory(addr);
         }
+    }
+
+    @Override
+    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
+        //TODO
     }
 }

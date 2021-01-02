@@ -80,11 +80,20 @@ public final class Node extends Element<Node> {
 
     @Override
     public void computeReferences(@NonNull Storage storage) throws Exception {
-        //no-op
+        //a node doesn't reference anything
     }
 
     @Override
     public Area toArea(@NonNull Storage storage) throws Exception {
         return null; //a single node can never be an area
+    }
+
+    @Override
+    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
+        dst.append("{\"type\":\"Point\",\"coordinates\":[");
+        Point.appendCoordinate(this.point.x(), dst);
+        dst.append(',');
+        Point.appendCoordinate(this.point.y(), dst);
+        dst.append("]}\n");
     }
 }

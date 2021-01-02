@@ -28,6 +28,8 @@ import net.daporkchop.lib.common.function.throwing.EConsumer;
 
 import java.util.Collections;
 import java.util.IdentityHashMap;
+import java.util.Iterator;
+import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.Callable;
@@ -51,7 +53,7 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
         };
     }
 
-    protected final Set<V> instances = Collections.newSetFromMap(new IdentityHashMap<>());
+    protected final Map<V, Thread> instances = new IdentityHashMap<>();
 
     @Override
     protected V initialValue() throws Exception {
@@ -64,7 +66,8 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
             V value = this.initialValue0();
             Objects.requireNonNull(value, "initialValue0 returned null");
             synchronized (this.instances) {
-                checkState(this.instances.add(value), "duplicate value: %s", value);
+                checkState(this.instances.putIfAbsent(value, Thread.currentThread()) == null, "duplicate value: %s", value);
+                this.cleanup();
             }
             return value;
         } catch (Exception e) {
@@ -81,24 +84,36 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
 
         boolean removed;
         synchronized (this.instances) {
-            removed = this.instances.remove(value);
+            removed = this.instances.remove(value, Thread.currentThread());
+            this.cleanup();
         }
         if (removed) {
             value.close();
         }
     }
 
-    public void forEach(@NonNull Consumer<V> callback) {
+    public void forEach(@NonNull Consumer<V> callback) throws Exception {
         synchronized (this.instances) {
-            this.instances.forEach(callback);
+            this.cleanup();
+            this.instances.keySet().forEach(callback);
         }
     }
 
     @Override
     public void close() throws Exception {
         synchronized (this.instances) {
-            this.instances.forEach((EConsumer<V>) V::close);
+            this.instances.keySet().forEach((EConsumer<V>) V::close);
             this.instances.clear();
+        }
+    }
+
+    private void cleanup() throws Exception {
+        for (Iterator<Map.Entry<V, Thread>> itr = this.instances.entrySet().iterator(); itr.hasNext();) {
+            Map.Entry<V, Thread> entry = itr.next();
+            if (!entry.getValue().isAlive()) {
+                entry.getKey().close();
+                itr.remove();
+            }
         }
     }
 }

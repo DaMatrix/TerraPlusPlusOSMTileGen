@@ -33,6 +33,7 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
+import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
@@ -66,7 +67,6 @@ public abstract class DB<V> implements PersistentMap<V> {
     protected static final ReadOptions READ_OPTIONS;
     protected static final WriteOptions WRITE_OPTIONS;
     protected static final WriteOptions SYNC_WRITE_OPTIONS;
-    protected static final FlushOptions FLUSH_OPTIONS;
 
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
@@ -77,20 +77,21 @@ public abstract class DB<V> implements PersistentMap<V> {
                 .setOptimizeFiltersForHits(true)
                 .setSkipStatsUpdateOnDbOpen(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
-                .setCompactionReadaheadSize(4L << 20L)
-                .setCompressionType(CompressionType.NO_COMPRESSION)
+                .setCompactionReadaheadSize(16L << 20L)
+                .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
                 .setAllowConcurrentMemtableWrite(true)
                 .setIncreaseParallelism(CPU_COUNT)
+                .setMaxSubcompactions(CPU_COUNT)
+                .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
+                        .setAllowTrivialMove(true))
+                .setKeepLogFileNum(2L)
                 .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true);
-        //.setMergeOperatorName("sortlist")
 
         READ_OPTIONS = new ReadOptions();
         WRITE_OPTIONS = new WriteOptions();
         SYNC_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
-        FLUSH_OPTIONS = new FlushOptions()
-                .setWaitForFlush(true);
     }
 
     protected final Options options;
@@ -192,12 +193,10 @@ public abstract class DB<V> implements PersistentMap<V> {
 
     @Override
     public void flush() throws Exception {
-        this.delegate.flush(FLUSH_OPTIONS);
     }
 
     @Override
     public void close() throws Exception {
-        this.delegate.flush(FLUSH_OPTIONS);
         this.delegate.close();
     }
 

@@ -189,6 +189,11 @@ public final class Relation extends Element<Relation> {
         }
     }
 
+    @Override
+    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
+        //TODO
+    }
+
     /**
      * A relation member.
      *

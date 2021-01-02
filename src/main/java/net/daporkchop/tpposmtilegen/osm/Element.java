@@ -28,6 +28,7 @@ import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Persistent;
+import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
@@ -44,7 +45,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @RequiredArgsConstructor
 @Getter
 @ToString
-public abstract class Element<I extends Element<I>> implements Persistent<I> {
+public abstract class Element<I extends Element<I>> implements Persistent<I>, ToGeoJSONSerializable {
     private static final long TYPE_SHIFT = 62L;
     private static final long TYPE_MASK = 3L;
 
