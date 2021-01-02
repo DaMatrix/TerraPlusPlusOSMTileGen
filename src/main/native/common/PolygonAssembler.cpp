@@ -5,7 +5,8 @@ private:
     std::string m_text;
 public:
     Exception(std::string text) : m_text(std::move(text)) {};
-    Exception(std::string& text) : m_text(text) {};
+
+    Exception(std::string &text) : m_text(text) {};
 
     const char *what() const noexcept override {
         return m_text.c_str();
@@ -13,19 +14,22 @@ public:
 };
 
 #include <osmium/builder/attr.hpp>
+
 using namespace osmium::builder::attr;
 
 static jclass c_area;
 static jclass c_shape;
-static jclass c_shape_array;
 static jclass c_point;
+static jclass c_point_array;
 
 static jmethodID ctor_area;
 static jmethodID ctor_shape;
 static jmethodID ctor_point;
 
-jobject toShape(JNIEnv* env, jobjectArray outerLoop, std::vector<jobjectArray>& innerLoops) {
-    jobjectArray innerLoopsArray = env->NewObjectArray(innerLoops.size(), c_shape_array, nullptr);
+static osmium::area::Assembler::config_type assembler_config;
+
+jobject toShape(JNIEnv *env, jobjectArray outerLoop, std::vector<jobjectArray> &innerLoops) {
+    jobjectArray innerLoopsArray = env->NewObjectArray(innerLoops.size(), c_point_array, nullptr);
     for (int i = 0; i < innerLoops.size(); i++) {
         env->SetObjectArrayElement(innerLoopsArray, i, innerLoops[i]);
     }
@@ -33,7 +37,7 @@ jobject toShape(JNIEnv* env, jobjectArray outerLoop, std::vector<jobjectArray>& 
     return env->NewObject(c_shape, ctor_shape, outerLoop, innerLoopsArray);
 }
 
-jobjectArray toPointArray(JNIEnv* env, const osmium::NodeRefList& nodes) {
+jobjectArray toPointArray(JNIEnv *env, const osmium::NodeRefList &nodes) {
     jobjectArray array = env->NewObjectArray(nodes.size(), c_point, nullptr);
     for (int i = 0; i < nodes.size(); i++) {
         jobject point = env->NewObject(c_point, ctor_point, nodes[i].x(), nodes[i].y());
@@ -42,7 +46,7 @@ jobjectArray toPointArray(JNIEnv* env, const osmium::NodeRefList& nodes) {
     return array;
 }
 
-jobject toArea(JNIEnv* env, jlong id, const osmium::Area& area) {
+jobject toArea(JNIEnv *env, jlong id, const osmium::Area &area) {
     std::vector<jobject> shapes;
 
     jobjectArray outerLoop;
@@ -51,17 +55,17 @@ jobject toArea(JNIEnv* env, jlong id, const osmium::Area& area) {
     size_t num_polygons = 0;
     size_t num_rings = 0;
 
-    for (const auto& item : area) {
+    for (const auto &item : area) {
         if (item.type() == osmium::item_type::outer_ring) {
             if (num_polygons > 0) {
                 shapes.push_back(toShape(env, outerLoop, innerLoops));
                 innerLoops.clear();
             }
-            outerLoop = toPointArray(env, static_cast<const osmium::OuterRing&>(item));
+            outerLoop = toPointArray(env, static_cast<const osmium::OuterRing &>(item));
             ++num_rings;
             ++num_polygons;
         } else if (item.type() == osmium::item_type::inner_ring) {
-            innerLoops.push_back(toPointArray(env, static_cast<const osmium::InnerRing&>(item)));
+            innerLoops.push_back(toPointArray(env, static_cast<const osmium::InnerRing &>(item)));
             ++num_rings;
         }
     }
@@ -87,8 +91,8 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssemble
         (JNIEnv *env, jclass cla) {
     c_area = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/osm/area/Area"));
     c_shape = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/osm/area/Shape"));
-    c_shape_array = (jclass) env->NewGlobalRef(env->FindClass("[Lnet/daporkchop/tpposmtilegen/osm/area/Shape;"));
     c_point = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/util/Point"));
+    c_point_array = (jclass) env->NewGlobalRef(env->FindClass("[Lnet/daporkchop/tpposmtilegen/util/Point;"));
 
     ctor_area = env->GetMethodID(c_area, "<init>", "(J[Lnet/daporkchop/tpposmtilegen/osm/area/Shape;)V");
     ctor_shape = env->GetMethodID(c_shape, "<init>", "([Lnet/daporkchop/tpposmtilegen/util/Point;[[Lnet/daporkchop/tpposmtilegen/util/Point;)V");
@@ -98,13 +102,11 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssemble
 JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssembler_assembleWay
         (JNIEnv *env, jclass cla, jlong id, jlong wayId, jlong coordsAddr, jint coordsCount) {
     try {
-        osmium::area::Assembler::config_type assembler_config;
-        osmium::area::Assembler assembler(assembler_config);
-
         osmium::memory::Buffer wayBuffer(1024);
-        auto nodes = (osmium::NodeRef*) coordsAddr;
+        auto nodes = (osmium::NodeRef *) coordsAddr;
         osmium::builder::add_way(wayBuffer, _id(wayId), _nodes(nodes, &nodes[coordsCount]));
 
+        osmium::area::Assembler assembler(assembler_config);
         osmium::memory::Buffer areaBuffer(1024);
         if (!assembler(wayBuffer.get<osmium::Way>(0), areaBuffer)) {
             throw Exception{"assembler returned false?!?"};
@@ -113,6 +115,58 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
         return toArea(env, id, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
         std::cout << "while assembling area for way " << wayId << ": " << e.what() << std::endl;
+        return nullptr;
+    }
+}
+
+JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssembler_assembleRelation
+        (JNIEnv *env, jclass cla, jlong id, jlong relationId, jlongArray wayIds_, jlongArray coordAddrs_, jintArray coordCounts_, jbyteArray roles_) {
+    try {
+        int count = env->GetArrayLength(wayIds_);
+        osmium::memory::Buffer buffer(1024);
+
+        jlong *wayIds = env->GetLongArrayElements(wayIds_, nullptr);
+        jlong *coordAddrs = env->GetLongArrayElements(coordAddrs_, nullptr);
+        jint *coordCounts = env->GetIntArrayElements(coordCounts_, nullptr);
+        jbyte *roles = env->GetByteArrayElements(roles_, nullptr);
+
+        std::vector<const osmium::Way *> ways;
+        ways.reserve(count);
+        for (int i = 0; i < count; i++) {
+            auto nodes = (osmium::NodeRef *) coordAddrs[i];
+            size_t addr = osmium::builder::add_way(buffer, _id(wayIds[i]), _nodes(nodes, &nodes[coordCounts[i]]));
+            ways.push_back(&buffer.get<osmium::Way>(addr));
+        }
+
+        std::vector<member_type> relationMembers;
+        relationMembers.reserve(count);
+        for (int i = 0; i < count; i++) {
+            static const char* ROLE_STRINGS_BY_ID[] = {
+                    "outer",
+                    "inner",
+                    "",
+                    nullptr
+            };
+            relationMembers.emplace_back(member_type{osmium::item_type::way, wayIds[i], ROLE_STRINGS_BY_ID[roles[i]]});
+        }
+
+        size_t addr = osmium::builder::add_relation(buffer, _id(relationId), _members(relationMembers));
+        const osmium::Relation& relation = buffer.get<osmium::Relation>(addr);
+
+        env->ReleaseByteArrayElements(roles_, roles, 0);
+        env->ReleaseIntArrayElements(coordCounts_, coordCounts, 0);
+        env->ReleaseLongArrayElements(coordAddrs_, coordAddrs, 0);
+        env->ReleaseLongArrayElements(wayIds_, wayIds, 0);
+
+        osmium::area::Assembler assembler(assembler_config);
+        osmium::memory::Buffer areaBuffer(1024);
+        if (!assembler(relation, ways, areaBuffer)) {
+            throw Exception{"assembler returned false?!?"};
+        }
+
+        return toArea(env, id, areaBuffer.get<osmium::Area>(0));
+    } catch (const std::exception &e) {
+        std::cout << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
         return nullptr;
     }
 }

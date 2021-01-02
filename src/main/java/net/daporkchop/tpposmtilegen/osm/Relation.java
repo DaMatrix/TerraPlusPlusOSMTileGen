@@ -22,22 +22,20 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import com.wolt.osm.parallelpbf.entity.RelationMember;
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
-import net.daporkchop.lib.common.misc.string.PStrings;
-import net.daporkchop.lib.primitive.map.LongObjMap;
-import net.daporkchop.lib.primitive.map.open.LongObjOpenHashMap;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
-import net.daporkchop.tpposmtilegen.osm.area.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.nio.charset.StandardCharsets;
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -105,119 +103,78 @@ public final class Relation extends Element<Relation> {
             return null;
         }
 
-        int outerCount = 0;
-        for (Member member : this.members) {
-            int type = member.getType();
-            checkState(type == Way.TYPE, "invalid member of type %d in area relation %d", type, this.id);
-            if ("outer".equals(member.role)) {
-                outerCount++;
-            } else if ("inner".equals(member.role)) {
-            } else {
+        int wayCount = this.members.length;
+
+        //scan relation members
+        long[] wayIds = new long[wayCount];
+        byte[] roles = new byte[wayCount];
+        for (int i = 0; i < wayCount; i++) {
+            Member member = this.members[i];
+            if (member.getType() != Way.TYPE) {
+                System.err.printf("invalid member of type %d in area relation %d\n", member.getType(), this.id);
+                return null;
+            }
+            wayIds[i] = member.getId();
+            switch (member.role) {
+                case "outer":
+                    roles[i] = 0;
+                    break;
+                case "inner":
+                    roles[i] = 1;
+                    break;
+                case "":
+                    roles[i] = 2;
+                    break;
+                default:
+                    roles[i] = 3;
+            }
+        }
+
+        //load ways from db
+        List<Way> ways = storage.ways().getAll(LongArrayList.wrap(wayIds));
+
+        //ensure all ways exist
+        for (int i = 0; i < wayCount; i++) {
+            if (ways.get(i) == null) {
+                System.err.printf("unknown way %d in area relation %d\n", wayIds[i], this.id);
                 return null;
             }
         }
-        checkState(outerCount > 0, "relation %d has no outer loops!", this.id);
 
-        List<Shape> shapes = new ArrayList<>();
-        Point[] outerRing = null;
-        List<Point[]> linesOut = new ArrayList<>();
-        List<Long> boxedIds = new ArrayList<>();
-        LongObjMap<long[]> endsToWays = new LongObjOpenHashMap<>();
-
-        boolean prevType = false;
-        for (Member member : this.members) {
-            boolean currType = "outer".equals(member.role);
-            if (currType != prevType && !endsToWays.isEmpty()) {
-                throw new IllegalStateException(PStrings.fastFormat("relation %d transitioned from outer:%b to outer:%b, but there were still unused ways!", this.id, prevType, currType));
-            }
-
-            long[] ids = storage.ways().get(member.getId()).nodes;
-            if (ids[0] != ids[ids.length - 1]) {
-                long[] neighborFront = endsToWays.get(ids[0]);
-                if (neighborFront != null) { //merge with other way at front
-                    checkState(endsToWays.remove(neighborFront[0], neighborFront));
-                    checkState(endsToWays.remove(neighborFront[neighborFront.length - 1], neighborFront));
-
-                    if (neighborFront[0] == ids[0]) { //reverse way
-                        reverse(neighborFront);
-                    }
-                    long[] newArr = new long[(neighborFront.length - 1) + ids.length];
-                    System.arraycopy(neighborFront, 0, newArr, 0, neighborFront.length - 1);
-                    System.arraycopy(ids, 0, newArr, neighborFront.length - 1, ids.length);
-                    ids = newArr;
-                }
-
-                if (ids[0] != ids[ids.length - 1]) {
-                    long[] neighborBack = endsToWays.get(ids[ids.length - 1]);
-                    if (neighborBack != null) { //merge with other way at back
-                        checkState(endsToWays.remove(neighborBack[0], neighborBack));
-                        checkState(endsToWays.remove(neighborBack[neighborBack.length - 1], neighborBack));
-
-                        if (neighborBack[neighborBack.length - 1] == ids[ids.length - 1]) { //reverse way
-                            reverse(neighborBack);
-                        }
-                        long[] newArr = new long[(ids.length - 1) + neighborBack.length];
-                        System.arraycopy(ids, 0, newArr, 0, ids.length - 1);
-                        System.arraycopy(neighborBack, 0, newArr, ids.length - 1, neighborBack.length);
-                        ids = newArr;
-                    }
-
-                    if (ids[0] != ids[ids.length - 1]) {
-                        endsToWays.put(ids[0], ids);
-                        endsToWays.put(ids[ids.length - 1], ids);
-                    }
-                }
-            }
-
-            if (ids[0] == ids[ids.length - 1]) { //the line is closed, emit it
-                //remove end mappings
-                endsToWays.remove(ids[0], ids);
-                endsToWays.remove(ids[ids.length - 1], ids);
-
-                //box IDs
-                for (int i = 0; i < ids.length - 1; i++) { //skip last point because otherwise it'll be retrieved and deserialized twice
-                    boxedIds.add(ids[i]);
-                }
-
-                //get points by their IDs
-                List<Point> points = storage.points().getAll(boxedIds);
-                boxedIds.clear();
-
-                //gather points into array
-                Point[] ring = new Point[ids.length];
-                checkState(ring == points.toArray(ring));
-                ring[ids.length - 1] = ring[0]; //set last point to first point
-
-                if (currType) {
-                    if (outerRing != null) { //beginning a second outer ring, flush currently pending ring
-                        shapes.add(new Shape(outerRing, linesOut.toArray(new Point[0][])));
-                        linesOut.clear();
-                    }
-                    outerRing = ring;
-                } else {
-                    linesOut.add(ring);
-                }
-            }
-
-            prevType = currType;
+        //gather all point IDs into single array
+        int pointCount = ways.stream().mapToInt(way -> way.nodes().length).sum();
+        long[] pointIds = new long[pointCount];
+        for (int i = 0, off = 0; i < wayCount; i++) {
+            long[] nodes = ways.get(i).nodes();
+            System.arraycopy(nodes, 0, pointIds, off, nodes.length);
+            off += nodes.length;
         }
 
-        if (!endsToWays.isEmpty()) {
-            throw new IllegalStateException(PStrings.fastFormat("transitioned from outer:%v to end, but there were still unused ways!", prevType));
-        }
-        checkState(outerRing != null, "no geometry left at end?!?");
+        //load points from db
+        List<Point> points = storage.points().getAll(LongArrayList.wrap(pointIds));
 
-        shapes.add(new Shape(outerRing, linesOut.toArray(new Point[0][])));
+        //copy points into direct memory so that they can be passed along to JNI
+        long addr = PUnsafe.allocateMemory(pointCount * PolygonAssembler.POINT_SIZE);
+        try {
+            long[] coordAddrs = new long[wayCount];
+            int[] coordCounts = new int[wayCount];
 
-        return new Area(Area.elementIdToAreaId(this), shapes.toArray(new Shape[0]));
-    }
+            for (int w = 0, p = 0; w < wayCount; w++) {
+                int nodeCount = ways.get(w).nodes().length;
+                coordAddrs[w] = addr + p * PolygonAssembler.POINT_SIZE;
+                coordCounts[w] = nodeCount;
+                for (int n = 0; n < nodeCount; n++, p++) {
+                    if (points.get(p) == null) {
+                        System.err.printf("unknown node %d in way %d in area relation %d\n", pointIds[p], wayIds[w], this.id);
+                        return null;
+                    }
+                    PolygonAssembler.putPoint(addr + p * PolygonAssembler.POINT_SIZE, pointIds[p], points.get(p));
+                }
+            }
 
-    protected static void reverse(@NonNull long[] arr) {
-        for (int i = 0; i < arr.length >> 1; i++) {
-            int j = arr.length - 1 - i;
-            long l = arr[i];
-            arr[i] = arr[j];
-            arr[j] = l;
+            return PolygonAssembler.assembleRelation(Area.elementIdToAreaId(this), this.id, wayIds, coordAddrs, coordCounts, roles);
+        } finally {
+            PUnsafe.freeMemory(addr);
         }
     }
 

@@ -30,6 +30,8 @@ import net.daporkchop.tpposmtilegen.util.Point;
  */
 @UtilityClass
 public class PolygonAssembler {
+    public static final long POINT_SIZE = 16L;
+
     static {
         PUnsafe.ensureClassInitialized(Natives.class);
         init();
@@ -39,14 +41,15 @@ public class PolygonAssembler {
 
     public static native Area assembleWay(long id, long wayId, long coordsAddr, int coordsCount);
 
-    public static long putPoint(long addr, long id, Point point) {
-        return putPoint(addr, id, point.x(), point.y());
+    public static native Area assembleRelation(long id, long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
+
+    public static void putPoint(long addr, long id, Point point) {
+        putPoint(addr, id, point.x(), point.y());
     }
 
-    public static long putPoint(long addr, long id, int x, int y) {
+    public static void putPoint(long addr, long id, int x, int y) {
         PUnsafe.putLong(addr, id);
         PUnsafe.putInt(addr + 8L, x);
         PUnsafe.putInt(addr + 12L, y);
-        return addr + 16L;
     }
 }

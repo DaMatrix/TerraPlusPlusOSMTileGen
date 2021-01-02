@@ -42,6 +42,7 @@ public final class Shape {
         checkArg(outerLoop.length >= 3, "outerLoop must contain at least 3 points! (found: %d)", outerLoop.length);
         for (int i = 0; i < innerLoops.length; i++) {
             Point[] innerLoop = innerLoops[i];
+            checkArg(innerLoop != null, "innerLoop[%d] is null!", i);
             checkArg(innerLoop.length >= 3, "innerLoop[%d] must contain at least 3 points! (found: %d)", i, innerLoop.length);
         }
 

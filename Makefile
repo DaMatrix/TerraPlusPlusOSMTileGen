@@ -7,19 +7,18 @@ export TOPDIR		:=	$(CURDIR)
 export TOOLCHAINS	:=	$(CURDIR)/toolchain
 export COMMONSRC	:=	$(CURDIR)/src/main/native
 
-#export CFLAGS		:=	-shared -Ofast -ffast-math -fPIC -ffunction-sections -fdata-sections
-export CFLAGS		:=	-Ofast -ffast-math -fPIC
-export CXXFLAGS		:=	$(CFLAGS)
 #export LDFLAGS		:=	$(CFLAGS) -Wl,--gc-sections
 export LDFLAGS		:=	$(CFLAGS) -shared
 
 ifndef NATIVES_DEBUG
-export CFLAGS		:=	$(CFLAGS)
+#export CFLAGS		:=	-shared -Ofast -ffast-math -fPIC -ffunction-sections -fdata-sections
+export CFLAGS		:=	-Ofast -ffast-math -fPIC
 export BUILD_TYPE	:=	release
 else
-export CFLAGS		:=	$(CFLAGS) -DNATIVES_DEBUG
+export CFLAGS		:=	-fPIC -DNATIVES_DEBUG
 export BUILD_TYPE	:=	debug
 endif
+export CXXFLAGS		:=	$(CFLAGS)
 $(info natives: building for $(BUILD_TYPE))
 
 export INCLUDES		:=	$(JAVA_HOME)include $(JAVA_HOME)include/linux

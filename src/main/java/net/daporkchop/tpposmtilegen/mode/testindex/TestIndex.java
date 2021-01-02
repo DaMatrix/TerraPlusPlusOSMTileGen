@@ -92,7 +92,7 @@ public class TestIndex implements IMode {
         try (Storage storage = new Storage(Paths.get(args[0]))) {
             //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
 
-            if (true) {
+            if (false) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
                     System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
                             .mapToObj(id -> {
@@ -115,7 +115,7 @@ public class TestIndex implements IMode {
                 }
             }
 
-            if (false) {
+            if (true) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
                     System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
                             .mapToObj(id -> {
@@ -127,7 +127,10 @@ public class TestIndex implements IMode {
 
                                     return relation.toArea(storage);
                                 } catch (Exception e) {
-                                    throw new RuntimeException(String.valueOf(id), e);
+                                    RuntimeException re = new RuntimeException(String.valueOf(id), e);
+                                    re.printStackTrace();
+                                    System.exit(1);
+                                    throw re;
                                 }
                             })
                             .filter(Objects::nonNull)

@@ -111,20 +111,21 @@ public final class Way extends Element<Way> {
         //the resulting area consists of a single outer line, no holes, no multipolygons
 
         //get points by their IDs
-        // skip last point because otherwise it'll be retrieved and deserialized twice
-        List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes, count - 1));
+        List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes));
 
         for (int i = 0; i < count - 1; i++) {
-            checkState(points.get(i) != null, "unable to find node: %d", this.nodes[i]);
+            if (points.get(i) == null) {
+                System.err.printf("unknown node %d in area way %d\n", this.nodes[i], this.id);
+                return null;
+            }
         }
 
-        long addr = PUnsafe.allocateMemory(count * (8L + 4L + 4L));
+        //copy points into direct memory so that they can be passed along to JNI
+        long addr = PUnsafe.allocateMemory(count * PolygonAssembler.POINT_SIZE);
         try {
-            long base = addr;
-            for (int i = 0; i < count - 1; i++) {
-                base = PolygonAssembler.putPoint(base, this.nodes[i], points.get(i));
+            for (int i = 0; i < count; i++) {
+                PolygonAssembler.putPoint(addr + i * PolygonAssembler.POINT_SIZE, this.nodes[i], points.get(i));
             }
-            PolygonAssembler.putPoint(base, this.nodes[0], points.get(0)); //set last point to first point
 
             return PolygonAssembler.assembleWay(Area.elementIdToAreaId(this), this.id, addr, count);
         } finally {
