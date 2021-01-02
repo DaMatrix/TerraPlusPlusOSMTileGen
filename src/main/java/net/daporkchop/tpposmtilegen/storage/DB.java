@@ -25,13 +25,13 @@ import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
@@ -43,12 +43,12 @@ import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
-import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
@@ -56,13 +56,16 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  * @author DaPorkchop_
  */
 public abstract class DB<V> implements PersistentMap<V> {
-    private static final Ref<KeyArrayRecycler> KEY_ARRAY_RECYCLER = ThreadRef.soft(KeyArrayRecycler::new);
-    protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::heapBuffer);
+    protected static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
+    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = ThreadRef.soft(() -> new ByteArrayRecycler(8));
+    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = ThreadRef.soft(() -> new ByteArrayRecycler(16));
+    protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::directBuffer);
     protected static final CloseableThreadLocal<WriteBatch> WRITE_BATCH_CACHE = CloseableThreadLocal.of(WriteBatch::new);
 
     protected static final Options OPTIONS;
     protected static final ReadOptions READ_OPTIONS;
     protected static final WriteOptions WRITE_OPTIONS;
+    protected static final WriteOptions SYNC_WRITE_OPTIONS;
     protected static final FlushOptions FLUSH_OPTIONS;
 
     static {
@@ -85,6 +88,7 @@ public abstract class DB<V> implements PersistentMap<V> {
 
         READ_OPTIONS = new ReadOptions();
         WRITE_OPTIONS = new WriteOptions();
+        SYNC_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
         FLUSH_OPTIONS = new FlushOptions()
                 .setWaitForFlush(true);
     }
@@ -104,22 +108,16 @@ public abstract class DB<V> implements PersistentMap<V> {
     @Override
     @Deprecated
     public void put(long key, @NonNull V value) throws Exception {
-        ByteBuf buf = WRITE_BUFFER_CACHE.get().clear();
-        buf.writeLong(key);
-        this.valueToBytes(value, buf);
-        int valueSize = buf.readableBytes() - 8;
-
-        byte[] arr = buf.array();
-        int offset = buf.arrayOffset();
-        this.delegate.put(WRITE_OPTIONS,
-                arr, offset, 8,
-                arr, offset + 8, valueSize);
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
         checkArg(keys.size() == values.size(), "must have same number of keys as values!");
         int size = keys.size();
+        if (size == 0) {
+            return;
+        }
 
         WriteBatch batch = WRITE_BATCH_CACHE.get();
         batch.clear(); //ensure write batch is empty
@@ -130,7 +128,7 @@ public abstract class DB<V> implements PersistentMap<V> {
 
             for (int i = 0; i < size; i++) {
                 keyBuffer.clear();
-                keyBuffer.putInt(i).flip();
+                keyBuffer.putLong(keys.getLong(i)).flip();
 
                 this.valueToBytes(values.get(i), buf.clear());
                 batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
@@ -144,7 +142,7 @@ public abstract class DB<V> implements PersistentMap<V> {
 
     @Override
     public V get(long key) throws Exception {
-        KeyArrayRecycler keyArrayRecycler = KEY_ARRAY_RECYCLER.get();
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();
         try {
             PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
@@ -163,7 +161,7 @@ public abstract class DB<V> implements PersistentMap<V> {
             return Collections.emptyList();
         }
 
-        KeyArrayRecycler keyArrayRecycler = KEY_ARRAY_RECYCLER.get();
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         List<byte[]> keyBytes = new ArrayList<>(size);
         List<byte[]> valueBytes;
         try {
@@ -207,10 +205,13 @@ public abstract class DB<V> implements PersistentMap<V> {
 
     protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);
 
-    private static final class KeyArrayRecycler extends SimpleRecycler<byte[]> {
+    @RequiredArgsConstructor
+    protected static final class ByteArrayRecycler extends SimpleRecycler<byte[]> {
+        protected final int size;
+
         @Override
         protected byte[] newInstance0() {
-            return new byte[8];
+            return new byte[this.size];
         }
 
         @Override

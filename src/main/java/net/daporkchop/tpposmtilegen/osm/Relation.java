@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.osm;
 import com.wolt.osm.parallelpbf.entity.RelationMember;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
@@ -51,9 +52,6 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @ToString(callSuper = true)
 public final class Relation extends Element<Relation> {
     public static final int TYPE = 2;
-
-    private static final long TYPE_SHIFT = 62L;
-    private static final long TYPE_MASK = 3L;
 
     @NonNull
     protected Member[] members;
@@ -97,6 +95,17 @@ public final class Relation extends Element<Relation> {
         }
 
         return super.fromBytes(src);
+    }
+
+    @Override
+    public void computeReferences(@NonNull Storage storage) throws Exception {
+        LongList ids = new LongArrayList(this.members.length);
+        for (Member member : this.members) {
+            ids.add(member.combined);
+        }
+
+        //first parameter (type) is 0 because the ids are already combined with their type
+        storage.references().addReferences(0, ids, Relation.TYPE, this.id);
     }
 
     @Override
@@ -199,7 +208,7 @@ public final class Relation extends Element<Relation> {
             return size >= 0 ? src.readCharSequence(size, StandardCharsets.UTF_8).toString() : null;
         }
 
-        protected final long id;
+        protected final long combined;
         @Getter
         protected final String role;
 
@@ -209,21 +218,20 @@ public final class Relation extends Element<Relation> {
 
         public Member(@NonNull RelationMember osm) {
             long id = osm.getId();
-            checkArg((id >>> TYPE_SHIFT) == 0L, "element has id with top 2 bits used: %s", osm);
-            this.id = id | ((long) osm.getType().ordinal() << TYPE_SHIFT);
+            this.combined = addTypeToId(id, osm.getType().ordinal());
             this.role = osm.getRole();
         }
 
         public long getId() {
-            return this.id & ~(TYPE_MASK << TYPE_SHIFT);
+            return extractId(this.combined);
         }
 
         public int getType() {
-            return (int) (this.id >>> TYPE_SHIFT);
+            return extractType(this.combined);
         }
 
         protected void write(ByteBuf dst) {
-            dst.writeLong(this.id);
+            dst.writeLong(this.combined);
             int sizeIndex = dst.writerIndex();
             dst.writeInt(-1);
             if (this.role != null) {

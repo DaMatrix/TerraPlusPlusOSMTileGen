@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -91,6 +92,11 @@ public final class Way extends Element<Way> {
         }
 
         return super.fromBytes(src);
+    }
+
+    @Override
+    public void computeReferences(@NonNull Storage storage) throws Exception {
+        storage.references().addReferences(Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
     }
 
     @Override

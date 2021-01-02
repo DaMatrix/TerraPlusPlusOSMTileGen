@@ -45,6 +45,9 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @Getter
 @ToString
 public abstract class Element<I extends Element<I>> implements Persistent<I> {
+    private static final long TYPE_SHIFT = 62L;
+    private static final long TYPE_MASK = 3L;
+
     public static String typeName(int type) {
         switch (type) {
             case Node.TYPE:
@@ -56,6 +59,18 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
             default:
                 return "unknown";
         }
+    }
+
+    public static long addTypeToId(long id, int type) {
+        return id | ((long) type << TYPE_SHIFT);
+    }
+
+    public static long extractId(long combined) {
+        return combined & ~(TYPE_MASK << TYPE_SHIFT);
+    }
+
+    public static int extractType(long combined) {
+        return (int) (combined >>> TYPE_SHIFT);
     }
 
     protected final long id;
@@ -105,6 +120,8 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
         }
         return uncheckedCast(this);
     }
+
+    public abstract void computeReferences(@NonNull Storage storage) throws Exception;
 
     public abstract Area toArea(@NonNull Storage storage) throws Exception;
 }

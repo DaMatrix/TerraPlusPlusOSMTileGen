@@ -79,6 +79,11 @@ public final class Node extends Element<Node> {
     }
 
     @Override
+    public void computeReferences(@NonNull Storage storage) throws Exception {
+        //no-op
+    }
+
+    @Override
     public Area toArea(@NonNull Storage storage) throws Exception {
         return null; //a single node can never be an area
     }

@@ -51,6 +51,8 @@ public class Storage implements AutoCloseable {
     protected final OffHeapAtomicLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
 
+    protected final ReferenceDB references;
+
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
         this.points = new BufferedPersistentMap<>(new PointDB(root, "osm_node_locations"), 100_000);
@@ -64,6 +66,8 @@ public class Storage implements AutoCloseable {
 
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
+
+        this.references = new ReferenceDB(root, "refs");
     }
 
     public void putNode(@NonNull Node node) throws Exception {
@@ -91,6 +95,8 @@ public class Storage implements AutoCloseable {
         this.points.flush();
         this.ways.flush();
         this.relations.flush();
+
+        this.references.flush();
     }
 
     @Override
@@ -101,9 +107,13 @@ public class Storage implements AutoCloseable {
         this.relations.close();
 
         this.nodeFlags.close();
+        this.taggedNodeFlags.close();
         this.wayFlags.close();
         this.relationFlags.close();
 
         this.sequenceNumber.close();
+        this.replicationTimestamp.close();
+
+        this.references.close();
     }
 }

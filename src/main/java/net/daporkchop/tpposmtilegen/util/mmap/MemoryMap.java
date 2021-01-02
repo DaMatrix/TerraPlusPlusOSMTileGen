@@ -133,7 +133,6 @@ public class MemoryMap implements AutoCloseable {
         @Override
         public void run() {
             unmap0(this.addr, this.size);
-            System.out.println("Released memory map");
         }
     }
 }

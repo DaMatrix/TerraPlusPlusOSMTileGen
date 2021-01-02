@@ -1,19 +1,7 @@
 #include "tpposmtilegen_common.h"
 
-class Exception : public std::exception {
-private:
-    std::string m_text;
-public:
-    Exception(std::string text) : m_text(std::move(text)) {};
-
-    Exception(std::string &text) : m_text(text) {};
-
-    const char *what() const noexcept override {
-        return m_text.c_str();
-    }
-};
-
-#include <osmium/builder/attr.hpp>
+#include "osmium/area/assembler.hpp"
+#include "osmium/builder/attr.hpp"
 
 using namespace osmium::builder::attr;
 
