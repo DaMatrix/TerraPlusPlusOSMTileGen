@@ -32,14 +32,9 @@ import java.nio.file.Path;
  *
  * @author DaPorkchop_
  */
-final class NodeDB extends DB<Long, Node> {
+final class NodeDB extends DB<Node> {
     public NodeDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
-    }
-
-    @Override
-    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
-        dst.writeLong(key);
     }
 
     @Override
@@ -48,12 +43,7 @@ final class NodeDB extends DB<Long, Node> {
     }
 
     @Override
-    protected Node valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+    protected Node valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
         return new Node(key, valueBytes);
-    }
-
-    @Override
-    protected Node valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
-        return new Node(keyBytes.readLong(), valueBytes);
     }
 }

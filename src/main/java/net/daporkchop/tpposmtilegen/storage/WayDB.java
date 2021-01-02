@@ -32,14 +32,9 @@ import java.nio.file.Path;
  *
  * @author DaPorkchop_
  */
-final class WayDB extends DB<Long, Way> {
+final class WayDB extends DB<Way> {
     public WayDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
-    }
-
-    @Override
-    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
-        dst.writeLong(key);
     }
 
     @Override
@@ -48,12 +43,7 @@ final class WayDB extends DB<Long, Way> {
     }
 
     @Override
-    protected Way valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+    protected Way valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
         return new Way(key, valueBytes);
-    }
-
-    @Override
-    protected Way valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
-        return new Way(keyBytes.readLong(), valueBytes);
     }
 }

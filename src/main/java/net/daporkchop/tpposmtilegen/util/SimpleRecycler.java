@@ -47,9 +47,15 @@ public abstract class SimpleRecycler<T> extends ArrayDeque<T> {
      * @param value the value to release
      */
     public void release(@NonNull T value) {
-        this.reset0(value);
-        this.addLast(value);
+        if (this.hasCapacity()) {
+            this.reset0(value);
+            this.addLast(value);
+        }
     }
 
     protected abstract void reset0(@NonNull T value);
+
+    protected boolean hasCapacity() {
+        return true;
+    }
 }

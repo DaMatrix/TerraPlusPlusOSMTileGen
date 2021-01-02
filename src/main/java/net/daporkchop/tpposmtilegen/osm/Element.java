@@ -20,10 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
-import com.google.common.collect.ImmutableMap;
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.UnpooledByteBufAllocator;
-import io.netty.util.concurrent.FastThreadLocal;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -33,7 +30,6 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
@@ -41,7 +37,7 @@ import java.util.Map;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
- * Representation of an OpenStreetMap element stored in the CQEngine database.
+ * An OpenStreetMap element.
  *
  * @author DaPorkchop_
  */
@@ -49,13 +45,6 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @Getter
 @ToString
 public abstract class Element<I extends Element<I>> implements Persistent<I> {
-    protected static final FastThreadLocal<ByteBuf> ENCODING_BUFFER_CACHE = new FastThreadLocal<ByteBuf>() {
-        @Override
-        protected ByteBuf initialValue() throws Exception {
-            return UnpooledByteBufAllocator.DEFAULT.heapBuffer();
-        }
-    };
-
     public static String typeName(int type) {
         switch (type) {
             case Node.TYPE:
@@ -80,15 +69,6 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
     }
 
     public abstract int type();
-
-    /**
-     * @return the state of this element, encoded as a {@code byte[]}
-     */
-    public byte[] toByteArray() {
-        ByteBuf dst = ENCODING_BUFFER_CACHE.get().clear();
-        this.toBytes(dst);
-        return Arrays.copyOfRange(dst.array(), dst.arrayOffset() + dst.readerIndex(), dst.readableBytes());
-    }
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {

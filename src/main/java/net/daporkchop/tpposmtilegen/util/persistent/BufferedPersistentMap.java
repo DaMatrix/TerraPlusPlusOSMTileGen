@@ -20,6 +20,8 @@
 
 package net.daporkchop.tpposmtilegen.util.persistent;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
@@ -34,17 +36,17 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  *
  * @author DaPorkchop_
  */
-public final class BufferedPersistentMap<K, V> extends ForwardingPersistentMap<K, V> {
+public final class BufferedPersistentMap<V> extends ForwardingPersistentMap<V> {
     private final CloseableThreadLocal<ThreadState> states = CloseableThreadLocal.of(ThreadState::new);
     private final int bufferCount;
 
-    public BufferedPersistentMap(PersistentMap<K, V> delegate, int bufferCount) {
+    public BufferedPersistentMap(PersistentMap<V> delegate, int bufferCount) {
         super(delegate);
         this.bufferCount = positive(bufferCount, "bufferCount");
     }
 
     @Override
-    public void put(@NonNull K key, @NonNull V value) throws Exception {
+    public void put(long key, @NonNull V value) throws Exception {
         this.states.get().put(key, value, this.bufferCount);
     }
 
@@ -68,12 +70,12 @@ public final class BufferedPersistentMap<K, V> extends ForwardingPersistentMap<K
      * @author DaPorkchop_
      */
     private final class ThreadState implements AutoCloseable {
-        private final List<K> keys = new ArrayList<>();
-        private final List<V> values = new ArrayList<>();
+        private final LongList keys = new LongArrayList(BufferedPersistentMap.this.bufferCount);
+        private final List<V> values = new ArrayList<>(BufferedPersistentMap.this.bufferCount);
 
         private int buffered = 0;
 
-        private void put(K key, V value, int flushThreshold) throws Exception {
+        private void put(long key, V value, int flushThreshold) throws Exception {
             this.keys.add(key);
             this.values.add(value);
 

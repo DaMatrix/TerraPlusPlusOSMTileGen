@@ -38,10 +38,10 @@ import java.nio.file.Path;
  */
 @Getter
 public class Storage implements AutoCloseable {
-    protected final PersistentMap<Long, Node> nodes;
-    protected final PersistentMap<Long, Point> points;
-    protected final PersistentMap<Long, Way> ways;
-    protected final PersistentMap<Long, Relation> relations;
+    protected final PersistentMap<Node> nodes;
+    protected final PersistentMap<Point> points;
+    protected final PersistentMap<Way> ways;
+    protected final PersistentMap<Relation> relations;
 
     protected final OffHeapBitSet nodeFlags;
     protected final OffHeapBitSet taggedNodeFlags;
@@ -67,9 +67,8 @@ public class Storage implements AutoCloseable {
     }
 
     public void putNode(@NonNull Node node) throws Exception {
-        Long id = node.id(); //only allocate boxed ID once
-        this.nodes.put(id, node);
-        this.points.put(id, node.point());
+        this.nodes.put(node.id(), node);
+        this.points.put(node.id(), node.point());
         this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {

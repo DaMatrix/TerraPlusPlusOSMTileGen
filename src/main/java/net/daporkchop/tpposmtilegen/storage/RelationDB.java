@@ -32,14 +32,9 @@ import java.nio.file.Path;
  *
  * @author DaPorkchop_
  */
-final class RelationDB extends DB<Long, Relation> {
+final class RelationDB extends DB<Relation> {
     public RelationDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
-    }
-
-    @Override
-    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
-        dst.writeLong(key);
     }
 
     @Override
@@ -48,12 +43,7 @@ final class RelationDB extends DB<Long, Relation> {
     }
 
     @Override
-    protected Relation valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
+    protected Relation valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
         return new Relation(key, valueBytes);
-    }
-
-    @Override
-    protected Relation valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
-        return new Relation(keyBytes.readLong(), valueBytes);
     }
 }

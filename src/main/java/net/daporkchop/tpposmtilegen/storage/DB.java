@@ -23,15 +23,17 @@ package net.daporkchop.tpposmtilegen.storage;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
-import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.common.system.PlatformInfo;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import org.rocksdb.CompactionStyle;
-import org.rocksdb.CompressionOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
@@ -40,6 +42,7 @@ import org.rocksdb.RocksDB;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -52,11 +55,9 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 /**
  * @author DaPorkchop_
  */
-public abstract class DB<K, V> implements PersistentMap<K, V> {
-    protected static final Ref<ByteBuf[]> WRITE_BUFFER_CACHE = ThreadRef.late(() -> new ByteBuf[]{
-            UnpooledByteBufAllocator.DEFAULT.buffer(),
-            UnpooledByteBufAllocator.DEFAULT.buffer()
-    });
+public abstract class DB<V> implements PersistentMap<V> {
+    private static final Ref<KeyArrayRecycler> KEY_ARRAY_RECYCLER = ThreadRef.soft(KeyArrayRecycler::new);
+    protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::heapBuffer);
     protected static final CloseableThreadLocal<WriteBatch> WRITE_BATCH_CACHE = CloseableThreadLocal.of(WriteBatch::new);
 
     protected static final Options OPTIONS;
@@ -90,7 +91,6 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
 
     protected final Options options;
     protected final RocksDB delegate;
-    protected final OffHeapAtomicLong maxValueSize;
 
     public DB(@NonNull Path root, @NonNull String name) throws Exception {
         this(OPTIONS, root, name);
@@ -99,87 +99,96 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
     public DB(@NonNull Options options, @NonNull Path root, @NonNull String name) throws Exception {
         this.options = options;
         this.delegate = RocksDB.open(options, root.resolve(name).toString());
-
-        this.maxValueSize = new OffHeapAtomicLong(root.resolve(name + "_maxValueSize"), 0L);
     }
 
     @Override
-    public void put(@NonNull K key, @NonNull V value) throws Exception {
-        ByteBuf[] bufs = WRITE_BUFFER_CACHE.get();
-        this.keyToBytes(key, bufs[0].clear());
-        this.valueToBytes(value, bufs[1].clear());
-        int valueSize = bufs[1].readableBytes();
+    @Deprecated
+    public void put(long key, @NonNull V value) throws Exception {
+        ByteBuf buf = WRITE_BUFFER_CACHE.get().clear();
+        buf.writeLong(key);
+        this.valueToBytes(value, buf);
+        int valueSize = buf.readableBytes() - 8;
 
-        this.maxValueSize.max(valueSize);
+        byte[] arr = buf.array();
+        int offset = buf.arrayOffset();
         this.delegate.put(WRITE_OPTIONS,
-                bufs[0].internalNioBuffer(0, bufs[0].readableBytes()),
-                bufs[1].internalNioBuffer(0, valueSize));
+                arr, offset, 8,
+                arr, offset + 8, valueSize);
     }
 
     @Override
-    public void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception {
+    public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
         checkArg(keys.size() == values.size(), "must have same number of keys as values!");
+        int size = keys.size();
 
         WriteBatch batch = WRITE_BATCH_CACHE.get();
         batch.clear(); //ensure write batch is empty
 
-        ByteBuf[] bufs = WRITE_BUFFER_CACHE.get();
+        ByteBuffer keyBuffer = ByteBuffer.allocateDirect(8);
+        try {
+            ByteBuf buf = WRITE_BUFFER_CACHE.get();
 
-        int maxValueSize = 0;
-        for (int i = 0; i < keys.size(); i++) {
-            this.keyToBytes(keys.get(i), bufs[0].clear());
-            this.valueToBytes(values.get(i), bufs[1].clear());
-            int valueSize = bufs[1].readableBytes();
-            maxValueSize = max(maxValueSize, valueSize);
+            for (int i = 0; i < size; i++) {
+                keyBuffer.clear();
+                keyBuffer.putInt(i).flip();
 
-            batch.put(
-                    bufs[0].internalNioBuffer(0, bufs[0].readableBytes()),
-                    bufs[1].internalNioBuffer(0, valueSize));
+                this.valueToBytes(values.get(i), buf.clear());
+                batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
+            }
+        } finally {
+            PUnsafe.pork_releaseBuffer(keyBuffer);
         }
 
-        this.maxValueSize.max(maxValueSize);
         this.delegate.write(WRITE_OPTIONS, batch);
     }
 
     @Override
-    public V get(@NonNull K key) throws Exception {
-        ByteBuf[] bufs = WRITE_BUFFER_CACHE.get();
-        this.keyToBytes(key, bufs[0].clear());
+    public V get(long key) throws Exception {
+        KeyArrayRecycler keyArrayRecycler = KEY_ARRAY_RECYCLER.get();
+        byte[] keyArray = keyArrayRecycler.get();
+        try {
+            PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
 
-        int maxValueSize = toInt(this.maxValueSize.get());
-        int valueSize = this.delegate.get(READ_OPTIONS,
-                bufs[0].internalNioBuffer(0, bufs[0].readableBytes()),
-                bufs[1].clear().ensureWritable(maxValueSize).internalNioBuffer(0, maxValueSize));
-        return valueSize >= 0
-                ? this.valueFromBytes(bufs[0], bufs[1].writerIndex(valueSize)) //success
-                : null; //error
+            byte[] valueData = this.delegate.get(READ_OPTIONS, keyArray);
+            return valueData != null ? this.valueFromBytes(key, Unpooled.wrappedBuffer(valueData)) : null;
+        } finally {
+            keyArrayRecycler.release(keyArray);
+        }
     }
 
     @Override
-    public List<V> getAll(@NonNull List<K> keys) throws Exception {
+    public List<V> getAll(@NonNull LongList keys) throws Exception {
         int size = keys.size();
         if (size == 0) {
             return Collections.emptyList();
         }
 
-        ByteBuf[] bufs = WRITE_BUFFER_CACHE.get();
+        KeyArrayRecycler keyArrayRecycler = KEY_ARRAY_RECYCLER.get();
         List<byte[]> keyBytes = new ArrayList<>(size);
-        for (int i = 0; i < size; i++) {
-            this.keyToBytes(keys.get(i), bufs[0].clear());
-            byte[] arr = new byte[bufs[0].readableBytes()];
-            bufs[0].readBytes(arr);
-            keyBytes.add(arr);
+        List<byte[]> valueBytes;
+        try {
+            //serialize keys to bytes
+            for (int i = 0; i < size; i++) {
+                byte[] keyArray = keyArrayRecycler.get();
+                long key = keys.getLong(i);
+                PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                keyBytes.add(keyArray);
+            }
+
+            //look up values from key
+            valueBytes = this.delegate.multiGetAsList(keyBytes);
+        } finally {
+            keyBytes.forEach(keyArrayRecycler::release);
         }
 
-        List<byte[]> valueBytes = this.delegate.multiGetAsList(keyBytes);
+        //re-use list that was previously used for storing encoded keys and store deserialized values in it
         keyBytes.clear();
-        List<V> values = uncheckedCast(keyBytes); //re-use list that was previously used for storing encoded keys
+        List<V> values = uncheckedCast(keyBytes);
 
         for (int i = 0; i < size; i++) {
             byte[] value = valueBytes.get(i);
-            values.add(value != null ? this.valueFromBytes(keys.get(i), Unpooled.wrappedBuffer(value)) : null);
+            values.add(value != null ? this.valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
         }
-
         return values;
     }
 
@@ -192,14 +201,26 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
     public void close() throws Exception {
         this.delegate.flush(FLUSH_OPTIONS);
         this.delegate.close();
-        this.maxValueSize.close();
     }
-
-    protected abstract void keyToBytes(@NonNull K key, @NonNull ByteBuf dst);
 
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);
 
-    protected abstract V valueFromBytes(@NonNull K key, @NonNull ByteBuf valueBytes);
+    protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);
 
-    protected abstract V valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes);
+    private static final class KeyArrayRecycler extends SimpleRecycler<byte[]> {
+        @Override
+        protected byte[] newInstance0() {
+            return new byte[8];
+        }
+
+        @Override
+        protected void reset0(@NonNull byte[] value) {
+            //no-op
+        }
+
+        @Override
+        protected boolean hasCapacity() {
+            return this.size() < 20_000; //don't cache more than 20k arrays
+        }
+    }
 }

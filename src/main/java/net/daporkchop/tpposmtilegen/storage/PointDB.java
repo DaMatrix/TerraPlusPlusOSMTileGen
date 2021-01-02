@@ -32,14 +32,9 @@ import java.nio.file.Path;
  *
  * @author DaPorkchop_
  */
-final class PointDB extends DB<Long, Point> {
+final class PointDB extends DB<Point> {
     public PointDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
-    }
-
-    @Override
-    protected void keyToBytes(@NonNull Long key, @NonNull ByteBuf dst) {
-        dst.writeLong(key);
     }
 
     @Override
@@ -48,12 +43,7 @@ final class PointDB extends DB<Long, Point> {
     }
 
     @Override
-    protected Point valueFromBytes(@NonNull Long key, @NonNull ByteBuf valueBytes) {
-        return new Point(valueBytes);
-    }
-
-    @Override
-    protected Point valueFromBytes(@NonNull ByteBuf keyBytes, @NonNull ByteBuf valueBytes) {
+    protected Point valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
         return new Point(valueBytes);
     }
 }

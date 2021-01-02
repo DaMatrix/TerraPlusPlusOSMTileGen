@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.util.persistent;
 
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 
 import java.util.List;
@@ -27,14 +28,14 @@ import java.util.List;
 /**
  * @author DaPorkchop_
  */
-public interface PersistentMap<K, V> extends AutoCloseable {
-    void put(@NonNull K key, @NonNull V value) throws Exception;
+public interface PersistentMap<V> extends AutoCloseable {
+    void put(long key, @NonNull V value) throws Exception;
 
-    void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception;
+    void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception;
 
-    V get(@NonNull K key) throws Exception;
+    V get(long key) throws Exception;
 
-    List<V> getAll(@NonNull List<K> keys) throws Exception;
+    List<V> getAll(@NonNull LongList keys) throws Exception;
 
     void flush() throws Exception;
 

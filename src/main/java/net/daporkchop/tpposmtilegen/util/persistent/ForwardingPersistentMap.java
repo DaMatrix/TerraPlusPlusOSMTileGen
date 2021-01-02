@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.util.persistent;
 
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 
@@ -29,27 +30,27 @@ import java.util.List;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-public abstract class ForwardingPersistentMap<K, V> implements PersistentMap<K, V> {
+public abstract class ForwardingPersistentMap<V> implements PersistentMap<V> {
     @NonNull
-    protected final PersistentMap<K, V> delegate;
+    protected final PersistentMap<V> delegate;
 
     @Override
-    public void put(@NonNull K key, @NonNull V value) throws Exception {
+    public void put(long key, @NonNull V value) throws Exception {
         this.delegate.put(key, value);
     }
 
     @Override
-    public void putAll(@NonNull List<K> keys, @NonNull List<V> values) throws Exception {
+    public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
         this.delegate.putAll(keys, values);
     }
 
     @Override
-    public V get(@NonNull K key) throws Exception {
+    public V get(long key) throws Exception {
         return this.delegate.get(key);
     }
 
     @Override
-    public List<V> getAll(@NonNull List<K> keys) throws Exception {
+    public List<V> getAll(@NonNull LongList keys) throws Exception {
         return this.delegate.getAll(keys);
     }
 
