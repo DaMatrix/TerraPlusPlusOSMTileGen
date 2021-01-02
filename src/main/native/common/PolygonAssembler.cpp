@@ -55,6 +55,13 @@ jobject toArea(JNIEnv *env, jlong id, const osmium::Area &area) {
     size_t num_polygons = 0;
     size_t num_rings = 0;
 
+    if (id == 1080689) {
+        std::cout << "rings in zugersee:" << std::endl;
+        for (const auto &item : area) {
+            std::cout << "  " << osmium::item_type_to_name(item.type()) << " " << item.byte_size() << std::endl;
+        }
+    }
+
     for (const auto &item : area) {
         if (item.type() == osmium::item_type::outer_ring) {
             if (num_polygons > 0) {
@@ -114,7 +121,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
 
         return toArea(env, id, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
-        std::cout << "while assembling area for way " << wayId << ": " << e.what() << std::endl;
+        std::cerr << "while assembling area for way " << wayId << ": " << e.what() << std::endl;
         return nullptr;
     }
 }
@@ -123,19 +130,25 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
         (JNIEnv *env, jclass cla, jlong id, jlong relationId, jlongArray wayIds_, jlongArray coordAddrs_, jintArray coordCounts_, jbyteArray roles_) {
     try {
         int count = env->GetArrayLength(wayIds_);
-        osmium::memory::Buffer buffer(1024);
 
         jlong *wayIds = env->GetLongArrayElements(wayIds_, nullptr);
         jlong *coordAddrs = env->GetLongArrayElements(coordAddrs_, nullptr);
         jint *coordCounts = env->GetIntArrayElements(coordCounts_, nullptr);
         jbyte *roles = env->GetByteArrayElements(roles_, nullptr);
 
+        osmium::memory::Buffer wayBuffer(1024);
+        std::vector<size_t> wayOffsets;
+        wayOffsets.reserve(count);
+        for (int i = 0; i < count; i++) {
+            auto nodes = (osmium::NodeRef *) coordAddrs[i];
+            wayOffsets.push_back(osmium::builder::add_way(wayBuffer, _id(wayIds[i]), _nodes(nodes, &nodes[coordCounts[i]])));
+        }
+
+        //get way references AFTER adding all of them to wayBuffer, because if it resizes the pointers will be invalidated
         std::vector<const osmium::Way *> ways;
         ways.reserve(count);
         for (int i = 0; i < count; i++) {
-            auto nodes = (osmium::NodeRef *) coordAddrs[i];
-            size_t addr = osmium::builder::add_way(buffer, _id(wayIds[i]), _nodes(nodes, &nodes[coordCounts[i]]));
-            ways.push_back(&buffer.get<osmium::Way>(addr));
+            ways.push_back(&wayBuffer.get<osmium::Way>(wayOffsets[i]));
         }
 
         std::vector<member_type> relationMembers;
@@ -150,8 +163,9 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
             relationMembers.emplace_back(member_type{osmium::item_type::way, wayIds[i], ROLE_STRINGS_BY_ID[roles[i]]});
         }
 
-        size_t addr = osmium::builder::add_relation(buffer, _id(relationId), _members(relationMembers));
-        const osmium::Relation& relation = buffer.get<osmium::Relation>(addr);
+        osmium::memory::Buffer relationBuffer(1024);
+        osmium::builder::add_relation(relationBuffer, _id(relationId), _members(relationMembers));
+        const osmium::Relation& relation = relationBuffer.get<osmium::Relation>(0);
 
         env->ReleaseByteArrayElements(roles_, roles, 0);
         env->ReleaseIntArrayElements(coordCounts_, coordCounts, 0);
@@ -166,7 +180,10 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
 
         return toArea(env, id, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
-        std::cout << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
+        std::cerr << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
+        if (relationId == 540344) {
+            exit(540344);
+        }
         return nullptr;
     }
 }

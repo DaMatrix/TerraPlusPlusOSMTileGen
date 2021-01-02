@@ -31,6 +31,7 @@ import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import org.rocksdb.CompactionStyle;
+import org.rocksdb.CompressionOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
@@ -73,7 +74,8 @@ public abstract class DB<K, V> implements PersistentMap<K, V> {
                 .setSkipStatsUpdateOnDbOpen(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
                 .setCompactionReadaheadSize(4L << 20L)
-                .setCompressionType(CompressionType.NO_COMPRESSION)
+                .setCompressionType(CompressionType.ZSTD_COMPRESSION)
+                .setCompressionOptions(new CompressionOptions().setLevel(1))
                 .setAllowConcurrentMemtableWrite(true)
                 .setIncreaseParallelism(CPU_COUNT)
                 .setMaxOpenFiles(-1)

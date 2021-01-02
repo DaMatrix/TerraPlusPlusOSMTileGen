@@ -36,6 +36,7 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 
@@ -142,7 +143,8 @@ public final class Relation extends Element<Relation> {
         }
 
         //gather all point IDs into single array
-        int pointCount = ways.stream().mapToInt(way -> way.nodes().length).sum();
+        int[] coordCounts = ways.stream().mapToInt(way -> way.nodes().length).toArray();
+        int pointCount = Arrays.stream(coordCounts).sum();
         long[] pointIds = new long[pointCount];
         for (int i = 0, off = 0; i < wayCount; i++) {
             long[] nodes = ways.get(i).nodes();
@@ -154,27 +156,21 @@ public final class Relation extends Element<Relation> {
         List<Point> points = storage.points().getAll(LongArrayList.wrap(pointIds));
 
         //copy points into direct memory so that they can be passed along to JNI
-        long addr = PUnsafe.allocateMemory(pointCount * PolygonAssembler.POINT_SIZE);
+        long[] coordAddrs = Arrays.stream(coordCounts).mapToLong(i -> i * PolygonAssembler.POINT_SIZE).map(PUnsafe::allocateMemory).toArray();
         try {
-            long[] coordAddrs = new long[wayCount];
-            int[] coordCounts = new int[wayCount];
-
             for (int w = 0, p = 0; w < wayCount; w++) {
-                int nodeCount = ways.get(w).nodes().length;
-                coordAddrs[w] = addr + p * PolygonAssembler.POINT_SIZE;
-                coordCounts[w] = nodeCount;
-                for (int n = 0; n < nodeCount; n++, p++) {
+                for (int n = 0, coordCount = coordCounts[w]; n < coordCount; n++, p++) {
                     if (points.get(p) == null) {
                         System.err.printf("unknown node %d in way %d in area relation %d\n", pointIds[p], wayIds[w], this.id);
                         return null;
                     }
-                    PolygonAssembler.putPoint(addr + p * PolygonAssembler.POINT_SIZE, pointIds[p], points.get(p));
+                    PolygonAssembler.putPoint(coordAddrs[w] + n * PolygonAssembler.POINT_SIZE, pointIds[p], points.get(p));
                 }
             }
 
             return PolygonAssembler.assembleRelation(Area.elementIdToAreaId(this), this.id, wayIds, coordAddrs, coordCounts, roles);
         } finally {
-            PUnsafe.freeMemory(addr);
+            Arrays.stream(coordAddrs).forEach(PUnsafe::freeMemory);
         }
     }
 

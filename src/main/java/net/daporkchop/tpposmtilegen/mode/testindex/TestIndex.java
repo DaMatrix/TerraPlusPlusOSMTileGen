@@ -117,7 +117,7 @@ public class TestIndex implements IMode {
 
             if (true) {
                 try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
-                    System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), true)
+                    System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), false)
                             .mapToObj(id -> {
                                 try {
                                     Relation relation = storage.relations().get(id);
