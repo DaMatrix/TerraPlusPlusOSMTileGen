@@ -55,13 +55,6 @@ jobject toArea(JNIEnv *env, jlong id, const osmium::Area &area) {
     size_t num_polygons = 0;
     size_t num_rings = 0;
 
-    if (id == 1080689) {
-        std::cout << "rings in zugersee:" << std::endl;
-        for (const auto &item : area) {
-            std::cout << "  " << osmium::item_type_to_name(item.type()) << " " << item.byte_size() << std::endl;
-        }
-    }
-
     for (const auto &item : area) {
         if (item.type() == osmium::item_type::outer_ring) {
             if (num_polygons > 0) {
@@ -144,7 +137,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
             wayOffsets.push_back(osmium::builder::add_way(wayBuffer, _id(wayIds[i]), _nodes(nodes, &nodes[coordCounts[i]])));
         }
 
-        //get way references AFTER adding all of them to wayBuffer, because if it resizes the pointers will be invalidated
+        //get way references AFTER adding all of them to wayBuffer, because if the buffer is resized the pointers will be invalidated
         std::vector<const osmium::Way *> ways;
         ways.reserve(count);
         for (int i = 0; i < count; i++) {
@@ -158,7 +151,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
                     "outer",
                     "inner",
                     "",
-                    nullptr
+                    "unknown"
             };
             relationMembers.emplace_back(member_type{osmium::item_type::way, wayIds[i], ROLE_STRINGS_BY_ID[roles[i]]});
         }
@@ -181,9 +174,6 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
         return toArea(env, id, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
         std::cerr << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
-        if (relationId == 540344) {
-            exit(540344);
-        }
         return nullptr;
     }
 }

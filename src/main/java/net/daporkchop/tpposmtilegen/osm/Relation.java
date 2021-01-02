@@ -36,6 +36,7 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
@@ -104,17 +105,22 @@ public final class Relation extends Element<Relation> {
             return null;
         }
 
-        int wayCount = this.members.length;
+        List<Member> wayMembers = new ArrayList<>(this.members.length);
+        for (Member member : this.members) {
+            if (member.getType() == Way.TYPE) {
+                wayMembers.add(member);
+            } else {
+                System.err.printf("warning: skipping invalid member of type %d (%s) in area relation %d\n",
+                        member.getType(), typeName(member.getType()), this.id);
+            }
+        }
+        int wayCount = wayMembers.size();
 
         //scan relation members
         long[] wayIds = new long[wayCount];
         byte[] roles = new byte[wayCount];
         for (int i = 0; i < wayCount; i++) {
-            Member member = this.members[i];
-            if (member.getType() != Way.TYPE) {
-                System.err.printf("invalid member of type %d in area relation %d\n", member.getType(), this.id);
-                return null;
-            }
+            Member member = wayMembers.get(i);
             wayIds[i] = member.getId();
             switch (member.role) {
                 case "outer":

@@ -43,10 +43,6 @@ public final class Node extends Element<Node> {
     @NonNull
     protected Point point;
 
-    public Node(long id, Map<String, String> tags, double lon, double lat) {
-        this(id, tags, new Point(lon, lat));
-    }
-
     public Node(long id, Map<String, String> tags, @NonNull Point point) {
         super(id, tags);
 

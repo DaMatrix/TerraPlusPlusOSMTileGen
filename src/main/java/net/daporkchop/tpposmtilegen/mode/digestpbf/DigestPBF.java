@@ -32,6 +32,7 @@ import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Point;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
@@ -80,7 +81,7 @@ public class DigestPBF implements IMode {
                     })
                     .onBoundBox(System.out::println).onChangeset(System.out::println)
                     .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
-                        Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), in.getLon(), in.getLat());
+                        Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), new Point(in.getLon(), in.getLat()));
                         storage.putNode(node);
 
                         notifier.step(Node.TYPE);

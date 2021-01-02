@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
+import com.google.common.collect.ImmutableMap;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.util.concurrent.FastThreadLocal;
@@ -54,6 +55,19 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
             return UnpooledByteBufAllocator.DEFAULT.heapBuffer();
         }
     };
+
+    public static String typeName(int type) {
+        switch (type) {
+            case Node.TYPE:
+                return "node";
+            case Way.TYPE:
+                return "way";
+            case Relation.TYPE:
+                return "relation";
+            default:
+                return "unknown";
+        }
+    }
 
     protected final long id;
 
