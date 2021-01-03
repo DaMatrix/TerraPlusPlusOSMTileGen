@@ -56,7 +56,7 @@ public class Threading {
         try {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
-                        long targetSize = Math.max(spliterator.estimateSize() / (PorkUtil.CPU_COUNT << 3), 1L);
+                        long targetSize = Math.max(spliterator.estimateSize() / (threads << 3), 1L);
                         return forEachParallel0(executor, targetSize, spliterator, callback);
                     })
                     .toArray(CompletableFuture[]::new))
@@ -72,9 +72,10 @@ public class Threading {
         if (sizeEstimate <= targetSize || (leftSplit = uncheckedCast(spliterator.trySplit())) == null) {
             return CompletableFuture.runAsync(() -> callback.accept(spliterator), executor);
         } else {
-            return CompletableFuture.allOf(
-                    forEachParallel0(executor, targetSize, spliterator, callback),
-                    forEachParallel0(executor, targetSize, leftSplit, callback));
+            return CompletableFuture.completedFuture(null)
+                    .thenComposeAsync(unused -> CompletableFuture.allOf(
+                            forEachParallel0(executor, targetSize, spliterator, callback),
+                            forEachParallel0(executor, targetSize, leftSplit, callback)));
         }
     }
 }

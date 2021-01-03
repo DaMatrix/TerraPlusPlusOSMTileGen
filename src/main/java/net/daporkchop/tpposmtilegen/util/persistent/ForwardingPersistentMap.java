@@ -55,6 +55,11 @@ public abstract class ForwardingPersistentMap<V> implements PersistentMap<V> {
     }
 
     @Override
+    public void deleteAll(@NonNull LongList keys) throws Exception {
+        this.delegate.deleteAll(keys);
+    }
+
+    @Override
     public void clear() throws Exception {
         this.delegate.clear();
     }

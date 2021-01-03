@@ -136,6 +136,35 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
         return values;
     }
 
+    @Override
+    public void deleteAll(@NonNull LongList keys) throws Exception {
+        int size = keys.size();
+        if (size == 0) {
+            return;
+        }
+
+        WriteBatch batch = WRITE_BATCH_CACHE.get();
+        try {
+            ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+            byte[] keyArray = keyArrayRecycler.get();
+            try {
+                //serialize keys to bytes
+                for (int i = 0; i < size; i++) {
+                    long key = keys.getLong(i);
+                    PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                }
+
+                batch.delete(keyArray);
+            } finally {
+                keyArrayRecycler.release(keyArray);
+            }
+
+            this.delegate.write(WRITE_OPTIONS, batch);
+        } finally {
+            batch.clear();
+        }
+    }
+
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);
 
     protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);

@@ -37,6 +37,8 @@ public interface PersistentMap<V> extends AutoCloseable {
 
     List<V> getAll(@NonNull LongList keys) throws Exception;
 
+    void deleteAll(@NonNull LongList keys) throws Exception;
+
     void clear() throws Exception;
 
     void flush() throws Exception;

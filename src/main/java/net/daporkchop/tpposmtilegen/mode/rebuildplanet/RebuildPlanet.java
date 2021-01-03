@@ -22,10 +22,12 @@ package net.daporkchop.tpposmtilegen.mode.rebuildplanet;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import it.unimi.dsi.fastutil.longs.LongLists;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.appendable.PAppendable;
 import net.daporkchop.lib.binary.oio.writer.UTF8FileWriter;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.misc.string.PUnsafeStrings;
@@ -34,8 +36,8 @@ import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Geometry;
-import net.daporkchop.tpposmtilegen.osm.Node;
-import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.osm.line.Line;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -43,14 +45,17 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.nio.CharBuffer;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.Arrays;
-import java.util.List;
+import java.util.Formatter;
+import java.util.Locale;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
@@ -83,36 +88,28 @@ public class RebuildPlanet implements IMode {
                 });
             }
         }
-        PFiles.ensureDirectoryExists(dst);
 
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true, true); //clear everything
 
-            /*try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
-                Threading.forEachParallelLong(storage.wayFlags().spliterator(), id -> {
+            try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
+                Threading.forEachParallelLong(combinedId -> {
+                    int type = Element.extractType(combinedId);
+                    String typeName = Element.typeName(type);
+                    long id = Element.extractId(combinedId);
                     try {
-                        Way way = storage.ways().get(id);
-                        checkArg(way != null, "unknown way: %d", id);
-                        way.computeReferences(storage);
+                        Element element = storage.getElement(combinedId);
+                        checkState(element != null, "unknown %s %d", typeName, id);
+                        element.computeReferences(storage);
                     } catch (Exception e) {
-                        throw new RuntimeException("way " + id, e);
+                        throw new RuntimeException(typeName + ' ' + id, e);
                     }
-                    notifier.step(0);
-                });
-                Threading.forEachParallelLong(storage.relationFlags().spliterator(), id -> {
-                    try {
-                        Relation relation = storage.relations().get(id);
-                        checkArg(relation != null, "unknown relation: %d", id);
-                        relation.computeReferences(storage);
-                    } catch (Exception e) {
-                        throw new RuntimeException("relation " + id, e);
-                    }
-                    notifier.step(1);
-                });
+                    notifier.step(type - 1);
+                }, storage.spliterateElements(false, true, true));
+                storage.flush();
             }
-            storage.flush();*/
 
-            try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations")) {
+            try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "lines", "areas")) {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
                     String typeName = Element.typeName(type);
@@ -122,15 +119,6 @@ public class RebuildPlanet implements IMode {
                         checkState(element != null, "unknown %s %d", typeName, id);
                         Geometry geometry = element.toGeometry(storage);
                         if (geometry != null) {
-                            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) { //encode geometry to GeoJSON
-                                StringBuilder builder = handle.get();
-                                builder.setLength(0);
-
-                                geometry.toGeoJSON(builder);
-
-                                storage.tempJsonStorage().put(combinedId, Arrays.copyOf(PUnsafeStrings.unwrap(builder), builder.length()));
-                            }
-                            
                             Bounds2d bounds = geometry.computeObjectBounds();
                             int tileMinX = coord_point2tile(bounds.minX());
                             int tileMaxX = coord_point2tile(bounds.maxX());
@@ -144,17 +132,39 @@ public class RebuildPlanet implements IMode {
                             }
                             storage.tiles().addElementToTiles(LongArrayList.wrap(arr), type, id); //add this element to all tiles
                             storage.tileCounts().setTileCount(type, id, arr.length); //keep track of how many tiles this element is stored in
+
+                            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) { //encode geometry to GeoJSON
+                                StringBuilder builder = handle.get();
+                                builder.setLength(0);
+
+                                geometry.toGeoJSON(builder);
+
+                                if (arr.length == 1) { //element is only referenced once, store GeoJSON data in db and exit
+                                    storage.tempJsonStorage().put(combinedId, Arrays.copyOf(PUnsafeStrings.unwrap(builder), builder.length()));
+                                } else { //element is referenced multiple times, store it in a separate file
+                                    File file = new File(dst, PStrings.fastFormat("%s/%02d/%02d/%d.json", Element.typeName(type), id % 100L, (id / 100L) % 100L, id));
+                                    Files.createDirectories(file.getParentFile().toPath());
+                                    try (PAppendable out = new UTF8FileWriter(new FileOutputStream(file), "", false)) {
+                                        out.append(builder);
+                                    }
+                                    if (geometry instanceof Line) {
+                                        notifier.step(1);
+                                    } else if (geometry instanceof Area) {
+                                        notifier.step(2);
+                                    }
+                                }
+                            }
                         }
                     } catch (Exception e) {
                         throw new RuntimeException(typeName + ' ' + id, e);
                     }
                     notifier.step(type);
                 }, storage.spliterateElements(true, true, true));
+                storage.flush();
             }
-            storage.flush();
 
-            try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles", "lines", "areas")) {
-                Threading.forEachParallelLong(PorkUtil.CPU_COUNT << 1, tilePos -> {
+            try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles")) {
+                Threading.forEachParallelLong(tilePos -> {
                     int tileX = Tile.tileX(tilePos);
                     int tileY = Tile.tileY(tilePos);
                     try {
@@ -164,34 +174,43 @@ public class RebuildPlanet implements IMode {
                             return;
                         }
 
-                        LongList nodeIds = new LongArrayList();
+                        LongList counts = storage.tileCounts().getTileCounts(elements);
+                        LongList idsDirect = new LongArrayList();
+                        LongList idsReference = new LongArrayList();
+
                         for (int i = 0, size = elements.size(); i < size; i++) {
-                            long combined = elements.getLong(i);
-                            switch (Element.extractType(combined)) {
-                                case Node.TYPE:
-                                    nodeIds.add(Element.extractId(combined));
-                                    break;
-                                default:
-                                    throw new IllegalArgumentException("unsupported element type: " + Element.extractType(combined));
+                            long count = counts.getLong(i);
+                            if (count == 1L) { //element has only a single reference, so we can store the entire thing in this tile
+                                idsDirect.add(elements.getLong(i));
+                            } else if (count > 1L) { //element has multiple references, so we'll store it in the tile as a reference
+                                idsReference.add(elements.getLong(i));
+                            } else {
+                                throw new IllegalStateException();
                             }
                         }
 
-                        try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
-                            StringBuilder builder = handle.get();
-                            builder.setLength(0);
+                        File file = new File(dst, PStrings.fastFormat("tile/%d/%d.json", tileX, tileY));
+                        Files.createDirectories(file.getParentFile().toPath());
+                        try (PAppendable out = new UTF8FileWriter(new FileOutputStream(file), "", false)) {
+                            storage.tempJsonStorage().getAll(idsDirect).forEach((IOConsumer<char[]>) arr -> out.append(CharBuffer.wrap(arr)));
 
-                            if (!nodeIds.isEmpty()) {
-                                List<Node> nodes = storage.nodes().getAll(nodeIds);
-                                for (int i = 0, size = nodes.size(); i < size; i++) {
-                                    Node node = nodes.get(i);
-                                    checkState(node != null, "unknown node %d", nodeIds.getLong(i));
-                                    node.toGeoJSON(builder);
+                            if (!idsReference.isEmpty()) {
+                                try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
+                                    StringBuilder builder = handle.get();
+                                    Formatter fmt = new Formatter(builder, Locale.US);
+
+                                    for (int i = 0, size = idsReference.size(); i < size; i++) {
+                                        builder.setLength(0);
+
+                                        long combinedId = idsReference.getLong(i);
+                                        int type = Element.extractType(combinedId);
+                                        long id = Element.extractId(combinedId);
+                                        builder.append("{\"type\":\"Reference\",\"location\":\"").append(Element.typeName(type)).append('/');
+                                        fmt.format("%02d/%02d/%d", id % 100L, (id / 100L) % 100L, id);
+                                        builder.append(".json\"}\n");
+                                        out.append(builder);
+                                    }
                                 }
-                            }
-
-                            File file = new File(dst, PStrings.fastFormat("tiles/%d/%d.json", tileX, tileY));
-                            try (PAppendable out = new UTF8FileWriter(PFiles.ensureFileExists(file))) {
-                                out.append(builder);
                             }
                         }
                     } catch (Exception e) {
@@ -199,11 +218,11 @@ public class RebuildPlanet implements IMode {
                     }
                     notifier.step(0);
                 }, storage.dirtyTiles().spliterator());
-                //storage.dirtyTiles().clear();
+                storage.dirtyTiles().clear();
+                storage.flush();
             }
-            storage.flush();
 
-            //storage.purge(true, false); //erase temporary data
+            storage.purge(true, false); //erase temporary data
         }
     }
 }

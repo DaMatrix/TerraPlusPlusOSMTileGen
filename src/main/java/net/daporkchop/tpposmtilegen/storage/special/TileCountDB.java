@@ -20,6 +20,9 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
@@ -30,6 +33,8 @@ import org.rocksdb.UInt64AddOperator;
 import org.rocksdb.WriteBatch;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Tracks the number of tiles that an element belongs to.
@@ -127,6 +132,36 @@ public final class TileCountDB extends WrappedRocksDB {
         } finally {
             recycler.release(value);
             recycler.release(key);
+        }
+    }
+
+    public LongList getTileCounts(@NonNull LongList combinedIds) throws Exception {
+        int size = combinedIds.size();
+        if (size == 0) {
+            return LongLists.EMPTY_LIST;
+        }
+
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
+        List<byte[]> keys = new ArrayList<>(size);
+        try {
+            for (int i = 0; i < size; i++) {
+                byte[] key = recycler.get();
+                long combinedId = combinedIds.getLong(i);
+                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
+                keys.add(key);
+            }
+
+            List<byte[]> values = this.delegate.multiGetAsList(READ_OPTIONS, keys);
+
+            LongList counts = new LongArrayList(size);
+            for (int i = 0; i < size; i++) {
+                byte[] value = values.get(i);
+                long count = value != null ? PUnsafe.getLong(value, PUnsafe.ARRAY_BYTE_BASE_OFFSET) : 0L;
+                counts.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(count) : count);
+            }
+            return counts;
+        } finally {
+            keys.forEach(recycler::release);
         }
     }
 }

@@ -245,7 +245,11 @@ public class OffHeapAtomicBitSet extends AbstractSparseAllocator {
 
             @Override
             public long estimateSize() {
-                return this.end - this.index;
+                long count = 0L;
+                for (long word = this.index >>> 6L, endWord = this.end >>> 6L; word < endWord; word++) {
+                    count += Long.bitCount(PUnsafe.getLong(this.addr + (word << 3L)));
+                }
+                return count;
             }
 
             @Override
