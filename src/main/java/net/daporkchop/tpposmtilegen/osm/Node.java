@@ -26,6 +26,7 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
@@ -85,6 +86,13 @@ public final class Node extends Element<Node> implements Geometry {
     @Override
     public Geometry toGeometry(@NonNull Storage storage) throws Exception {
         return this; //a node is already a geometric primitive
+    }
+
+    @Override
+    public Bounds2d computeObjectBounds() {
+        int x = this.point.x();
+        int y = this.point.y();
+        return Bounds2d.of(x, x, y, y);
     }
 
     @Override

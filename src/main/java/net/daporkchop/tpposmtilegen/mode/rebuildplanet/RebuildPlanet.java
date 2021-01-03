@@ -28,6 +28,7 @@ import net.daporkchop.lib.binary.oio.appendable.PAppendable;
 import net.daporkchop.lib.binary.oio.writer.UTF8FileWriter;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.common.misc.string.PUnsafeStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
@@ -36,6 +37,7 @@ import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
@@ -47,9 +49,11 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
+import java.util.Arrays;
 import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
@@ -61,7 +65,7 @@ public class RebuildPlanet implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         File dst = new File(args[1]);
         if (PFiles.checkDirectoryExists(dst)) {
-            try (ProgressNotifier notifier = new ProgressNotifier(" Nuke tile directory: ", 5000L, "files", "directories")) {
+            try (ProgressNotifier notifier = new ProgressNotifier("Nuke tile directory: ", 5000L, "files", "directories")) {
                 Files.walkFileTree(dst.toPath(), new SimpleFileVisitor<Path>() {
                     @Override
                     public FileVisitResult visitFile(Path file, BasicFileAttributes attrs) throws IOException {
@@ -82,13 +86,9 @@ public class RebuildPlanet implements IMode {
         PFiles.ensureDirectoryExists(dst);
 
         try (Storage storage = new Storage(src.toPath())) {
-            System.out.println("Clearing references... (this might take a moment)");
-            storage.references().clear();
-            System.out.println("Clearing tile index...");
-            storage.tiles().clear();
-            System.out.println("Cleared.");
+            storage.purge(true, true); //clear everything
 
-            /*try (ProgressNotifier notifier = new ProgressNotifier(" Build references: ", 5000L, "ways", "relations")) {
+            /*try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
                 Threading.forEachParallelLong(storage.wayFlags().spliterator(), id -> {
                     try {
                         Way way = storage.ways().get(id);
@@ -112,58 +112,49 @@ public class RebuildPlanet implements IMode {
             }
             storage.flush();*/
 
-            try (ProgressNotifier notifier = new ProgressNotifier(" Build tile index: ", 5000L, "nodes", "ways", "relations")) {
-                Threading.forEachParallelLong(storage.taggedNodeFlags().spliterator(), id -> {
+            try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations")) {
+                Threading.forEachParallelLong(combinedId -> {
+                    int type = Element.extractType(combinedId);
+                    String typeName = Element.typeName(type);
+                    long id = Element.extractId(combinedId);
                     try {
-                        Node node = storage.nodes().get(id);
-
-                        long tilePos = Tile.point2tile(node.point().x(), node.point().y());
-                        storage.tiles().addElementToTiles(LongLists.singleton(tilePos), Node.TYPE, id);
-                        storage.dirtyTiles().set(tilePos);
-                    } catch (Exception e) {
-                        throw new RuntimeException("node " + id, e);
-                    }
-                    notifier.step(0);
-                });
-            }
-            storage.flush();
-
-            try (ProgressNotifier notifier = new ProgressNotifier(" Assemble & index complex geometry: ", 5000L, "ways", "relations", "areas")) {
-                Threading.forEachParallelLong(storage.wayFlags().spliterator(), id -> {
-                    try {
-                        Way way = storage.ways().get(id);
-                        checkState(way != null, "unknown way %d", id);
-                        Geometry geometry = way.toGeometry(storage);
+                        Element element = storage.getElement(combinedId);
+                        checkState(element != null, "unknown %s %d", typeName, id);
+                        Geometry geometry = element.toGeometry(storage);
                         if (geometry != null) {
-                            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
+                            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) { //encode geometry to GeoJSON
                                 StringBuilder builder = handle.get();
                                 builder.setLength(0);
 
                                 geometry.toGeoJSON(builder);
 
-                                File file = new File(dst, PStrings.fastFormat("ways/%02x/%d.json", id & 0xFF, id));
-                                try (PAppendable out = new UTF8FileWriter(PFiles.ensureFileExists(file))) {
-                                    out.append(builder);
+                                storage.tempJsonStorage().put(combinedId, Arrays.copyOf(PUnsafeStrings.unwrap(builder), builder.length()));
+                            }
+                            
+                            Bounds2d bounds = geometry.computeObjectBounds();
+                            int tileMinX = coord_point2tile(bounds.minX());
+                            int tileMaxX = coord_point2tile(bounds.maxX());
+                            int tileMinY = coord_point2tile(bounds.minY());
+                            int tileMaxY = coord_point2tile(bounds.maxY());
+                            long[] arr = new long[(tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1)];
+                            for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
+                                for (int y = tileMinY; y <= tileMaxY; y++) {
+                                    storage.dirtyTiles().set(arr[i] = xy2tilePos(x, y));
                                 }
                             }
+                            storage.tiles().addElementToTiles(LongArrayList.wrap(arr), type, id); //add this element to all tiles
+                            storage.tileCounts().setTileCount(type, id, arr.length); //keep track of how many tiles this element is stored in
                         }
                     } catch (Exception e) {
-                        throw new RuntimeException("way " + id, e);
+                        throw new RuntimeException(typeName + ' ' + id, e);
                     }
-                    notifier.step(0);
-                });
-                Threading.forEachParallelLong(storage.relationFlags().spliterator(), id -> {
-                    try {
-                    } catch (Exception e) {
-                        throw new RuntimeException("relation " + id, e);
-                    }
-                    notifier.step(1);
-                });
+                    notifier.step(type);
+                }, storage.spliterateElements(true, true, true));
             }
             storage.flush();
 
-            try (ProgressNotifier notifier = new ProgressNotifier(" Render tiles: ", 5000L, "tiles")) {
-                Threading.forEachParallelLong(PorkUtil.CPU_COUNT << 1, storage.dirtyTiles().spliterator(), tilePos -> {
+            try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles", "lines", "areas")) {
+                Threading.forEachParallelLong(PorkUtil.CPU_COUNT << 1, tilePos -> {
                     int tileX = Tile.tileX(tilePos);
                     int tileY = Tile.tileY(tilePos);
                     try {
@@ -207,10 +198,12 @@ public class RebuildPlanet implements IMode {
                         throw new RuntimeException("tile " + tilePos, e);
                     }
                     notifier.step(0);
-                });
+                }, storage.dirtyTiles().spliterator());
                 //storage.dirtyTiles().clear();
             }
             storage.flush();
+
+            //storage.purge(true, false); //erase temporary data
         }
     }
 }

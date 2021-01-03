@@ -48,9 +48,15 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
     }
 
     @Override
-    @Deprecated
     public void put(long key, @NonNull V value) throws Exception {
-        throw new UnsupportedOperationException();
+        ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
+        ByteBuf buf = WRITE_BUFFER_CACHE.get();
+
+        keyBuffer.clear();
+        keyBuffer.putLong(key).flip();
+
+        this.valueToBytes(value, buf.clear());
+        this.delegate.put(WRITE_OPTIONS, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
     }
 
     @Override
@@ -61,21 +67,17 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
             return;
         }
 
+        ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
+        ByteBuf buf = WRITE_BUFFER_CACHE.get();
+
         WriteBatch batch = WRITE_BATCH_CACHE.get();
         try {
-            ByteBuffer keyBuffer = ByteBuffer.allocateDirect(8);
-            try {
-                ByteBuf buf = WRITE_BUFFER_CACHE.get();
+            for (int i = 0; i < size; i++) {
+                keyBuffer.clear();
+                keyBuffer.putLong(keys.getLong(i)).flip();
 
-                for (int i = 0; i < size; i++) {
-                    keyBuffer.clear();
-                    keyBuffer.putLong(keys.getLong(i)).flip();
-
-                    this.valueToBytes(values.get(i), buf.clear());
-                    batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
-                }
-            } finally {
-                PUnsafe.pork_releaseBuffer(keyBuffer);
+                this.valueToBytes(values.get(i), buf.clear());
+                batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
             }
 
             this.delegate.write(WRITE_OPTIONS, batch);

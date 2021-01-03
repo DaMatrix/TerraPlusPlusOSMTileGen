@@ -62,7 +62,7 @@ public final class TileCountDB extends WrappedRocksDB {
             byte[] key = recycler.get();
             byte[] value = recycler.get();
             try {
-                element = Element.addTypeToId(element, elementType);
+                element = Element.addTypeToId(elementType, element);
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
                 PUnsafe.putLong(value, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(count) : count);
 
@@ -84,7 +84,7 @@ public final class TileCountDB extends WrappedRocksDB {
         byte[] key = recycler.get();
         byte[] value = recycler.get();
         try {
-            element = Element.addTypeToId(element, elementType);
+            element = Element.addTypeToId(elementType, element);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
             PUnsafe.putLong(value, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(delta) : delta);
 
@@ -99,7 +99,7 @@ public final class TileCountDB extends WrappedRocksDB {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] key = recycler.get();
         try {
-            element = Element.addTypeToId(element, elementType);
+            element = Element.addTypeToId(elementType, element);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
 
             this.delegate.delete(WRITE_OPTIONS, key);
@@ -113,7 +113,7 @@ public final class TileCountDB extends WrappedRocksDB {
         byte[] key = recycler.get();
         byte[] value = recycler.get();
         try {
-            element = Element.addTypeToId(element, elementType);
+            element = Element.addTypeToId(elementType, element);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
 
             int cnt = this.delegate.get(READ_OPTIONS, key, value);

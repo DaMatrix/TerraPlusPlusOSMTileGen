@@ -49,8 +49,8 @@ public final class ReferenceDB extends WrappedRocksDB {
     }
 
     public void addReference(int type, long id, int referentType, long referent) throws Exception {
-        id = Element.addTypeToId(id, type);
-        referent = Element.addTypeToId(referent, referentType);
+        id = Element.addTypeToId(type, id);
+        referent = Element.addTypeToId(referentType, referent);
 
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
@@ -74,10 +74,10 @@ public final class ReferenceDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                referent = Element.addTypeToId(referent, referentType);
+                referent = Element.addTypeToId(referentType, referent);
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
                 for (int i = 0; i < size; i++) {
-                    long id = Element.addTypeToId(ids.getLong(i), type);
+                    long id = Element.addTypeToId(type, ids.getLong(i));
                     PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
                     batch.put(key, EMPTY_BYTE_ARRAY);
                 }
@@ -92,7 +92,7 @@ public final class ReferenceDB extends WrappedRocksDB {
     }
 
     public void deleteReferencesTo(int type, long id) throws Exception {
-        id = Element.addTypeToId(id, type);
+        id = Element.addTypeToId(type, id);
 
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
@@ -110,7 +110,7 @@ public final class ReferenceDB extends WrappedRocksDB {
     }
 
     public void getReferencesTo(int type, long id, @NonNull LongList dst) throws Exception {
-        id = Element.addTypeToId(id, type);
+        id = Element.addTypeToId(type, id);
 
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();

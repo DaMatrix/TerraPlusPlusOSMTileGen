@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
 
 /**
@@ -27,4 +28,6 @@ import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
  */
 public interface Geometry extends ToGeoJSONSerializable {
     long id();
+
+    Bounds2d computeObjectBounds();
 }

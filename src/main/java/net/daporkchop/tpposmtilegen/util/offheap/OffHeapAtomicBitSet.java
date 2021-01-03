@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.util.offheap;
 
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
-import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.Prefetcher;
 import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.AbstractSparseAllocator;
@@ -30,18 +29,19 @@ import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.AbstractSparseAllocat
 import java.io.IOException;
 import java.nio.file.Path;
 import java.util.Spliterator;
-import java.util.function.IntConsumer;
 import java.util.function.LongConsumer;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * An off-heap, memory-mapped bitset which supports 64-bit indexing.
  *
  * @author DaPorkchop_
  */
-public class OffHeapBitSet extends AbstractSparseAllocator {
+public class OffHeapAtomicBitSet extends AbstractSparseAllocator {
     private final long base = super.headerSize();
 
-    public OffHeapBitSet(@NonNull Path path, long size) throws IOException {
+    public OffHeapAtomicBitSet(@NonNull Path path, long size) throws IOException {
         super(path, size);
     }
 
@@ -92,6 +92,46 @@ public class OffHeapBitSet extends AbstractSparseAllocator {
                     PUnsafe.putLongVolatile(null, addr + this.base, wordIndex);
                 }
             }
+        }
+    }
+
+    public void set(long fromIndex, long toIndex) { //adapted from java.util.BitSet
+        checkArg(toIndex >= fromIndex, "toIndex (%d) may not be less than fromIndex (%d)", toIndex, fromIndex);
+        if (fromIndex == toIndex) { //empty range
+            return;
+        }
+
+        long startWordIndex = fromIndex >>> 6L << 3L;
+        long endWordIndex = (toIndex - 1L) >>> 6L << 3L;
+        this.ensureCapacity(endWordIndex >> 3L); //ensure capacity up to higher index
+
+        long firstWordMask = -1L << fromIndex;
+        long lastWordMask = -1L >>> -toIndex;
+        long val;
+        long dataBase = this.addr + this.base + 8L;
+        if (startWordIndex == endWordIndex) {
+            // Case 1: One word
+            do {
+                val = PUnsafe.getLongVolatile(null, dataBase + startWordIndex);
+            } while (!PUnsafe.compareAndSwapLong(null, dataBase + startWordIndex, val, val | (firstWordMask & lastWordMask)));
+        } else {
+            // Case 2: Multiple words
+            // Handle first word
+            do {
+                val = PUnsafe.getLongVolatile(null, dataBase + startWordIndex);
+            } while (!PUnsafe.compareAndSwapLong(null, dataBase + startWordIndex, val, val | firstWordMask));
+
+            // Handle intermediate words, if any
+            for (long i = startWordIndex + 8L; i < endWordIndex; i += 8L) {
+                do {
+                    val = PUnsafe.getLongVolatile(null, dataBase + i);
+                } while (!PUnsafe.compareAndSwapLong(null, dataBase + i, val, -1L));
+            }
+
+            // Handle last word (restores invariants)
+            do {
+                val = PUnsafe.getLongVolatile(null, dataBase + endWordIndex);
+            } while (!PUnsafe.compareAndSwapLong(null, dataBase + endWordIndex, val, val | lastWordMask));
         }
     }
 

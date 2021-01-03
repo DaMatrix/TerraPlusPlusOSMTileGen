@@ -20,47 +20,61 @@
 
 package net.daporkchop.tpposmtilegen.storage;
 
+import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
+import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.storage.map.CharArrayDB;
 import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
+import net.daporkchop.tpposmtilegen.storage.special.TileCountDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.Point;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapBitSet;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Spliterator;
+import java.util.function.LongConsumer;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
 @Getter
-public class Storage implements AutoCloseable {
+public final class Storage implements AutoCloseable {
     protected final PersistentMap<Node> nodes;
     protected final PersistentMap<Point> points;
     protected final PersistentMap<Way> ways;
     protected final PersistentMap<Relation> relations;
+    protected final Int2ObjectMap<PersistentMap<? extends Element<?>>> elementsByType = new Int2ObjectOpenHashMap<>();
 
-    protected final OffHeapBitSet nodeFlags;
-    protected final OffHeapBitSet taggedNodeFlags;
-    protected final OffHeapBitSet wayFlags;
-    protected final OffHeapBitSet relationFlags;
+    protected final OffHeapAtomicBitSet nodeFlags;
+    protected final OffHeapAtomicBitSet taggedNodeFlags;
+    protected final OffHeapAtomicBitSet wayFlags;
+    protected final OffHeapAtomicBitSet relationFlags;
 
     protected final OffHeapAtomicLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
 
     protected final ReferenceDB references;
     protected final TileDB tiles;
-
-    protected final OffHeapBitSet dirtyTiles;
+    protected final TileCountDB tileCounts;
+    protected final OffHeapAtomicBitSet dirtyTiles;
+    protected final PersistentMap<char[]> tempJsonStorage;
 
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
@@ -68,17 +82,23 @@ public class Storage implements AutoCloseable {
         this.ways = new BufferedPersistentMap<>(new WayDB(root, "osm_ways"), 10_000);
         this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
 
-        this.nodeFlags = new OffHeapBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
-        this.taggedNodeFlags = new OffHeapBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
-        this.wayFlags = new OffHeapBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
-        this.relationFlags = new OffHeapBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
+        this.nodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
+        this.taggedNodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
+        this.wayFlags = new OffHeapAtomicBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
+        this.relationFlags = new OffHeapAtomicBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
 
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
         this.references = new ReferenceDB(root, "refs");
         this.tiles = new TileDB(root, "tiles");
-        this.dirtyTiles = new OffHeapBitSet(root.resolve("tiles_dirty"), 1L << 40L);
+        this.tileCounts = new TileCountDB(root, "in_tile_counts");
+        this.dirtyTiles = new OffHeapAtomicBitSet(root.resolve("tiles_dirty"), 1L << 40L);
+        this.tempJsonStorage = new CharArrayDB(root, "geojson_temp_storage");
+
+        this.elementsByType.put(Node.TYPE, this.nodes);
+        this.elementsByType.put(Way.TYPE, this.ways);
+        this.elementsByType.put(Relation.TYPE, this.relations);
     }
 
     public void putNode(@NonNull Node node) throws Exception {
@@ -99,6 +119,85 @@ public class Storage implements AutoCloseable {
     public void putRelation(@NonNull Relation relation) throws Exception {
         this.relations.put(relation.id(), relation);
         this.relationFlags.set(relation.id());
+    }
+
+    public Spliterator.OfLong[] spliterateElements(boolean taggedNodes, boolean ways, boolean relations) {
+        @RequiredArgsConstructor
+        class TypeIdAddingSpliterator implements Spliterator.OfLong {
+            protected final Spliterator.OfLong delegate;
+            protected final int type;
+
+            @Override
+            public OfLong trySplit() {
+                OfLong delegateSplit = this.delegate.trySplit();
+                return delegateSplit != null ? new TypeIdAddingSpliterator(delegateSplit, this.type) : null;
+            }
+
+            @Override
+            public boolean tryAdvance(@NonNull LongConsumer action) {
+                return this.delegate.tryAdvance((LongConsumer) id -> action.accept(Element.addTypeToId(this.type, id)));
+            }
+
+            @Override
+            public void forEachRemaining(@NonNull LongConsumer action) {
+                this.delegate.forEachRemaining((LongConsumer) id -> action.accept(Element.addTypeToId(this.type, id)));
+            }
+
+            @Override
+            public long estimateSize() {
+                return this.delegate.estimateSize();
+            }
+
+            @Override
+            public int characteristics() {
+                return this.delegate.characteristics();
+            }
+
+            @Override
+            public long getExactSizeIfKnown() {
+                return this.delegate.getExactSizeIfKnown();
+            }
+        }
+
+        List<Spliterator.OfLong> list = new ArrayList<>(3);
+        if (taggedNodes) {
+            list.add(new TypeIdAddingSpliterator(this.taggedNodeFlags.spliterator(), Node.TYPE));
+        }
+        if (ways) {
+            list.add(new TypeIdAddingSpliterator(this.wayFlags.spliterator(), Way.TYPE));
+        }
+        if (relations) {
+            list.add(new TypeIdAddingSpliterator(this.relationFlags.spliterator(), Relation.TYPE));
+        }
+        return list.toArray(new Spliterator.OfLong[0]);
+    }
+
+    public Element<?> getElement(long combinedId) throws Exception {
+        int type = Element.extractType(combinedId);
+        long id = Element.extractId(combinedId);
+        PersistentMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
+        checkArg(map != null, "unknown element type %d (id %d)", type, id);
+        return map.get(id);
+    }
+
+    public void purge(boolean temp, boolean index) throws Exception {
+        if (!temp && !index) { //do nothing?!?
+            return;
+        }
+
+        System.out.println("Cleaning up... (this might take a while)");
+        this.flush();
+        if (temp) {
+            System.out.println("Clearing temporary GeoJSON storage...");
+            this.tempJsonStorage.clear();
+        }
+        if (index) {
+            System.out.println("Clearing reference index...");
+            this.references.clear();
+            System.out.println("Clearing tile index...");
+            this.tiles.clear();
+        }
+        System.out.println("Cleared.");
     }
 
     public void flush() throws Exception {
@@ -128,7 +227,7 @@ public class Storage implements AutoCloseable {
 
         this.references.close();
         this.tiles.close();
-
         this.dirtyTiles.close();
+        this.tempJsonStorage.close();
     }
 }

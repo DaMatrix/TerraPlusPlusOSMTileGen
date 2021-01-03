@@ -26,6 +26,7 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
 
+import java.util.Arrays;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -42,19 +43,24 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  */
 @UtilityClass
 public class Threading {
-    public void forEachParallelLong(@NonNull Spliterator.OfLong spliterator, @NonNull LongConsumer callback) {
-        forEachParallel(PorkUtil.CPU_COUNT, spliterator, s -> s.forEachRemaining(callback));
+    public void forEachParallelLong(@NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) {
+        forEachParallel(PorkUtil.CPU_COUNT, s -> s.forEachRemaining(callback), spliterators);
     }
 
-    public void forEachParallelLong(int threads, @NonNull Spliterator.OfLong spliterator, @NonNull LongConsumer callback) {
-        forEachParallel(threads, spliterator, s -> s.forEachRemaining(callback));
+    public void forEachParallelLong(int threads, @NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) {
+        forEachParallel(threads, s -> s.forEachRemaining(callback), spliterators);
     }
 
-    public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull S spliterator, @NonNull Consumer<S> callback) {
+    public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) {
         ExecutorService executor = Executors.newFixedThreadPool(threads, PThreadFactories.DEFAULT_THREAD_FACTORY);
         try {
-            long targetSize = Math.max(spliterator.estimateSize() / (PorkUtil.CPU_COUNT << 3), 1L);
-            forEachParallel0(executor, targetSize, spliterator, callback).join();
+            CompletableFuture.allOf(Arrays.stream(spliterators)
+                    .map(spliterator -> {
+                        long targetSize = Math.max(spliterator.estimateSize() / (PorkUtil.CPU_COUNT << 3), 1L);
+                        return forEachParallel0(executor, targetSize, spliterator, callback);
+                    })
+                    .toArray(CompletableFuture[]::new))
+                    .join();
         } finally {
             executor.shutdown();
         }

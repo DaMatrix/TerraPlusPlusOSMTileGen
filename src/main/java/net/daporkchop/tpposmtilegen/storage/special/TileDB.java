@@ -61,7 +61,7 @@ public final class TileDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                element = Element.addTypeToId(element, elementType);
+                element = Element.addTypeToId(elementType, element);
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
                 for (int i = 0; i < size; i++) {
                     long id = tilePositions.getLong(i);

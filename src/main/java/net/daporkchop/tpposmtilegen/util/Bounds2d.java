@@ -39,20 +39,20 @@ import static java.lang.Math.*;
 @Setter
 @ToString
 public final class Bounds2d {
-    public static Bounds2d of(int x0, int x1, int z0, int z1) {
-        return new Bounds2d(min(x0, x1), max(x0, x1), min(z0, z1), max(z0, z1));
+    public static Bounds2d of(int x0, int x1, int y0, int y1) {
+        return new Bounds2d(min(x0, x1), max(x0, x1), min(y0, y1), max(y0, y1));
     }
 
     private final int minX;
     private final int maxX;
-    private final int minZ;
-    private final int maxZ;
+    private final int minY;
+    private final int maxY;
 
     public boolean contains(@NonNull Bounds2d other) {
-        return this.contains(other.minX(), other.maxX(), other.minZ(), other.maxZ());
+        return this.contains(other.minX(), other.maxX(), other.minY(), other.maxY());
     }
 
-    public boolean contains(int minX, int maxX, int minZ, int maxZ) {
-        return this.minX <= minX && this.maxX >= maxX && this.minZ <= minZ && this.maxZ >= maxZ;
+    public boolean contains(int minX, int maxX, int minY, int maxY) {
+        return this.minX <= minX && this.maxX >= maxX && this.minY <= minY && this.maxY >= maxY;
     }
 }

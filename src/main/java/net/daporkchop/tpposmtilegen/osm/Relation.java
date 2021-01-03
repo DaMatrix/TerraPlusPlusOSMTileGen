@@ -31,7 +31,6 @@ import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
@@ -185,7 +184,7 @@ public final class Relation extends Element<Relation> {
                 }
             }
 
-            return PolygonAssembler.assembleRelation(addTypeToId(this.id, TYPE), this.tags, this.id, wayIds, coordAddrs, coordCounts, roles);
+            return PolygonAssembler.assembleRelation(addTypeToId(TYPE, this.id), this.tags, this.id, wayIds, coordAddrs, coordCounts, roles);
         } finally {
             Arrays.stream(coordAddrs).forEach(PUnsafe::freeMemory);
         }
@@ -220,7 +219,7 @@ public final class Relation extends Element<Relation> {
 
         public Member(@NonNull RelationMember osm) {
             long id = osm.getId();
-            this.combined = addTypeToId(id, osm.getType().ordinal());
+            this.combined = addTypeToId(osm.getType().ordinal(), id);
             this.role = osm.getRole();
         }
 

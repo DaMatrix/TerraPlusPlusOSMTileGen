@@ -24,10 +24,12 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.Geometry;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
 
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
@@ -91,5 +93,24 @@ public final class Area implements Geometry {
             dst.setCharAt(dst.length() - 1, ']');
         }
         dst.append('}');
+    }
+
+    @Override
+    public Bounds2d computeObjectBounds() {
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Shape shape : this.shapes) {
+            for (Point point : shape.outerLoop) {
+                int x = point.x();
+                int y = point.y();
+                minX = min(minX, x);
+                maxX = max(maxX, x);
+                minY = min(minY, y);
+                maxY = max(maxY, y);
+            }
+        }
+        return Bounds2d.of(minX, maxX, minY, maxY);
     }
 }

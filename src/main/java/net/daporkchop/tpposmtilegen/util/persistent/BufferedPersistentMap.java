@@ -51,6 +51,13 @@ public final class BufferedPersistentMap<V> extends ForwardingPersistentMap<V> {
     }
 
     @Override
+    public void clear() throws Exception {
+        this.flush();
+
+        super.clear();
+    }
+
+    @Override
     public void flush() throws Exception {
         this.states.forEach((EConsumer<ThreadState>) ThreadState::close);
 

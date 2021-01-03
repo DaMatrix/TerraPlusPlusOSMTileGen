@@ -55,6 +55,11 @@ public abstract class ForwardingPersistentMap<V> implements PersistentMap<V> {
     }
 
     @Override
+    public void clear() throws Exception {
+        this.delegate.clear();
+    }
+
+    @Override
     public void flush() throws Exception {
         this.delegate.flush();
     }

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,49 +18,39 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util;
+package net.daporkchop.tpposmtilegen.storage.map;
 
-import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.math.PMath;
-import net.daporkchop.lib.unsafe.PUnsafe;
+import io.netty.buffer.ByteBuf;
+import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.nio.file.Path;
 
 /**
- * {@code #include <cstring>}
+ * {@link PersistentMap} for storing {@code char[]}s.
  *
  * @author DaPorkchop_
  */
-@UtilityClass
-public class cstring {
-    public long strlen(long addr) {
-        long len = 0L;
-        while (PUnsafe.getByte(addr + len) != 0) {
-            len++;
-        }
-        return len;
+public final class CharArrayDB extends RocksDBPersistentMap<char[]> {
+    public CharArrayDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
-    public int strcmp(long a, long b) {
-        for (long i = 0L; ; i++) {
-            int ca = PUnsafe.getByte(a + i);
-            int cb = PUnsafe.getByte(b + i);
-            if (ca == cb) { //both characters are the same
-                if ((ca | cb) == 0) { //both characters are NUL
-                    return 0;
-                }
-            } else {
-                return ca - cb;
-            }
+    @Override
+    protected void valueToBytes(@NonNull char[] value, @NonNull ByteBuf dst) {
+        dst.writeIntLE(value.length);
+        for (char c : value) {
+            dst.writeShortLE(c);
         }
     }
 
-    public long hash(long addr) {
-        long l = 0L;
-        int b;
-        for (long i = 0L; (b = PUnsafe.getByte(addr + i)) != 0; i++) {
-            l = PMath.mix64(l + b);
+    @Override
+    protected char[] valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        int count = valueBytes.readIntLE();
+        char[] arr = new char[count];
+        for (int i = 0; i < count; i++) {
+            arr[i] = (char) valueBytes.readShortLE();
         }
-        return l;
+        return arr;
     }
 }

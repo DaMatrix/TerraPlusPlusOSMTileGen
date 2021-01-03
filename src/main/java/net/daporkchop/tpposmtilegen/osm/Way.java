@@ -114,7 +114,7 @@ public final class Way extends Element<Way> {
 
         Area area = this.toArea(count, points);
         return area == null
-                ? new Line(addTypeToId(this.id, TYPE), this.tags, points.toArray(new Point[0])) //area assembly was unsuccessful
+                ? new Line(addTypeToId(TYPE, this.id), this.tags, points.toArray(new Point[0])) //area assembly was unsuccessful
                 : area;
     }
 
@@ -138,7 +138,7 @@ public final class Way extends Element<Way> {
                 PolygonAssembler.putPoint(addr + i * PolygonAssembler.POINT_SIZE, this.nodes[i], points.get(i));
             }
 
-            return PolygonAssembler.assembleWay(addTypeToId(this.id, TYPE), this.tags, this.id, addr, count);
+            return PolygonAssembler.assembleWay(addTypeToId(TYPE, this.id), this.tags, this.id, addr, count);
         } finally {
             PUnsafe.freeMemory(addr);
         }
