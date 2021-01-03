@@ -44,7 +44,7 @@ public interface ToGeoJSONSerializable {
                 dst.append('"');
                 JsonStringEncoder.getInstance().quoteAsString(k, dst);
                 dst.append('"').append(':').append('"');
-                JsonStringEncoder.getInstance().quoteAsString(k, dst);
+                JsonStringEncoder.getInstance().quoteAsString(v, dst);
                 dst.append('"').append(',');
             });
             dst.setCharAt(dst.length() - 1, '}');
