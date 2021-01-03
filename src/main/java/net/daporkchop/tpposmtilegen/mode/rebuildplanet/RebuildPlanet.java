@@ -32,26 +32,22 @@ import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
-import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.TileDB;
-import net.daporkchop.tpposmtilegen.util.Point;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
+import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.nio.file.SimpleFileVisitor;
 import java.nio.file.attribute.BasicFileAttributes;
 import java.util.List;
-import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -89,7 +85,7 @@ public class RebuildPlanet implements IMode {
             System.out.println("Clearing references... (this might take a moment)");
             storage.references().clear();
             System.out.println("Clearing tile index...");
-            //storage.tiles().clear();
+            storage.tiles().clear();
             System.out.println("Cleared.");
 
             /*try (ProgressNotifier notifier = new ProgressNotifier(" Build references: ", 5000L, "ways", "relations")) {
@@ -116,12 +112,12 @@ public class RebuildPlanet implements IMode {
             }
             storage.flush();*/
 
-            /*try (ProgressNotifier notifier = new ProgressNotifier(" Build tile index: ", 5000L, "nodes", "ways", "relations")) {
+            try (ProgressNotifier notifier = new ProgressNotifier(" Build tile index: ", 5000L, "nodes", "ways", "relations")) {
                 Threading.forEachParallelLong(storage.taggedNodeFlags().spliterator(), id -> {
                     try {
                         Node node = storage.nodes().get(id);
 
-                        long tilePos = TileDB.toTilePosition(node.point().x(), node.point().y());
+                        long tilePos = Tile.point2tile(node.point().x(), node.point().y());
                         storage.tiles().addElementToTiles(LongLists.singleton(tilePos), Node.TYPE, id);
                         storage.dirtyTiles().set(tilePos);
                     } catch (Exception e) {
@@ -130,12 +126,46 @@ public class RebuildPlanet implements IMode {
                     notifier.step(0);
                 });
             }
-            storage.flush();*/
+            storage.flush();
+
+            try (ProgressNotifier notifier = new ProgressNotifier(" Assemble & index complex geometry: ", 5000L, "ways", "relations", "areas")) {
+                Threading.forEachParallelLong(storage.wayFlags().spliterator(), id -> {
+                    try {
+                        Way way = storage.ways().get(id);
+                        checkState(way != null, "unknown way %d", id);
+                        Geometry geometry = way.toGeometry(storage);
+                        if (geometry != null) {
+                            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
+                                StringBuilder builder = handle.get();
+                                builder.setLength(0);
+
+                                geometry.toGeoJSON(builder);
+
+                                File file = new File(dst, PStrings.fastFormat("ways/%02x/%d.json", id & 0xFF, id));
+                                try (PAppendable out = new UTF8FileWriter(PFiles.ensureFileExists(file))) {
+                                    out.append(builder);
+                                }
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException("way " + id, e);
+                    }
+                    notifier.step(0);
+                });
+                Threading.forEachParallelLong(storage.relationFlags().spliterator(), id -> {
+                    try {
+                    } catch (Exception e) {
+                        throw new RuntimeException("relation " + id, e);
+                    }
+                    notifier.step(1);
+                });
+            }
+            storage.flush();
 
             try (ProgressNotifier notifier = new ProgressNotifier(" Render tiles: ", 5000L, "tiles")) {
                 Threading.forEachParallelLong(PorkUtil.CPU_COUNT << 1, storage.dirtyTiles().spliterator(), tilePos -> {
-                    int tileX = TileDB.extractTileX(tilePos);
-                    int tileY = TileDB.extractTileY(tilePos);
+                    int tileX = Tile.tileX(tilePos);
+                    int tileY = Tile.tileY(tilePos);
                     try {
                         LongList elements = new LongArrayList();
                         storage.tiles().getElementsInTile(tilePos, elements);
@@ -164,7 +194,7 @@ public class RebuildPlanet implements IMode {
                                 for (int i = 0, size = nodes.size(); i < size; i++) {
                                     Node node = nodes.get(i);
                                     checkState(node != null, "unknown node %d", nodeIds.getLong(i));
-                                    node.toGeoJSON(storage, builder);
+                                    node.toGeoJSON(builder);
                                 }
                             }
 
@@ -178,7 +208,7 @@ public class RebuildPlanet implements IMode {
                     }
                     notifier.step(0);
                 });
-                storage.dirtyTiles().clear();
+                //storage.dirtyTiles().clear();
             }
             storage.flush();
         }

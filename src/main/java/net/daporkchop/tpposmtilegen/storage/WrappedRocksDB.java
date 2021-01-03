@@ -21,34 +21,24 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
-import net.daporkchop.lib.common.system.PlatformInfo;
-import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
-import org.rocksdb.FlushOptions;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.WriteBatch;
 import org.rocksdb.WriteOptions;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.nio.file.Path;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.Arrays;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -56,14 +46,14 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 /**
  * @author DaPorkchop_
  */
-public abstract class DB<V> implements PersistentMap<V> {
+public abstract class WrappedRocksDB {
     protected static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = ThreadRef.soft(() -> new ByteArrayRecycler(8));
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = ThreadRef.soft(() -> new ByteArrayRecycler(16));
     protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::directBuffer);
     protected static final CloseableThreadLocal<WriteBatch> WRITE_BATCH_CACHE = CloseableThreadLocal.of(WriteBatch::new);
 
-    protected static final Options OPTIONS;
+    protected static final Options DEFAULT_OPTIONS;
     protected static final ReadOptions READ_OPTIONS;
     protected static final WriteOptions WRITE_OPTIONS;
     protected static final WriteOptions SYNC_WRITE_OPTIONS;
@@ -71,7 +61,7 @@ public abstract class DB<V> implements PersistentMap<V> {
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
 
-        OPTIONS = new Options()
+        DEFAULT_OPTIONS = new Options()
                 .setCreateIfMissing(true)
                 .setArenaBlockSize(1L << 20)
                 .setOptimizeFiltersForHits(true)
@@ -97,112 +87,42 @@ public abstract class DB<V> implements PersistentMap<V> {
     protected final Options options;
     protected final RocksDB delegate;
 
-    public DB(@NonNull Path root, @NonNull String name) throws Exception {
-        this(OPTIONS, root, name);
-    }
+    protected final byte[] lowKey;
+    protected final byte[] highKey;
+    protected final int keySize;
 
-    public DB(@NonNull Options options, @NonNull Path root, @NonNull String name) throws Exception {
+    public WrappedRocksDB(@NonNull Options options, @NonNull Path root, @NonNull String name, int keySize) throws Exception {
         this.options = options;
+        this.keySize = positive(keySize);
         this.delegate = RocksDB.open(options, root.resolve(name).toString());
+
+        this.initializeKeyRanges(this.lowKey = new byte[keySize], this.highKey = new byte[keySize]);
     }
 
-    @Override
-    @Deprecated
-    public void put(long key, @NonNull V value) throws Exception {
-        throw new UnsupportedOperationException();
+    protected void initializeKeyRanges(@NonNull byte[] lowKey, @NonNull byte[] highKey) {
+        Arrays.fill(lowKey, (byte) 0);
+        Arrays.fill(highKey, (byte) 0xFF);
     }
 
-    @Override
-    public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
-        checkArg(keys.size() == values.size(), "must have same number of keys as values!");
-        int size = keys.size();
-        if (size == 0) {
-            return;
-        }
-
+    public void clear() throws Exception {
         WriteBatch batch = WRITE_BATCH_CACHE.get();
-        batch.clear(); //ensure write batch is empty
-
-        ByteBuffer keyBuffer = ByteBuffer.allocateDirect(8);
         try {
-            ByteBuf buf = WRITE_BUFFER_CACHE.get();
+            batch.deleteRange(this.lowKey, this.highKey);
+            batch.delete(this.highKey); //deleteRange's upper bound is exclusive
 
-            for (int i = 0; i < size; i++) {
-                keyBuffer.clear();
-                keyBuffer.putLong(keys.getLong(i)).flip();
-
-                this.valueToBytes(values.get(i), buf.clear());
-                batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
-            }
+            this.delegate.write(SYNC_WRITE_OPTIONS, batch);
+            this.delegate.compactRange(); //force compaction to delete all table files
         } finally {
-            PUnsafe.pork_releaseBuffer(keyBuffer);
-        }
-
-        this.delegate.write(WRITE_OPTIONS, batch);
-    }
-
-    @Override
-    public V get(long key) throws Exception {
-        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
-        byte[] keyArray = keyArrayRecycler.get();
-        try {
-            PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
-
-            byte[] valueData = this.delegate.get(READ_OPTIONS, keyArray);
-            return valueData != null ? this.valueFromBytes(key, Unpooled.wrappedBuffer(valueData)) : null;
-        } finally {
-            keyArrayRecycler.release(keyArray);
+            batch.clear();
         }
     }
 
-    @Override
-    public List<V> getAll(@NonNull LongList keys) throws Exception {
-        int size = keys.size();
-        if (size == 0) {
-            return Collections.emptyList();
-        }
-
-        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
-        List<byte[]> keyBytes = new ArrayList<>(size);
-        List<byte[]> valueBytes;
-        try {
-            //serialize keys to bytes
-            for (int i = 0; i < size; i++) {
-                byte[] keyArray = keyArrayRecycler.get();
-                long key = keys.getLong(i);
-                PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
-                keyBytes.add(keyArray);
-            }
-
-            //look up values from key
-            valueBytes = this.delegate.multiGetAsList(keyBytes);
-        } finally {
-            keyBytes.forEach(keyArrayRecycler::release);
-        }
-
-        //re-use list that was previously used for storing encoded keys and store deserialized values in it
-        keyBytes.clear();
-        List<V> values = uncheckedCast(keyBytes);
-
-        for (int i = 0; i < size; i++) {
-            byte[] value = valueBytes.get(i);
-            values.add(value != null ? this.valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
-        }
-        return values;
-    }
-
-    @Override
     public void flush() throws Exception {
     }
 
-    @Override
     public void close() throws Exception {
         this.delegate.close();
     }
-
-    protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);
-
-    protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);
 
     @RequiredArgsConstructor
     protected static final class ByteArrayRecycler extends SimpleRecycler<byte[]> {

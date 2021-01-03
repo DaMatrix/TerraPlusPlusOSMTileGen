@@ -25,7 +25,6 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
@@ -37,7 +36,7 @@ import java.util.Map;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Node extends Element<Node> {
+public final class Node extends Element<Node> implements Geometry {
     public static final int TYPE = 0;
 
     @NonNull
@@ -84,16 +83,16 @@ public final class Node extends Element<Node> {
     }
 
     @Override
-    public Area toArea(@NonNull Storage storage) throws Exception {
-        return null; //a single node can never be an area
+    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
+        return this; //a node is already a geometric primitive
     }
 
     @Override
-    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
+    public void _toGeoJSON(StringBuilder dst) {
         dst.append("{\"type\":\"Point\",\"coordinates\":[");
         Point.appendCoordinate(this.point.x(), dst);
         dst.append(',');
         Point.appendCoordinate(this.point.y(), dst);
-        dst.append("]}\n");
+        dst.append(']').append('}');
     }
 }

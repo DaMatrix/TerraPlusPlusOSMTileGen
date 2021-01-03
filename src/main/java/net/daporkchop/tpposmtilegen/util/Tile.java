@@ -18,40 +18,55 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.natives;
+package net.daporkchop.tpposmtilegen.util;
 
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
-import net.daporkchop.tpposmtilegen.util.Point;
-
-import java.util.Map;
 
 /**
+ * Helper methods for converting points to tile locations.
+ *
  * @author DaPorkchop_
  */
 @UtilityClass
-public class PolygonAssembler {
-    public static final long POINT_SIZE = 16L;
+public class Tile {
+    public static final int TILES_PER_DEGREE = 64;
 
-    static {
-        PUnsafe.ensureClassInitialized(Natives.class);
-        init();
+    public static int coord_point2tile(int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE);
     }
 
-    private static native void init();
-
-    public static native Area assembleWay(long id, Map<String, String> tags, long wayId, long coordsAddr, int coordsCount);
-
-    public static native Area assembleRelation(long id, Map<String, String> tags, long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
-
-    public static void putPoint(long addr, long id, Point point) {
-        putPoint(addr, id, point.x(), point.y());
+    public static long point2tile(int x, int y) {
+        return xy2tilePos(coord_point2tile(x), coord_point2tile(y));
     }
 
-    public static void putPoint(long addr, long id, int x, int y) {
-        PUnsafe.putLong(addr, id);
-        PUnsafe.putInt(addr + 8L, x);
-        PUnsafe.putInt(addr + 12L, y);
+    public static long xy2tilePos(int tileX, int tileY) {
+        return interleaveBits(tileX, tileY);
+    }
+
+    public static int tileX(long tilePos) {
+        return uninterleave(tilePos);
+    }
+
+    public static int tileY(long tilePos) {
+        return uninterleave(tilePos >>> 1L);
+    }
+
+    private static long interleaveBits(int x, int y) {
+        x = (x << 1) ^ (x >> 31); //ZigZag encoding
+        y = (y << 1) ^ (y >> 31);
+
+        long l = 0L;
+        for (int i = 0; i < 32; i++) {
+            l |= ((long) (x & (1 << i)) << i) | ((long) (y & (1 << i)) << (i + 1));
+        }
+        return l;
+    }
+
+    private static int uninterleave(long l) {
+        int i = 0;
+        for (int j = 0; j < 32; j++) {
+            i |= ((l >>> (j << 1)) & 1) << j;
+        }
+        return (i >> 1) ^ -(i & 1);
     }
 }

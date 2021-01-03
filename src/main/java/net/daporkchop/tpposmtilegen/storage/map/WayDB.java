@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,32 +18,32 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.storage.map;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
 import java.nio.file.Path;
 
 /**
- * {@link PersistentMap} for storing {@link Point}s.
+ * {@link PersistentMap} for storing {@link Way}s.
  *
  * @author DaPorkchop_
  */
-final class PointDB extends DB<Point> {
-    public PointDB(@NonNull Path root, @NonNull String name) throws Exception {
+public final class WayDB extends RocksDBPersistentMap<Way> {
+    public WayDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
     }
 
     @Override
-    protected void valueToBytes(@NonNull Point value, @NonNull ByteBuf dst) {
+    protected void valueToBytes(@NonNull Way value, @NonNull ByteBuf dst) {
         value.toBytes(dst);
     }
 
     @Override
-    protected Point valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
-        return new Point(valueBytes);
+    protected Way valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        return new Way(key, valueBytes);
     }
 }

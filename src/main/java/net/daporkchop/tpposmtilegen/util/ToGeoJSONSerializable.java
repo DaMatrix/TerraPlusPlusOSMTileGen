@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.util;
 
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.storage.Storage;
 
 import java.util.Map;
 
@@ -32,13 +31,13 @@ import java.util.Map;
 public interface ToGeoJSONSerializable {
     Map<String, String> tags();
 
-    default void toGeoJSON(@NonNull Storage storage, @NonNull StringBuilder dst) throws Exception {
+    default void toGeoJSON(@NonNull StringBuilder dst) {
         Map<String, String> tags = this.tags();
         boolean tagsEmpty = tags.isEmpty();
         if (!tagsEmpty) {
             dst.append("{\"type\":\"Feature\",\"geometry\":");
         }
-        this._toGeoJSON(storage, dst);
+        this._toGeoJSON(dst);
         if (!tagsEmpty) {
             dst.append(",\"properties\":{");
             tags.forEach((k, v) -> {
@@ -54,5 +53,5 @@ public interface ToGeoJSONSerializable {
         dst.append('\n');
     }
 
-    void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception;
+    void _toGeoJSON(StringBuilder dst);
 }

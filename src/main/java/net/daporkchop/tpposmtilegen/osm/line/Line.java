@@ -18,40 +18,44 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.natives;
+package net.daporkchop.tpposmtilegen.osm.line;
 
-import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
+import lombok.Getter;
+import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
+
 /**
  * @author DaPorkchop_
  */
-@UtilityClass
-public class PolygonAssembler {
-    public static final long POINT_SIZE = 16L;
+@Getter
+public final class Line implements Geometry {
+    protected final long id;
+    protected final Map<String, String> tags;
+    protected final Point[] points;
 
-    static {
-        PUnsafe.ensureClassInitialized(Natives.class);
-        init();
+    public Line(long id, @NonNull Map<String, String> tags, @NonNull Point[] points) {
+        this.id = notNegative(id, "id");
+        this.tags = tags;
+        checkArg(points.length >= 2, "line must consist of at least 2 points!");
+        this.points = points;
     }
 
-    private static native void init();
-
-    public static native Area assembleWay(long id, Map<String, String> tags, long wayId, long coordsAddr, int coordsCount);
-
-    public static native Area assembleRelation(long id, Map<String, String> tags, long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
-
-    public static void putPoint(long addr, long id, Point point) {
-        putPoint(addr, id, point.x(), point.y());
-    }
-
-    public static void putPoint(long addr, long id, int x, int y) {
-        PUnsafe.putLong(addr, id);
-        PUnsafe.putInt(addr + 8L, x);
-        PUnsafe.putInt(addr + 12L, y);
+    @Override
+    public void _toGeoJSON(StringBuilder dst) {
+        dst.append("{\"type\":\"LineString\",\"coordinates\":[");
+        for (Point point : this.points) {
+            dst.append('[');
+            Point.appendCoordinate(point.x(), dst);
+            dst.append(',');
+            Point.appendCoordinate(point.y(), dst);
+            dst.append(']').append(',');
+        }
+        dst.setCharAt(dst.length() - 1, ']');
+        dst.append('}');
     }
 }

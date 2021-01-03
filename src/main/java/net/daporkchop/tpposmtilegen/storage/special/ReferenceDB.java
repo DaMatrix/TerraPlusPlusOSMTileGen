@@ -18,42 +18,46 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage;
+package net.daporkchop.tpposmtilegen.storage.special;
 
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.storage.WrappedRocksDB;
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
 import org.rocksdb.WriteBatch;
 
 import java.nio.file.Path;
-import java.util.Arrays;
 
 /**
+ * Tracks references between elements.
+ * <p>
+ * struct Key {
+ * long id; //the id of the element that is referenced
+ * long referentId; //the id of the referring element
+ * };
+ *
  * @author DaPorkchop_
  */
-public final class ReferenceDB implements AutoCloseable {
-    protected final RocksDB delegate;
-
+public final class ReferenceDB extends WrappedRocksDB {
     public ReferenceDB(@NonNull Path root, @NonNull String name) throws Exception {
-        this.delegate = RocksDB.open(DB.OPTIONS, root.resolve(name).toString());
+        super(DEFAULT_OPTIONS, root, name, 16);
     }
 
     public void addReference(int type, long id, int referentType, long referent) throws Exception {
         id = Element.addTypeToId(id, type);
         referent = Element.addTypeToId(referent, referentType);
 
-        DB.ByteArrayRecycler recycler = DB.BYTE_ARRAY_RECYCLER_16.get();
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
-            this.delegate.put(DB.WRITE_OPTIONS, key, DB.EMPTY_BYTE_ARRAY);
+            this.delegate.put(WRITE_OPTIONS, key, EMPTY_BYTE_ARRAY);
         } finally {
             recycler.release(key);
         }
@@ -65,30 +69,32 @@ public final class ReferenceDB implements AutoCloseable {
             return;
         }
 
-        WriteBatch batch = DB.WRITE_BATCH_CACHE.get();
-        batch.clear(); //ensure write batch is empty
-
-        DB.ByteArrayRecycler recycler = DB.BYTE_ARRAY_RECYCLER_16.get();
-        byte[] key = recycler.get();
+        WriteBatch batch = WRITE_BATCH_CACHE.get();
         try {
-            referent = Element.addTypeToId(referent, referentType);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
-            for (int i = 0; i < size; i++) {
-                long id = Element.addTypeToId(ids.getLong(i), type);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-                batch.put(key, DB.EMPTY_BYTE_ARRAY);
+            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
+            byte[] key = recycler.get();
+            try {
+                referent = Element.addTypeToId(referent, referentType);
+                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
+                for (int i = 0; i < size; i++) {
+                    long id = Element.addTypeToId(ids.getLong(i), type);
+                    PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                    batch.put(key, EMPTY_BYTE_ARRAY);
+                }
+            } finally {
+                recycler.release(key);
             }
-        } finally {
-            recycler.release(key);
-        }
 
-        this.delegate.write(DB.WRITE_OPTIONS, batch);
+            this.delegate.write(WRITE_OPTIONS, batch);
+        } finally {
+            batch.clear();
+        }
     }
 
     public void deleteReferencesTo(int type, long id) throws Exception {
         id = Element.addTypeToId(id, type);
 
-        DB.ByteArrayRecycler recycler = DB.BYTE_ARRAY_RECYCLER_16.get();
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
         try {
@@ -96,7 +102,7 @@ public final class ReferenceDB implements AutoCloseable {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id + 1L) : id + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            this.delegate.deleteRange(DB.WRITE_OPTIONS, from, to);
+            this.delegate.deleteRange(WRITE_OPTIONS, from, to);
         } finally {
             recycler.release(from);
             recycler.release(to);
@@ -106,7 +112,7 @@ public final class ReferenceDB implements AutoCloseable {
     public void getReferencesTo(int type, long id, @NonNull LongList dst) throws Exception {
         id = Element.addTypeToId(id, type);
 
-        DB.ByteArrayRecycler recycler = DB.BYTE_ARRAY_RECYCLER_16.get();
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
         try {
@@ -115,7 +121,7 @@ public final class ReferenceDB implements AutoCloseable {
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id + 1L) : id + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
-                 ReadOptions options = new ReadOptions(DB.READ_OPTIONS).setIterateUpperBound(toSlice);
+                 ReadOptions options = new ReadOptions(READ_OPTIONS).setIterateUpperBound(toSlice);
                  RocksIterator iterator = this.delegate.newIterator(options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
                     dst.add(PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L));
@@ -125,34 +131,5 @@ public final class ReferenceDB implements AutoCloseable {
             recycler.release(from);
             recycler.release(to);
         }
-    }
-
-    public void clear() throws Exception {
-        WriteBatch batch = DB.WRITE_BATCH_CACHE.get();
-        batch.clear(); //ensure write batch is empty
-
-        DB.ByteArrayRecycler recycler = DB.BYTE_ARRAY_RECYCLER_16.get();
-        byte[] from = recycler.get();
-        byte[] to = recycler.get();
-        try {
-            Arrays.fill(from, (byte) 0);
-            Arrays.fill(to, (byte) 0xFF);
-            batch.deleteRange(from, to);
-            batch.delete(to); //range upper bound is exclusive, so delete that one as well just in case
-        } finally {
-            recycler.release(from);
-            recycler.release(to);
-        }
-
-        this.delegate.write(DB.SYNC_WRITE_OPTIONS, batch);
-        this.delegate.compactRange();
-    }
-
-    public void flush() throws Exception {
-    }
-
-    @Override
-    public void close() throws Exception {
-        this.delegate.close();
     }
 }

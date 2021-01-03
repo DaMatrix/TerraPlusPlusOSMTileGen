@@ -109,7 +109,9 @@ public final class Relation extends Element<Relation> {
     }
 
     @Override
-    public Area toArea(@NonNull Storage storage) throws Exception {
+    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
+        //we don't care about any relation that isn't an area
+
         if (!AreaKeys.isRelationArea(this.tags)) { //this relations's tags don't indicate that it's an area, don't bother making it into one
             return null;
         }
@@ -183,15 +185,10 @@ public final class Relation extends Element<Relation> {
                 }
             }
 
-            return PolygonAssembler.assembleRelation(Area.elementIdToAreaId(this), this.id, wayIds, coordAddrs, coordCounts, roles);
+            return PolygonAssembler.assembleRelation(addTypeToId(this.id, TYPE), this.tags, this.id, wayIds, coordAddrs, coordCounts, roles);
         } finally {
             Arrays.stream(coordAddrs).forEach(PUnsafe::freeMemory);
         }
-    }
-
-    @Override
-    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
-        //TODO
     }
 
     /**

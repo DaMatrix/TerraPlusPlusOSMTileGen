@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -31,15 +30,12 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.area.Area;
 import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
-import net.daporkchop.tpposmtilegen.osm.area.Shape;
+import net.daporkchop.tpposmtilegen.osm.line.Line;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
-import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -100,17 +96,9 @@ public final class Way extends Element<Way> {
     }
 
     @Override
-    public Area toArea(@NonNull Storage storage) throws Exception {
-        if (this.nodes.length <= 3) { //less than 4 points -> it can't be a valid polygon
-            return null;
-        }
-
+    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
         int count = this.nodes.length;
-        if (this.nodes[0] != this.nodes[count - 1]) { //first and last points aren't the same -> not a closed way
-            return null;
-        }
-
-        if (!AreaKeys.isWayArea(this.tags)) { //this way's tags don't indicate that it's an area, don't bother making it into one
+        if (count <= 2) { //less than 4 points -> it can't be a valid geometry
             return null;
         }
 
@@ -124,6 +112,25 @@ public final class Way extends Element<Way> {
             }
         }
 
+        Area area = this.toArea(count, points);
+        return area == null
+                ? new Line(addTypeToId(this.id, TYPE), this.tags, points.toArray(new Point[0])) //area assembly was unsuccessful
+                : area;
+    }
+
+    private Area toArea(int count, List<Point> points) {
+        if (this.nodes.length <= 3) { //less than 4 points -> it can't be a valid polygon
+            return null;
+        }
+
+        if (this.nodes[0] != this.nodes[count - 1]) { //first and last points aren't the same -> not a closed way
+            return null;
+        }
+
+        if (!AreaKeys.isWayArea(this.tags)) { //this way's tags don't indicate that it's an area, don't bother making it into one
+            return null;
+        }
+
         //copy points into direct memory so that they can be passed along to JNI
         long addr = PUnsafe.allocateMemory(count * PolygonAssembler.POINT_SIZE);
         try {
@@ -131,14 +138,9 @@ public final class Way extends Element<Way> {
                 PolygonAssembler.putPoint(addr + i * PolygonAssembler.POINT_SIZE, this.nodes[i], points.get(i));
             }
 
-            return PolygonAssembler.assembleWay(Area.elementIdToAreaId(this), this.id, addr, count);
+            return PolygonAssembler.assembleWay(addTypeToId(this.id, TYPE), this.tags, this.id, addr, count);
         } finally {
             PUnsafe.freeMemory(addr);
         }
-    }
-
-    @Override
-    public void _toGeoJSON(Storage storage, StringBuilder dst) throws Exception {
-        //TODO
     }
 }

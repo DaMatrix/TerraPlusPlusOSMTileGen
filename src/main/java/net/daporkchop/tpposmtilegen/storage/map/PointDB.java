@@ -18,40 +18,32 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.natives;
+package net.daporkchop.tpposmtilegen.storage.map;
 
-import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
+import io.netty.buffer.ByteBuf;
+import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
-import java.util.Map;
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Point}s.
+ *
  * @author DaPorkchop_
  */
-@UtilityClass
-public class PolygonAssembler {
-    public static final long POINT_SIZE = 16L;
-
-    static {
-        PUnsafe.ensureClassInitialized(Natives.class);
-        init();
+public final class PointDB extends RocksDBPersistentMap<Point> {
+    public PointDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
-    private static native void init();
-
-    public static native Area assembleWay(long id, Map<String, String> tags, long wayId, long coordsAddr, int coordsCount);
-
-    public static native Area assembleRelation(long id, Map<String, String> tags, long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
-
-    public static void putPoint(long addr, long id, Point point) {
-        putPoint(addr, id, point.x(), point.y());
+    @Override
+    protected void valueToBytes(@NonNull Point value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
     }
 
-    public static void putPoint(long addr, long id, int x, int y) {
-        PUnsafe.putLong(addr, id);
-        PUnsafe.putInt(addr + 8L, x);
-        PUnsafe.putInt(addr + 12L, y);
+    @Override
+    protected Point valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        return new Point(valueBytes);
     }
 }

@@ -45,7 +45,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @RequiredArgsConstructor
 @Getter
 @ToString
-public abstract class Element<I extends Element<I>> implements Persistent<I>, ToGeoJSONSerializable {
+public abstract class Element<I extends Element<I>> implements Persistent<I> {
     private static final long TYPE_SHIFT = 62L;
     private static final long TYPE_MASK = 3L;
 
@@ -124,5 +124,5 @@ public abstract class Element<I extends Element<I>> implements Persistent<I>, To
 
     public abstract void computeReferences(@NonNull Storage storage) throws Exception;
 
-    public abstract Area toArea(@NonNull Storage storage) throws Exception;
+    public abstract Geometry toGeometry(@NonNull Storage storage) throws Exception;
 }

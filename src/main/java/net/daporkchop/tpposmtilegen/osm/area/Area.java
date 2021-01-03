@@ -23,9 +23,10 @@ package net.daporkchop.tpposmtilegen.osm.area;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Relation;
-import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.Geometry;
+import net.daporkchop.tpposmtilegen.util.Point;
+
+import java.util.Map;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -40,25 +41,55 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 @ToString
-public final class Area {
-    public static final int TYPE = 3;
-
-    public static long elementIdToAreaId(@NonNull Element element) {
-        switch (element.type()) {
-            case Way.TYPE:
-                return element.id() << 1L;
-            case Relation.TYPE:
-                return (element.id() << 1L) | 1L;
+public final class Area implements Geometry {
+    protected static void lineToGeoJSON(Point[] points, StringBuilder dst) {
+        dst.append('[');
+        for (Point point : points) {
+            dst.append('[');
+            Point.appendCoordinate(point.x(), dst);
+            dst.append(',');
+            Point.appendCoordinate(point.y(), dst);
+            dst.append(']').append(',');
         }
-        throw new IllegalArgumentException("element cannot be converted to area: " + element);
+        dst.setCharAt(dst.length() - 1, ']');
+    }
+
+    protected static void shapeToGeoJSON(Shape shape, StringBuilder dst) {
+        dst.append('[');
+        lineToGeoJSON(shape.outerLoop, dst);
+        if (shape.innerLoops.length != 0) {
+            for (Point[] innerLoop : shape.innerLoops) {
+                dst.append(',');
+                lineToGeoJSON(innerLoop, dst);
+            }
+        }
+        dst.append(']');
     }
 
     protected final long id;
+    protected final Map<String, String> tags;
     protected final Shape[] shapes;
 
-    public Area(long id, @NonNull Shape[] shapes) {
+    public Area(long id, @NonNull Map<String, String> tags, @NonNull Shape[] shapes) {
         this.id = notNegative(id, "id");
+        this.tags = tags;
         notNegative(shapes.length, "area must consist of at least one shape!");
         this.shapes = shapes;
+    }
+
+    @Override
+    public void _toGeoJSON(StringBuilder dst) {
+        if (this.shapes.length == 1) {
+            dst.append("{\"type\":\"Polygon\",\"coordinates\":");
+            shapeToGeoJSON(this.shapes[0], dst);
+        } else {
+            dst.append("{\"type\":\"MultiPolygon\",\"coordinates\":[");
+            for (Shape shape : this.shapes) {
+                shapeToGeoJSON(shape, dst);
+                dst.append(',');
+            }
+            dst.setCharAt(dst.length() - 1, ']');
+        }
+        dst.append('}');
     }
 }
