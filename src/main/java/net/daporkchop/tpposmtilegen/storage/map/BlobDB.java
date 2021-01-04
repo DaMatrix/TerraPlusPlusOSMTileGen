@@ -24,33 +24,27 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
+import java.nio.ByteBuffer;
 import java.nio.file.Path;
 
 /**
- * {@link PersistentMap} for storing {@code char[]}s.
+ * {@link PersistentMap} for storing {@link ByteBuffer}s.
  *
  * @author DaPorkchop_
  */
-public final class CharArrayDB extends RocksDBPersistentMap<char[]> {
-    public CharArrayDB(@NonNull Path root, @NonNull String name) throws Exception {
+public final class BlobDB extends RocksDBPersistentMap<ByteBuffer> {
+    public BlobDB(@NonNull Path root, @NonNull String name) throws Exception {
         super(root, name);
     }
 
     @Override
-    protected void valueToBytes(@NonNull char[] value, @NonNull ByteBuf dst) {
-        dst.writeIntLE(value.length);
-        for (char c : value) {
-            dst.writeShortLE(c);
-        }
+    protected void valueToBytes(@NonNull ByteBuffer value, @NonNull ByteBuf dst) {
+        dst.writeBytes(value);
     }
 
     @Override
-    protected char[] valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
-        int count = valueBytes.readIntLE();
-        char[] arr = new char[count];
-        for (int i = 0; i < count; i++) {
-            arr[i] = (char) valueBytes.readShortLE();
-        }
-        return arr;
+    protected ByteBuffer valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        //this assumes that the ByteBuf is an unpooled wrapper around a byte[] returned by RocksDB, and will break if used with anything else
+        return valueBytes.internalNioBuffer(0, valueBytes.readableBytes());
     }
 }

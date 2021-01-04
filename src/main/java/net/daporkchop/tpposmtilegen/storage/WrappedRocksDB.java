@@ -31,6 +31,7 @@ import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
+import org.rocksdb.Env;
 import org.rocksdb.Options;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -64,6 +65,7 @@ public abstract class WrappedRocksDB {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
 
         DEFAULT_OPTIONS = new Options()
+                .setEnv(Env.getDefault().setBackgroundThreads(CPU_COUNT))
                 .setCreateIfMissing(true)
                 .setArenaBlockSize(1L << 20)
                 .setOptimizeFiltersForHits(true)

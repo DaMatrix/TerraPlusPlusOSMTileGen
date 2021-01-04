@@ -20,36 +20,47 @@
 
 package net.daporkchop.tpposmtilegen.storage;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.storage.map.CharArrayDB;
+import net.daporkchop.tpposmtilegen.storage.map.BlobDB;
+import net.daporkchop.tpposmtilegen.storage.map.LongArrayDB;
 import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
-import net.daporkchop.tpposmtilegen.storage.special.TileCountDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Point;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
 import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
@@ -71,10 +82,10 @@ public final class Storage implements AutoCloseable {
     protected final OffHeapAtomicLong replicationTimestamp;
 
     protected final ReferenceDB references;
-    protected final TileDB tiles;
-    protected final TileCountDB tileCounts;
+    protected final TileDB tileContents;
     protected final OffHeapAtomicBitSet dirtyTiles;
-    protected final PersistentMap<char[]> tempJsonStorage;
+    protected final PersistentMap<long[]> intersectedTiles;
+    protected final PersistentMap<ByteBuffer> tempJsonStorage;
 
     public Storage(@NonNull Path root) throws Exception {
         this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
@@ -91,10 +102,10 @@ public final class Storage implements AutoCloseable {
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
         this.references = new ReferenceDB(root, "refs");
-        this.tiles = new TileDB(root, "tiles");
-        this.tileCounts = new TileCountDB(root, "in_tile_counts");
+        this.tileContents = new TileDB(root, "tiles");
         this.dirtyTiles = new OffHeapAtomicBitSet(root.resolve("tiles_dirty"), 1L << 40L);
-        this.tempJsonStorage = new CharArrayDB(root, "geojson_temp_storage");
+        this.intersectedTiles = new LongArrayDB(root, "intersected_tiles");
+        this.tempJsonStorage = new BlobDB(root, "geojson_temp");
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
@@ -180,6 +191,68 @@ public final class Storage implements AutoCloseable {
         return map.get(id);
     }
 
+    public void convertToGeoJSONAndStoreInDB(@NonNull Path outputRoot, long combinedId) throws Exception {
+        int type = Element.extractType(combinedId);
+        String typeName = Element.typeName(type);
+        long id = Element.extractId(combinedId);
+
+        Element element = this.getElement(combinedId);
+        checkState(element != null, "unknown %s %d", typeName, id);
+
+        Geometry geometry = element.toGeometry(this);
+        if (geometry != null) {
+            Bounds2d bounds = geometry.computeObjectBounds();
+            int tileMinX = coord_point2tile(bounds.minX());
+            int tileMaxX = coord_point2tile(bounds.maxX());
+            int tileMinY = coord_point2tile(bounds.minY());
+            int tileMaxY = coord_point2tile(bounds.maxY());
+            int tileCount = (tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1); //total number of tiles that the geometry intersects
+            long[] arr = new long[tileCount];
+            for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
+                for (int y = tileMinY; y <= tileMaxY; y++) {
+                    this.dirtyTiles.set(arr[i] = xy2tilePos(x, y));
+                }
+            }
+            this.tileContents.addElementToTiles(LongArrayList.wrap(arr), type, id); //add this element to all tiles
+            this.intersectedTiles.put(combinedId, arr);
+
+            //encode geometry to GeoJSON
+            StringBuilder builder = new StringBuilder();
+
+            geometry.toGeoJSON(builder);
+
+            //convert json to bytes
+            ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(builder.length());
+            try {
+                buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
+                if (arr.length == 1) { //element is only referenced once, store GeoJSON data in db and exit
+                    this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                } else { //element is referenced multiple times, store it in an external file
+                    //ensure directory exists
+                    Path dir = outputRoot.resolve(Element.typeName(type)).resolve(String.valueOf((id / 1000L) % 1000L)).resolve(String.valueOf(id % 1000L));
+                    Files.createDirectories(dir);
+
+                    //write to file
+                    try (FileChannel channel = FileChannel.open(dir.resolve(id + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                        buf.readBytes(channel, buf.readableBytes());
+                    }
+
+                    //create reference object and store it in db
+                    builder = new StringBuilder();
+                    builder.append("{\"type\":\"Reference\",\"location\":\"")
+                            .append(Element.typeName(type)).append('/')
+                            .append((id / 1000L) % 1000L).append('/')
+                            .append(id % 1000L).append('/')
+                            .append(id).append(".json\"}\n");
+                    buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
+                    this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                }
+            } finally {
+                buf.release();
+            }
+        }
+    }
+
     public void purge(boolean temp, boolean index) throws Exception {
         if (!temp && !index) { //do nothing?!?
             return;
@@ -195,7 +268,7 @@ public final class Storage implements AutoCloseable {
             System.out.println("Clearing reference index...");
             this.references.clear();
             System.out.println("Clearing tile index...");
-            this.tiles.clear();
+            this.tileContents.clear();
         }
         System.out.println("Cleared.");
     }
@@ -207,7 +280,7 @@ public final class Storage implements AutoCloseable {
         this.relations.flush();
 
         this.references.flush();
-        this.tiles.flush();
+        this.tileContents.flush();
     }
 
     @Override
@@ -226,7 +299,7 @@ public final class Storage implements AutoCloseable {
         this.replicationTimestamp.close();
 
         this.references.close();
-        this.tiles.close();
+        this.tileContents.close();
         this.dirtyTiles.close();
         this.tempJsonStorage.close();
     }

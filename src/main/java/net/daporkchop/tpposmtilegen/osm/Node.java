@@ -96,6 +96,11 @@ public final class Node extends Element<Node> implements Geometry {
     }
 
     @Override
+    public long gid() {
+        return Element.addTypeToId(TYPE, this.id);
+    }
+
+    @Override
     public void _toGeoJSON(StringBuilder dst) {
         dst.append("{\"type\":\"Point\",\"coordinates\":[");
         Point.appendCoordinate(this.point.x(), dst);

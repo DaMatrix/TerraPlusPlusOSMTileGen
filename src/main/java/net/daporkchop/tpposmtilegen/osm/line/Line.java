@@ -36,12 +36,12 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 public final class Line implements Geometry {
-    protected final long id;
+    protected final long gid;
     protected final Map<String, String> tags;
     protected final Point[] points;
 
     public Line(long id, @NonNull Map<String, String> tags, @NonNull Point[] points) {
-        this.id = notNegative(id, "id");
+        this.gid = notNegative(id, "id");
         this.tags = tags;
         checkArg(points.length >= 2, "line must consist of at least 2 points!");
         this.points = points;

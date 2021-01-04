@@ -98,7 +98,7 @@ public final class Way extends Element<Way> {
     @Override
     public Geometry toGeometry(@NonNull Storage storage) throws Exception {
         int count = this.nodes.length;
-        if (count <= 2) { //less than 4 points -> it can't be a valid geometry
+        if (count < 2) { //less than 2 points -> it can't be a valid geometry
             return null;
         }
 

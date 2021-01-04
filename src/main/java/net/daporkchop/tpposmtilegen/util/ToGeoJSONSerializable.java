@@ -31,14 +31,17 @@ import java.util.Map;
 public interface ToGeoJSONSerializable {
     Map<String, String> tags();
 
+    long gid();
+
     default void toGeoJSON(@NonNull StringBuilder dst) {
-        Map<String, String> tags = this.tags();
-        boolean tagsEmpty = tags.isEmpty();
-        if (!tagsEmpty) {
-            dst.append("{\"type\":\"Feature\",\"geometry\":");
-        }
+        dst.append("{\"type\":\"Feature\",\"geometry\":");
+
+        //geometry
         this._toGeoJSON(dst);
-        if (!tagsEmpty) {
+
+        //tags
+        Map<String, String> tags = this.tags();
+        if (!tags.isEmpty()) {
             dst.append(",\"properties\":{");
             tags.forEach((k, v) -> {
                 dst.append('"');
@@ -48,8 +51,12 @@ public interface ToGeoJSONSerializable {
                 dst.append('"').append(',');
             });
             dst.setCharAt(dst.length() - 1, '}');
-            dst.append('}');
         }
+
+        //id
+        dst.append(",\"id\":").append(this.gid());
+
+        dst.append('}');
         dst.append('\n');
     }
 

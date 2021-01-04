@@ -18,14 +18,39 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm;
+package net.daporkchop.tpposmtilegen.storage.map;
 
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
+import io.netty.buffer.ByteBuf;
+import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
+
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@code long[]}s.
+ *
  * @author DaPorkchop_
  */
-public interface Geometry extends ToGeoJSONSerializable {
-    Bounds2d computeObjectBounds();
+public final class LongArrayDB extends RocksDBPersistentMap<long[]> {
+    public LongArrayDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
+    }
+
+    @Override
+    protected void valueToBytes(@NonNull long[] value, @NonNull ByteBuf dst) {
+        dst.ensureWritable(value.length << 3);
+        for (long l : value) {
+            dst.writeLongLE(l);
+        }
+    }
+
+    @Override
+    protected long[] valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        int count = valueBytes.readableBytes() >> 3;
+        long[] arr = new long[count];
+        for (int i = 0; i < count; i++) {
+            arr[i] = valueBytes.readLongLE();
+        }
+        return arr;
+    }
 }
