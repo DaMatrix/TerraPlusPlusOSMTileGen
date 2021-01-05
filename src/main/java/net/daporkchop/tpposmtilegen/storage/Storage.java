@@ -210,9 +210,10 @@ public final class Storage implements AutoCloseable {
             long[] arr = new long[tileCount];
             for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
                 for (int y = tileMinY; y <= tileMaxY; y++) {
-                    this.dirtyTiles.set(arr[i] = xy2tilePos(x, y));
+                    this.dirtyTiles.set(arr[i++] = xy2tilePos(x, y));
                 }
             }
+
             this.tileContents.addElementToTiles(LongArrayList.wrap(arr), type, id); //add this element to all tiles
             this.intersectedTiles.put(combinedId, arr);
 
@@ -244,7 +245,7 @@ public final class Storage implements AutoCloseable {
                             .append((id / 1000L) % 1000L).append('/')
                             .append(id % 1000L).append('/')
                             .append(id).append(".json\"}\n");
-                    buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
+                    buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
                     this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }
             } finally {

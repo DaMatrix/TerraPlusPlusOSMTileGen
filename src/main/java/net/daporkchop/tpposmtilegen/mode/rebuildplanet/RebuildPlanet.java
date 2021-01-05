@@ -77,7 +77,7 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true, true); //clear everything
 
-            try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
+            /*try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
                     String typeName = Element.typeName(type);
@@ -92,7 +92,7 @@ public class RebuildPlanet implements IMode {
                     notifier.step(type - 1);
                 }, storage.spliterateElements(false, true, true)); //don't include nodes, because they can't reference anything
                 storage.flush();
-            }
+            }*/
 
             try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations")) {
                 Threading.forEachParallelLong(combinedId -> {

@@ -68,12 +68,12 @@ public final class Area implements Geometry {
         dst.append(']');
     }
 
-    protected final long id;
+    protected final long gid;
     protected final Map<String, String> tags;
     protected final Shape[] shapes;
 
     public Area(long id, @NonNull Map<String, String> tags, @NonNull Shape[] shapes) {
-        this.id = notNegative(id, "id");
+        this.gid = notNegative(id, "id");
         this.tags = tags;
         notNegative(shapes.length, "area must consist of at least one shape!");
         this.shapes = shapes;
