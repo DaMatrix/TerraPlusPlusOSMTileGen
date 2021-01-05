@@ -25,9 +25,6 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.Point;
-
-import java.util.Map;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;

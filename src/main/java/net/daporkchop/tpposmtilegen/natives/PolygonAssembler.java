@@ -23,9 +23,7 @@ package net.daporkchop.tpposmtilegen.natives;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Area;
-import net.daporkchop.tpposmtilegen.util.Point;
-
-import java.util.Map;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 
 /**
  * @author DaPorkchop_

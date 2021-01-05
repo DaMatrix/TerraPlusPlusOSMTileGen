@@ -21,6 +21,9 @@
 package net.daporkchop.tpposmtilegen.util;
 
 import lombok.experimental.UtilityClass;
+import net.daporkchop.tpposmtilegen.geometry.Point;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * Helper methods for converting points to tile locations.
@@ -31,42 +34,27 @@ import lombok.experimental.UtilityClass;
 public class Tile {
     public static final int TILES_PER_DEGREE = 64;
 
-    public static int coord_point2tile(int pointCoordinate) {
-        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE);
+    public static int x_point2tile(int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE) + 180 * TILES_PER_DEGREE;
+    }
+
+    public static int y_point2tile(int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE) + 90 * TILES_PER_DEGREE;
     }
 
     public static long point2tile(int x, int y) {
-        return xy2tilePos(coord_point2tile(x), coord_point2tile(y));
+        return xy2tilePos(x_point2tile(x), y_point2tile(y));
     }
 
     public static long xy2tilePos(int tileX, int tileY) {
-        return interleaveBits(tileX, tileY);
+        return tileX << 16 | tileY;
     }
 
     public static int tileX(long tilePos) {
-        return uninterleave(tilePos);
+        return toInt(tilePos >>> 16L);
     }
 
     public static int tileY(long tilePos) {
-        return uninterleave(tilePos >>> 1L);
-    }
-
-    private static long interleaveBits(int x, int y) {
-        x = (x << 1) ^ (x >> 31); //ZigZag encoding
-        y = (y << 1) ^ (y >> 31);
-
-        long l = 0L;
-        for (int i = 0; i < 32; i++) {
-            l |= ((long) (x & (1 << i)) << i) | ((long) (y & (1 << i)) << (i + 1));
-        }
-        return l;
-    }
-
-    private static int uninterleave(long l) {
-        int i = 0;
-        for (int j = 0; j < 32; j++) {
-            i |= ((l >>> (j << 1)) & 1) << j;
-        }
-        return (i >> 1) ^ -(i & 1);
+        return toInt(tilePos & 0xFFFF);
     }
 }

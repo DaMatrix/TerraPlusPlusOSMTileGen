@@ -76,23 +76,6 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true, true); //clear everything
 
-            /*try (ProgressNotifier notifier = new ProgressNotifier("Build references: ", 5000L, "ways", "relations")) {
-                Threading.forEachParallelLong(combinedId -> {
-                    int type = Element.extractType(combinedId);
-                    String typeName = Element.typeName(type);
-                    long id = Element.extractId(combinedId);
-                    try {
-                        Element element = storage.getElement(combinedId);
-                        checkState(element != null, "unknown %s %d", typeName, id);
-                        element.computeReferences(storage);
-                    } catch (Exception e) {
-                        throw new RuntimeException(typeName + ' ' + id, e);
-                    }
-                    notifier.step(type - 1);
-                }, storage.spliterateElements(false, true, true)); //don't include nodes, because they can't reference anything
-                storage.flush();
-            }*/
-
             try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations", "coastlines")) {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
@@ -102,34 +85,11 @@ public class RebuildPlanet implements IMode {
                         throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
                     }
                     notifier.step(type);
-                }, storage.spliterateElements(false, false, false, true));
+                }, storage.spliterateElements(true, true, true, true));
                 storage.flush();
             }
 
-            try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles")) {
-                Threading.forEachParallelLong(tilePos -> {
-                    int tileX = Tile.tileX(tilePos);
-                    int tileY = Tile.tileY(tilePos);
-                    try {
-                        LongList elements = new LongArrayList();
-                        storage.tileContents().getElementsInTile(tilePos, elements);
-                        if (elements.isEmpty()) { //nothing to write
-                            return;
-                        }
-
-                        Path dir = dst.resolve("tile").resolve(String.valueOf(tileX));
-                        Files.createDirectories(dir);
-                        try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-                            channel.write(storage.tempJsonStorage().getAll(elements).toArray(new ByteBuffer[0]));
-                        }
-                    } catch (Exception e) {
-                        throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
-                    }
-                    notifier.step(0);
-                }, storage.dirtyTiles().spliterator());
-                storage.dirtyTiles().clear();
-                storage.flush();
-            }
+            storage.exportDirtyTiles(dst);
 
             //storage.purge(true, false); //erase temporary data
         }

@@ -26,13 +26,10 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
-
-import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
@@ -40,16 +37,11 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Node extends Element implements Geometry {
+public final class Node extends Element {
     public static final int TYPE = 0;
 
-    @NonNull
-    protected Point point;
-
-    public Node(long id, Map<String, String> tags, @NonNull Point point) {
+    public Node(long id, Map<String, String> tags) {
         super(id, tags);
-
-        this.point = point;
     }
 
     public Node(long id, ByteBuf data) {
@@ -67,47 +59,12 @@ public final class Node extends Element implements Geometry {
     }
 
     @Override
-    public void toBytes(@NonNull ByteBuf dst) {
-        this.point.toBytes(dst);
-
-        super.toBytes(dst);
-    }
-
-    @Override
-    public void fromBytes(@NonNull ByteBuf src) {
-        this.point = new Point(src);
-
-        super.fromBytes(src);
-    }
-
-    @Override
     public void computeReferences(@NonNull Storage storage) throws Exception {
         //a node doesn't reference anything
     }
 
     @Override
     public Geometry toGeometry(@NonNull Storage storage) throws Exception {
-        return this; //a node is already a geometric primitive
-    }
-
-    @Override
-    public Bounds2d computeObjectBounds() {
-        int x = this.point.x();
-        int y = this.point.y();
-        return Bounds2d.of(x, x, y, y);
-    }
-
-    @Override
-    public long[] listIntersectedTiles() {
-        return new long[]{ xy2tilePos(coord_point2tile(this.point.x()), coord_point2tile(this.point.y())) };
-    }
-
-    @Override
-    public void toGeoJSON(@NonNull StringBuilder dst) {
-        dst.append("{\"type\":\"Point\",\"coordinates\":[");
-        Point.appendCoordinate(this.point.x(), dst);
-        dst.append(',');
-        Point.appendCoordinate(this.point.y(), dst);
-        dst.append(']').append('}');
+        return storage.points().get(this.id);
     }
 }

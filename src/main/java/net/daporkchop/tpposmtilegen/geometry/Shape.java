@@ -24,7 +24,6 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Persistent;
-import net.daporkchop.tpposmtilegen.util.Point;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 

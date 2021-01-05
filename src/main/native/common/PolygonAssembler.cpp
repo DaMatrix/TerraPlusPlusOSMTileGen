@@ -79,11 +79,11 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssemble
         (JNIEnv *env, jclass cla) {
     c_area = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/geometry/Area"));
     c_shape = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/geometry/Shape"));
-    c_point = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/util/Point"));
-    c_point_array = (jclass) env->NewGlobalRef(env->FindClass("[Lnet/daporkchop/tpposmtilegen/util/Point;"));
+    c_point = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/geometry/Point"));
+    c_point_array = (jclass) env->NewGlobalRef(env->FindClass("[Lnet/daporkchop/tpposmtilegen/geometry/Point;"));
 
     ctor_area = env->GetMethodID(c_area, "<init>", "([Lnet/daporkchop/tpposmtilegen/geometry/Shape;)V");
-    ctor_shape = env->GetMethodID(c_shape, "<init>", "([Lnet/daporkchop/tpposmtilegen/util/Point;[[Lnet/daporkchop/tpposmtilegen/util/Point;)V");
+    ctor_shape = env->GetMethodID(c_shape, "<init>", "([Lnet/daporkchop/tpposmtilegen/geometry/Point;[[Lnet/daporkchop/tpposmtilegen/geometry/Point;)V");
     ctor_point = env->GetMethodID(c_point, "<init>", "(II)V");
 }
 

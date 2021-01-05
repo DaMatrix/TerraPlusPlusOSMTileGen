@@ -28,6 +28,7 @@ import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.util.Map;
+import java.util.stream.Stream;
 
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
@@ -64,10 +65,10 @@ public interface Geometry extends Persistent {
 
     default long[] listIntersectedTiles() {
         Bounds2d bounds = this.computeObjectBounds();
-        int tileMinX = coord_point2tile(bounds.minX());
-        int tileMaxX = coord_point2tile(bounds.maxX());
-        int tileMinY = coord_point2tile(bounds.minY());
-        int tileMaxY = coord_point2tile(bounds.maxY());
+        int tileMinX = x_point2tile(bounds.minX());
+        int tileMaxX = x_point2tile(bounds.maxX());
+        int tileMinY = y_point2tile(bounds.minY());
+        int tileMaxY = y_point2tile(bounds.maxY());
         long[] arr = new long[(tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1)];
         for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
             for (int y = tileMinY; y <= tileMaxY; y++) {
@@ -88,7 +89,7 @@ public interface Geometry extends Persistent {
      */
     default boolean shouldStoreExternally(int tiles, int dataSize) {
         return tiles > 1 //if the object is only present in a single tile, there's obviously no reason to store this object as a
-               && dataSize > 1024;
+               && dataSize > 2048;
     }
 
     default String externalStoragePath(int type, long id) {

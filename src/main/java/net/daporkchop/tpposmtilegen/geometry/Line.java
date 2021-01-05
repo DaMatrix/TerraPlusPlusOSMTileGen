@@ -21,16 +21,17 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.Persistent;
-import net.daporkchop.tpposmtilegen.util.Point;
 
-import java.util.Map;
+import java.util.stream.Stream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_

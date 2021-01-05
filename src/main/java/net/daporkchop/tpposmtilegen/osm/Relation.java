@@ -33,7 +33,7 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;

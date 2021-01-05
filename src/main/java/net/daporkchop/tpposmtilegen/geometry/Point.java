@@ -18,7 +18,7 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util;
+package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
 import lombok.AllArgsConstructor;
@@ -26,11 +26,13 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
-import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
+
+import java.util.stream.Stream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.math.PMath.*;
-import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * Fixed-point geographic coordinate.
@@ -43,7 +45,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @Setter
 @EqualsAndHashCode
-public final class Point implements Comparable<Point>, Persistent {
+public final class Point implements Geometry {
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;
 
@@ -96,57 +98,38 @@ public final class Point implements Comparable<Point>, Persistent {
         this(src.readInt(), src.readInt());
     }
 
-    public boolean valid() {
-        return this.x >= -180 * PRECISION && this.x <= 180 * PRECISION && this.y >= -90 * PRECISION && this.y <= 90 * PRECISION;
-    }
-
-    public boolean isCompletelyDefined() {
-        return this.x != UNDEFINED_COORDINATE && this.y != UNDEFINED_COORDINATE;
-    }
-
-    public boolean isDefined() {
-        return this.x != UNDEFINED_COORDINATE || this.y != UNDEFINED_COORDINATE;
-    }
-
-    public boolean isUndefined() {
-        return this.x == UNDEFINED_COORDINATE && this.y == UNDEFINED_COORDINATE;
-    }
-
-    public double lon() {
-        checkState(this.valid(), "invalid location");
-        return fixToDouble(this.x);
-    }
-
-    public double lat() {
-        checkState(this.valid(), "invalid location");
-        return fixToDouble(this.y);
-    }
-
-    public Point lon(double lon) {
-        return this.x(doubleToFix(lon));
-    }
-
-    public Point lat(double lat) {
-        return this.y(doubleToFix(lat));
+    @Override
+    public Bounds2d computeObjectBounds() {
+        return Bounds2d.of(this.x, this.x, this.y, this.y);
     }
 
     @Override
-    public int compareTo(Point o) {
-        if (this.x != o.x) {
-            return Integer.compare(this.x, o.x);
-        } else {
-            return Integer.compare(this.y, o.y);
-        }
+    public long[] listIntersectedTiles() {
+        return new long[]{ point2tile(this.x, this.y) };
     }
 
     @Override
-    public String toString() {
-        checkState(this.valid(), "invalid location");
-        return PStrings.fastFormat("(%.7f, %.7f)", fixToDouble(this.x), fixToDouble(this.y));
+    public void toGeoJSON(@NonNull StringBuilder dst) {
+        dst.append("{\"type\":\"Point\",\"coordinates\":[");
+        appendCoordinate(this.x, dst);
+        dst.append(',');
+        appendCoordinate(this.y, dst);
+        dst.append(']').append('}');
     }
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.x).writeInt(this.y);
+    }
+
+    @Override
+    public String toString() {
+        StringBuilder builder = new StringBuilder();
+        builder.append('(');
+        appendCoordinate(this.x, builder);
+        builder.append(',').append(' ');
+        appendCoordinate(this.y, builder);
+        builder.append(')');
+        return builder.toString();
     }
 }

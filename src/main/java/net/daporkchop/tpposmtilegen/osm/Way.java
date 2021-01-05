@@ -32,7 +32,7 @@ import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.geometry.Area;
 import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 
 import java.util.List;
 import java.util.Map;

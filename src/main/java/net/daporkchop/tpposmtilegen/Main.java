@@ -39,8 +39,14 @@ public class Main {
             return;
         }
 
-        FastThreadLocalThread thread = new FastThreadLocalThread((ERunnable) ()
-                -> modeFactory.get().run(Arrays.copyOfRange(args, 1, args.length)), "main");
+        FastThreadLocalThread thread = new FastThreadLocalThread(() -> {
+            try {
+                modeFactory.get().run(Arrays.copyOfRange(args, 1, args.length));
+            } catch (Exception e) {
+                e.printStackTrace();
+                System.exit(1);
+            }
+        }, "main");
         thread.start();
     }
 }

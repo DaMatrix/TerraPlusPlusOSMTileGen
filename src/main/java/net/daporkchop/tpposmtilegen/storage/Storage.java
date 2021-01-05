@@ -25,6 +25,7 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
@@ -43,7 +44,10 @@ import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
-import net.daporkchop.tpposmtilegen.util.Point;
+import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.Threading;
+import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
@@ -121,9 +125,9 @@ public final class Storage implements AutoCloseable {
         this.elementsByType.put(Coastline.TYPE, this.coastlines);
     }
 
-    public void putNode(@NonNull Node node) throws Exception {
+    public void putNode(@NonNull Node node, @NonNull Point point) throws Exception {
         this.nodes.put(node.id(), node);
-        this.points.put(node.id(), node.point());
+        this.points.put(node.id(), point);
         this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {
@@ -279,6 +283,33 @@ public final class Storage implements AutoCloseable {
         }
     }
 
+    public void exportDirtyTiles(@NonNull Path outputRoot) throws Exception {
+        try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles")) {
+            Threading.forEachParallelLong(tilePos -> {
+                int tileX = Tile.tileX(tilePos);
+                int tileY = Tile.tileY(tilePos);
+                try {
+                    LongList elements = new LongArrayList();
+                    this.tileContents.getElementsInTile(tilePos, elements);
+                    if (elements.isEmpty()) { //nothing to write
+                        return;
+                    }
+
+                    Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
+                    Files.createDirectories(dir);
+                    try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                        channel.write(this.tempJsonStorage.getAll(elements).toArray(new ByteBuffer[0]));
+                    }
+                } catch (Exception e) {
+                    throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
+                }
+                notifier.step(0);
+            }, this.dirtyTiles.spliterator());
+            this.dirtyTiles.clear();
+            this.flush();
+        }
+    }
+
     public void purge(boolean temp, boolean index) throws Exception {
         if (!temp && !index) { //do nothing?!?
             return;
@@ -291,8 +322,6 @@ public final class Storage implements AutoCloseable {
             this.tempJsonStorage.clear();
         }
         if (index) {
-            System.out.println("Clearing reference index...");
-            this.references.clear();
             System.out.println("Clearing tile index...");
             this.tileContents.clear();
         }
