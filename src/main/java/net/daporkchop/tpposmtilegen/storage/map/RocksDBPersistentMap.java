@@ -36,6 +36,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
@@ -105,6 +106,12 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
         int size = keys.size();
         if (size == 0) {
             return Collections.emptyList();
+        } else if (size > 10000) { //split into smaller gets (prevents what i can only assume is a rocksdbjni bug where it will throw an NPE when requesting too many elements at once
+            List<V> dst = new ArrayList<>(size);
+            for (int i = 0; i < size; i += 10000) {
+                dst.addAll(this.getAll(keys.subList(i, min(i + 10000, size))));
+            }
+            return dst;
         }
 
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
