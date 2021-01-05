@@ -20,11 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.osm.area;
 
+import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
@@ -79,6 +81,15 @@ public final class Area implements Geometry {
         this.shapes = shapes;
     }
 
+    public Area(long id, @NonNull ByteBuf src) {
+        this.gid = id;
+        this.shapes = new Shape[src.readIntLE()];
+        for (int i = 0; i < this.shapes.length; i++) {
+            this.shapes[i] = new Shape(src);
+        }
+        this.tags = Persistent.readTags(src);
+    }
+
     @Override
     public void _toGeoJSON(StringBuilder dst) {
         if (this.shapes.length == 1) {
@@ -112,5 +123,14 @@ public final class Area implements Geometry {
             }
         }
         return Bounds2d.of(minX, maxX, minY, maxY);
+    }
+
+    @Override
+    public void toBytes(@NonNull ByteBuf dst) {
+        dst.writeIntLE(this.shapes.length);
+        for (Shape shape : this.shapes) {
+            shape.toBytes(dst);
+        }
+        Persistent.writeTags(dst, this.tags);
     }
 }

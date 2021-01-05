@@ -23,7 +23,7 @@ $(info natives: building for $(BUILD_TYPE))
 
 export INCLUDES		:=	$(JAVA_HOME)include $(JAVA_HOME)include/linux
 
-export ARCHS		:=	x86_64-linux-gnu x86_64-w64-mingw32
+export ARCHS		:=	x86_64-linux-gnu
 export ARCH_TASKS	:=	$(foreach arch,$(ARCHS),build.$(arch))
 
 export MODULES		:=	native

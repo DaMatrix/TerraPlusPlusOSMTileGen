@@ -20,10 +20,12 @@
 
 package net.daporkchop.tpposmtilegen.osm.line;
 
+import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
@@ -45,6 +47,15 @@ public final class Line implements Geometry {
         this.tags = tags;
         checkArg(points.length >= 2, "line must consist of at least 2 points!");
         this.points = points;
+    }
+
+    public Line(long id, @NonNull ByteBuf src) {
+        this.gid = id;
+        this.points = new Point[src.readIntLE()];
+        for (int i = 0; i < this.points.length; i++) {
+            this.points[i] = new Point(src);
+        }
+        this.tags = Persistent.readTags(src);
     }
 
     @Override
@@ -76,5 +87,14 @@ public final class Line implements Geometry {
             maxY = max(maxY, y);
         }
         return Bounds2d.of(minX, maxX, minY, maxY);
+    }
+
+    @Override
+    public void toBytes(@NonNull ByteBuf dst) {
+        int count = this.points.length;
+        dst.writeIntLE(count);
+        for (int i = 0; i < count; i++) {
+            this.points[i].toBytes(dst);
+        }
     }
 }

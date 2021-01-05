@@ -20,8 +20,10 @@
 
 package net.daporkchop.tpposmtilegen.osm.area;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -34,7 +36,17 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @ToString
-public final class Shape {
+public final class Shape implements Persistent {
+    private static Point[] loopFromBytes(ByteBuf src) {
+        int count = src.readIntLE();
+        Point[] loop = new Point[count + 1];
+        for (int i = 0; i < count; i++) {
+            loop[i] = new Point(src);
+        }
+        loop[count] = loop[0];
+        return loop;
+    }
+
     protected final Point[] outerLoop;
     protected final Point[][] innerLoops;
 
@@ -48,5 +60,30 @@ public final class Shape {
 
         this.outerLoop = outerLoop;
         this.innerLoops = innerLoops;
+    }
+
+    public Shape(@NonNull ByteBuf src) {
+        this.outerLoop = loopFromBytes(src);
+        this.innerLoops = new Point[src.readIntLE()][];
+        for (int i = 0; i < this.innerLoops.length; i++) {
+            this.innerLoops[i] = loopFromBytes(src);
+        }
+    }
+
+    @Override
+    public void toBytes(@NonNull ByteBuf dst) {
+        this.loopToBytes(dst, this.outerLoop);
+        dst.writeIntLE(this.innerLoops.length);
+        for (Point[] loop : this.innerLoops) {
+            this.loopToBytes(dst, loop);
+        }
+    }
+
+    private void loopToBytes(ByteBuf dst, Point[] loop) {
+        int count = loop.length - 1;
+        dst.writeIntLE(count);
+        for (int i = 0; i < count; i++) {
+            loop[i].toBytes(dst);
+        }
     }
 }

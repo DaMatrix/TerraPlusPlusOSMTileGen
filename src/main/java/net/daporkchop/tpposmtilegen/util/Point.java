@@ -43,7 +43,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @Setter
 @EqualsAndHashCode
-public final class Point implements Comparable<Point>, Persistent<Point> {
+public final class Point implements Comparable<Point>, Persistent {
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;
 
@@ -148,10 +148,5 @@ public final class Point implements Comparable<Point>, Persistent<Point> {
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
         dst.writeInt(this.x).writeInt(this.y);
-    }
-
-    @Override
-    public Point fromBytes(@NonNull ByteBuf src) {
-        return this.x(src.readInt()).y(src.readInt());
     }
 }

@@ -43,7 +43,7 @@ import java.util.Map;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Way extends Element<Way> {
+public final class Way extends Element {
     public static final int TYPE = 1;
 
     @NonNull
@@ -80,14 +80,14 @@ public final class Way extends Element<Way> {
     }
 
     @Override
-    public Way fromBytes(@NonNull ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.nodes = new long[count];
         for (int i = 0; i < count; i++) {
             this.nodes[i] = src.readLong();
         }
 
-        return super.fromBytes(src);
+        super.fromBytes(src);
     }
 
     @Override

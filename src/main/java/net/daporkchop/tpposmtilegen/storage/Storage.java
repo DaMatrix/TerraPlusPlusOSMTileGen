@@ -41,7 +41,6 @@ import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Point;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
@@ -55,12 +54,12 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
@@ -71,7 +70,7 @@ public final class Storage implements AutoCloseable {
     protected final PersistentMap<Point> points;
     protected final PersistentMap<Way> ways;
     protected final PersistentMap<Relation> relations;
-    protected final Int2ObjectMap<PersistentMap<? extends Element<?>>> elementsByType = new Int2ObjectOpenHashMap<>();
+    protected final Int2ObjectMap<PersistentMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
     protected final OffHeapAtomicBitSet nodeFlags;
     protected final OffHeapAtomicBitSet taggedNodeFlags;
@@ -183,7 +182,7 @@ public final class Storage implements AutoCloseable {
         return list.toArray(new Spliterator.OfLong[0]);
     }
 
-    public Element<?> getElement(long combinedId) throws Exception {
+    public Element getElement(long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         long id = Element.extractId(combinedId);
         PersistentMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
@@ -201,16 +200,31 @@ public final class Storage implements AutoCloseable {
 
         Geometry geometry = element.toGeometry(this);
         if (geometry != null) {
-            Bounds2d bounds = geometry.computeObjectBounds();
-            int tileMinX = coord_point2tile(bounds.minX());
-            int tileMaxX = coord_point2tile(bounds.maxX());
-            int tileMinY = coord_point2tile(bounds.minY());
-            int tileMaxY = coord_point2tile(bounds.maxY());
-            int tileCount = (tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1); //total number of tiles that the geometry intersects
-            long[] arr = new long[tileCount];
-            for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
-                for (int y = tileMinY; y <= tileMaxY; y++) {
-                    this.dirtyTiles.set(arr[i++] = xy2tilePos(x, y));
+            long[] arr = geometry.listIntersectedTiles();
+            int tileCount = arr.length;
+
+            if (tileCount == 0) { //nothing to do
+                return;
+            } else if (tileCount == 1) { //mark all tiles as dirty
+                this.dirtyTiles.set(arr[0]);
+            } else { //tileCount is > 1: use a fast method that flips multiple bits at once
+                Arrays.sort(arr);
+                long rangeBegin = -1L;
+                long next = -1L;
+                for (int i = 0; i < tileCount; i++) {
+                    long v = arr[i];
+                    if (rangeBegin < 0L) {
+                        rangeBegin = v;
+                        next = v + 1L;
+                    } else if (next == v) {
+                        next = v + 1L;
+                    } else {
+                        this.dirtyTiles.set(rangeBegin, next);
+                        rangeBegin = next = -1L;
+                    }
+                }
+                if (rangeBegin >= 0L) {
+                    this.dirtyTiles.set(rangeBegin, next);
                 }
             }
 
@@ -226,7 +240,7 @@ public final class Storage implements AutoCloseable {
             ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(builder.length());
             try {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
-                if (arr.length == 1) { //element is only referenced once, store GeoJSON data in db and exit
+                if (geometry.shouldStoreExternally(tileCount, buf.readableBytes())) { //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
                     //ensure directory exists

@@ -132,7 +132,7 @@ public class RebuildPlanet implements IMode {
                 storage.flush();
             }
 
-            storage.purge(true, false); //erase temporary data
+            //storage.purge(true, false); //erase temporary data
         }
     }
 }

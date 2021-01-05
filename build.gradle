@@ -27,6 +27,7 @@ ext {
 
     //dependency things
     fastutilVersion = "8.4.4"
+    geotoolsVersion = "24.1"
     guavaVersion = "21.0"
     jacksonVersion = "2.11.2"
     junitVersion = "4.12"
@@ -48,6 +49,10 @@ tasks.withType(JavaCompile) {
 }
 
 repositories {
+    maven {
+        name = "OSGeo"
+        url = "https://repo.osgeo.org/repository/release/"
+    }
     maven {
         name = "DaPorkchop_"
         url = "https://maven.daporkchop.net/"
@@ -73,10 +78,11 @@ dependencies {
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
 
     shade "com.github.DaMatrix:parallelpbf:$parallelpbfVersion"
+    shade "org.geotools:gt-shapefile:$geotoolsVersion"
+
     shade "org.rocksdb:rocksdbjni:$rocksdbVersion"
 
     shade "com.google.guava:guava:$guavaVersion"
-
     shade "it.unimi.dsi:fastutil:$fastutilVersion"
 
     testCompile "junit:junit:$junitVersion"

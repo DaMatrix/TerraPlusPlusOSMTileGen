@@ -23,11 +23,46 @@ package net.daporkchop.tpposmtilegen.util;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 
+import java.nio.charset.StandardCharsets;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.Map;
+
 /**
  * @author DaPorkchop_
  */
-public interface Persistent<I> {
-    void toBytes(@NonNull ByteBuf dst);
+public interface Persistent {
+    static void writeTags(@NonNull ByteBuf dst, @NonNull Map<String, String> tags) {
+        if (tags.isEmpty()) {
+            dst.writeInt(0);
+        } else {
+            dst.writeInt(tags.size());
+            tags.forEach((k, v) -> {
+                int startIndex = dst.writerIndex();
+                int bytes = dst.writeInt(-1).writeCharSequence(k, StandardCharsets.UTF_8);
+                dst.setInt(startIndex, bytes);
 
-    I fromBytes(@NonNull ByteBuf src);
+                startIndex = dst.writerIndex();
+                bytes = dst.writeInt(-1).writeCharSequence(v, StandardCharsets.UTF_8);
+                dst.setInt(startIndex, bytes);
+            });
+        }
+    }
+
+    static Map<String, String> readTags(@NonNull ByteBuf src) {
+        int count = src.readInt();
+        if (count == 0) {
+            return Collections.emptyMap();
+        } else {
+            Map<String, String> tags = new HashMap<>();
+            for (int i = 0; i < count; i++) {
+                String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+                String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
+                tags.put(k, v);
+            }
+            return tags;
+        }
+    }
+
+    void toBytes(@NonNull ByteBuf dst);
 }

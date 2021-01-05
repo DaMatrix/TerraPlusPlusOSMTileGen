@@ -25,17 +25,14 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.osm.coastline.Coastline;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Persistent;
-import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.Map;
-
-import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
  * An OpenStreetMap element.
@@ -45,7 +42,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @RequiredArgsConstructor
 @Getter
 @ToString
-public abstract class Element<I extends Element<I>> implements Persistent<I> {
+public abstract class Element implements Persistent {
     public static String typeName(int type) {
         switch (type) {
             case Node.TYPE:
@@ -54,6 +51,8 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
                 return "way";
             case Relation.TYPE:
                 return "relation";
+            case Coastline.TYPE:
+                return "coastline";
             default:
                 return "unknown";
         }
@@ -85,38 +84,11 @@ public abstract class Element<I extends Element<I>> implements Persistent<I> {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
-        if (this.tags.isEmpty()) {
-            dst.writeInt(0);
-        } else {
-            int countIndex = dst.writerIndex();
-            dst.writeInt(-1);
-            this.tags.forEach((k, v) -> {
-                int startIndex = dst.writerIndex();
-                int bytes = dst.writeInt(-1).writeCharSequence(k, StandardCharsets.UTF_8);
-                dst.setInt(startIndex, bytes);
-
-                startIndex = dst.writerIndex();
-                bytes = dst.writeInt(-1).writeCharSequence(v, StandardCharsets.UTF_8);
-                dst.setInt(startIndex, bytes);
-            });
-            dst.setInt(countIndex, this.tags.size());
-        }
+        Persistent.writeTags(dst, this.tags);
     }
 
-    @Override
-    public I fromBytes(@NonNull ByteBuf src) {
-        int count = src.readInt();
-        if (count == 0) {
-            this.tags = Collections.emptyMap();
-        } else {
-            this.tags = new HashMap<>();
-            for (int i = 0; i < count; i++) {
-                String k = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
-                String v = src.readCharSequence(src.readInt(), StandardCharsets.UTF_8).toString();
-                this.tags.put(k, v);
-            }
-        }
-        return uncheckedCast(this);
+    protected void fromBytes(@NonNull ByteBuf src) {
+        this.tags = Persistent.readTags(src);
     }
 
     public abstract void computeReferences(@NonNull Storage storage) throws Exception;

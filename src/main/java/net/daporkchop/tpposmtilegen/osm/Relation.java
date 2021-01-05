@@ -49,7 +49,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Relation extends Element<Relation> {
+public final class Relation extends Element {
     public static final int TYPE = 2;
 
     @NonNull
@@ -86,14 +86,14 @@ public final class Relation extends Element<Relation> {
     }
 
     @Override
-    public Relation fromBytes(@NonNull ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
         this.members = new Member[count];
         for (int i = 0; i < count; i++) {
             this.members[i] = new Member(src);
         }
 
-        return super.fromBytes(src);
+        super.fromBytes(src);
     }
 
     @Override

@@ -31,13 +31,15 @@ import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
 
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
+
 /**
  * @author DaPorkchop_
  */
 @Getter
 @Setter
 @ToString(callSuper = true)
-public final class Node extends Element<Node> implements Geometry {
+public final class Node extends Element implements Geometry {
     public static final int TYPE = 0;
 
     @NonNull
@@ -71,11 +73,10 @@ public final class Node extends Element<Node> implements Geometry {
     }
 
     @Override
-    public Node fromBytes(@NonNull ByteBuf src) {
+    public void fromBytes(@NonNull ByteBuf src) {
         this.point = new Point(src);
 
         super.fromBytes(src);
-        return this;
     }
 
     @Override
@@ -93,6 +94,11 @@ public final class Node extends Element<Node> implements Geometry {
         int x = this.point.x();
         int y = this.point.y();
         return Bounds2d.of(x, x, y, y);
+    }
+
+    @Override
+    public long[] listIntersectedTiles() {
+        return new long[]{ xy2tilePos(coord_point2tile(this.point.x()), coord_point2tile(this.point.y())) };
     }
 
     @Override
