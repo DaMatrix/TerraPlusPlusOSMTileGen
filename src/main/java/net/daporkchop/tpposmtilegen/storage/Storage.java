@@ -28,12 +28,14 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.map.BlobDB;
+import net.daporkchop.tpposmtilegen.storage.map.CoastlineDB;
 import net.daporkchop.tpposmtilegen.storage.map.LongArrayDB;
 import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
@@ -58,6 +60,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.LongConsumer;
+import java.util.stream.LongStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -70,12 +73,15 @@ public final class Storage implements AutoCloseable {
     protected final PersistentMap<Point> points;
     protected final PersistentMap<Way> ways;
     protected final PersistentMap<Relation> relations;
+    protected final PersistentMap<Coastline> coastlines;
     protected final Int2ObjectMap<PersistentMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
     protected final OffHeapAtomicBitSet nodeFlags;
     protected final OffHeapAtomicBitSet taggedNodeFlags;
     protected final OffHeapAtomicBitSet wayFlags;
     protected final OffHeapAtomicBitSet relationFlags;
+
+    protected final OffHeapAtomicLong coastlineCount;
 
     protected final OffHeapAtomicLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
@@ -91,11 +97,14 @@ public final class Storage implements AutoCloseable {
         this.points = new BufferedPersistentMap<>(new PointDB(root, "osm_node_locations"), 100_000);
         this.ways = new BufferedPersistentMap<>(new WayDB(root, "osm_ways"), 10_000);
         this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
+        this.coastlines = new CoastlineDB(root, "coastlines");
 
         this.nodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
         this.taggedNodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
         this.wayFlags = new OffHeapAtomicBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
         this.relationFlags = new OffHeapAtomicBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
+
+        this.coastlineCount = new OffHeapAtomicLong(root.resolve("coastline_count"), 0L);
 
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
@@ -109,6 +118,7 @@ public final class Storage implements AutoCloseable {
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
         this.elementsByType.put(Relation.TYPE, this.relations);
+        this.elementsByType.put(Coastline.TYPE, this.coastlines);
     }
 
     public void putNode(@NonNull Node node) throws Exception {
@@ -131,7 +141,7 @@ public final class Storage implements AutoCloseable {
         this.relationFlags.set(relation.id());
     }
 
-    public Spliterator.OfLong[] spliterateElements(boolean taggedNodes, boolean ways, boolean relations) {
+    public Spliterator.OfLong[] spliterateElements(boolean taggedNodes, boolean ways, boolean relations, boolean coastlines) {
         @RequiredArgsConstructor
         class TypeIdAddingSpliterator implements Spliterator.OfLong {
             protected final Spliterator.OfLong delegate;
@@ -178,6 +188,9 @@ public final class Storage implements AutoCloseable {
         }
         if (relations) {
             list.add(new TypeIdAddingSpliterator(this.relationFlags.spliterator(), Relation.TYPE));
+        }
+        if (coastlines) {
+            list.add(new TypeIdAddingSpliterator(LongStream.range(0L, this.coastlineCount.get()).spliterator(), Coastline.TYPE));
         }
         return list.toArray(new Spliterator.OfLong[0]);
     }
@@ -291,6 +304,7 @@ public final class Storage implements AutoCloseable {
         this.points.flush();
         this.ways.flush();
         this.relations.flush();
+        this.coastlines.flush();
 
         this.references.flush();
         this.tileContents.flush();
@@ -302,11 +316,14 @@ public final class Storage implements AutoCloseable {
         this.points.close();
         this.ways.close();
         this.relations.close();
+        this.coastlines.close();
 
         this.nodeFlags.close();
         this.taggedNodeFlags.close();
         this.wayFlags.close();
         this.relationFlags.close();
+
+        this.coastlineCount.close();
 
         this.sequenceNumber.close();
         this.replicationTimestamp.close();

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,23 +18,16 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.testindex;
+package net.daporkchop.tpposmtilegen.mode;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import org.rocksdb.Options;
-import org.rocksdb.RocksDB;
-import org.rocksdb.UInt64AddOperator;
-import org.rocksdb.WriteBatch;
-import org.rocksdb.WriteOptions;
 
 import java.nio.file.Paths;
 import java.util.Objects;

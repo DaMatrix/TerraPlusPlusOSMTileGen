@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,13 +18,12 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode.rebuildplanet;
+package net.daporkchop.tpposmtilegen.mode;
 
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -94,7 +93,7 @@ public class RebuildPlanet implements IMode {
                 storage.flush();
             }*/
 
-            try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations")) {
+            try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations", "coastlines")) {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
                     try {
@@ -103,7 +102,7 @@ public class RebuildPlanet implements IMode {
                         throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
                     }
                     notifier.step(type);
-                }, storage.spliterateElements(false, true, true));
+                }, storage.spliterateElements(false, false, false, true));
                 storage.flush();
             }
 

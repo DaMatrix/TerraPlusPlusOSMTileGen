@@ -43,7 +43,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 @ToString
-public final class Area implements Geometry {
+public class Area implements Geometry {
     protected static void lineToGeoJSON(Point[] points, StringBuilder dst) {
         dst.append('[');
         for (Point point : points) {

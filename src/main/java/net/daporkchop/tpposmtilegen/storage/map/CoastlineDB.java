@@ -18,53 +18,32 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.coastline;
+package net.daporkchop.tpposmtilegen.storage.map;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.osm.Coastline;
+import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
-import java.util.Collections;
-import java.util.Map;
+import java.nio.file.Path;
 
 /**
+ * {@link PersistentMap} for storing {@link Coastline}s.
+ *
  * @author DaPorkchop_
  */
-public final class Coastline extends Element {
-    private static final Map<String, String> TAGS = Collections.singletonMap("natural", "coastline");
-
-    public static final int TYPE = 3;
-
-    public Coastline(long id) {
-        super(id, TAGS);
-    }
-
-    public Coastline(long id, @NonNull ByteBuf data) {
-        super(id, data);
+public final class CoastlineDB extends RocksDBPersistentMap<Coastline> {
+    public CoastlineDB(@NonNull Path root, @NonNull String name) throws Exception {
+        super(root, name);
     }
 
     @Override
-    public int type() {
-        return TYPE;
+    protected void valueToBytes(@NonNull Coastline value, @NonNull ByteBuf dst) {
+        value.toBytes(dst);
     }
 
     @Override
-    public void toBytes(@NonNull ByteBuf dst) {
-    }
-
-    @Override
-    protected void fromBytes(@NonNull ByteBuf src) {
-    }
-
-    @Override
-    public void computeReferences(@NonNull Storage storage) throws Exception {
-        //coastline isn't a real OpenStreetMap primitive type, so we skip it
-    }
-
-    @Override
-    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
-        return null;
+    protected Coastline valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
+        return new Coastline(key, valueBytes);
     }
 }
