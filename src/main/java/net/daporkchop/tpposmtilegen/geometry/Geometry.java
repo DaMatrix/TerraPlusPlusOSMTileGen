@@ -18,19 +18,48 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm;
+package net.daporkchop.tpposmtilegen.geometry;
 
-import it.unimi.dsi.fastutil.longs.LongCollection;
+import com.fasterxml.jackson.core.io.JsonStringEncoder;
+import lombok.NonNull;
+import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
-import net.daporkchop.tpposmtilegen.util.ToGeoJSONSerializable;
+
+import java.util.Map;
 
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
  */
-public interface Geometry extends ToGeoJSONSerializable, Persistent {
+public interface Geometry extends Persistent {
+    static void toGeoJSON(@NonNull StringBuilder dst, @NonNull Geometry geometry, @NonNull Map<String, String> tags, long id) {
+        dst.append("{\"type\":\"Feature\",\"geometry\":");
+
+        //geometry
+        geometry.toGeoJSON(dst);
+
+        //tags
+        if (!tags.isEmpty()) {
+            dst.append(",\"properties\":{");
+            tags.forEach((k, v) -> {
+                dst.append('"');
+                JsonStringEncoder.getInstance().quoteAsString(k, dst);
+                dst.append('"').append(':').append('"');
+                JsonStringEncoder.getInstance().quoteAsString(v, dst);
+                dst.append('"').append(',');
+            });
+            dst.setCharAt(dst.length() - 1, '}');
+        }
+
+        //id
+        dst.append(",\"id\":").append(id);
+
+        dst.append('}').append('\n');
+    }
+
     Bounds2d computeObjectBounds();
 
     default long[] listIntersectedTiles() {
@@ -59,6 +88,12 @@ public interface Geometry extends ToGeoJSONSerializable, Persistent {
      */
     default boolean shouldStoreExternally(int tiles, int dataSize) {
         return tiles > 1 //if the object is only present in a single tile, there's obviously no reason to store this object as a
-                && dataSize > 1024;
+               && dataSize > 1024;
     }
+
+    default String externalStoragePath(int type, long id) {
+        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), (id / 1000L) % 1000L, id % 1000L, id);
+    }
+
+    void toGeoJSON(@NonNull StringBuilder dst);
 }

@@ -22,7 +22,7 @@ package net.daporkchop.tpposmtilegen.natives;
 
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
+import net.daporkchop.tpposmtilegen.geometry.Area;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
@@ -41,9 +41,9 @@ public class PolygonAssembler {
 
     private static native void init();
 
-    public static native Area assembleWay(long id, Map<String, String> tags, long wayId, long coordsAddr, int coordsCount);
+    public static native Area assembleWay(long wayId, long coordsAddr, int coordsCount);
 
-    public static native Area assembleRelation(long id, Map<String, String> tags, long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
+    public static native Area assembleRelation(long relationId, long[] wayIds, long[] coordAddrs, int[] coordCounts, byte[] roles);
 
     public static void putPoint(long addr, long id, Point point) {
         putPoint(addr, id, point.x(), point.y());

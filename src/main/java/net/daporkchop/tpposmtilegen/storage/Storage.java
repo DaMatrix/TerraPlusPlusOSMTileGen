@@ -29,7 +29,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Geometry;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
@@ -234,31 +234,29 @@ public final class Storage implements AutoCloseable {
             //encode geometry to GeoJSON
             StringBuilder builder = new StringBuilder();
 
-            geometry.toGeoJSON(builder);
+            Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
 
             //convert json to bytes
             ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(builder.length());
             try {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
-                if (geometry.shouldStoreExternally(tileCount, buf.readableBytes())) { //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) { //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
+                    String path = geometry.externalStoragePath(type, id);
+                    Path file = outputRoot.resolve(path);
+
                     //ensure directory exists
-                    Path dir = outputRoot.resolve(Element.typeName(type)).resolve(String.valueOf((id / 1000L) % 1000L)).resolve(String.valueOf(id % 1000L));
-                    Files.createDirectories(dir);
+                    Files.createDirectories(file.getParent());
 
                     //write to file
-                    try (FileChannel channel = FileChannel.open(dir.resolve(id + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                    try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
                         buf.readBytes(channel, buf.readableBytes());
                     }
 
                     //create reference object and store it in db
                     builder = new StringBuilder();
-                    builder.append("{\"type\":\"Reference\",\"location\":\"")
-                            .append(Element.typeName(type)).append('/')
-                            .append((id / 1000L) % 1000L).append('/')
-                            .append(id % 1000L).append('/')
-                            .append(id).append(".json\"}\n");
+                    builder.append("{\"type\":\"Reference\",\"location\":\"").append(path).append("\"}\n");
                     buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
                     this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }

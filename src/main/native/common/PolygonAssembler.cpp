@@ -34,7 +34,7 @@ jobjectArray toPointArray(JNIEnv *env, const osmium::NodeRefList &nodes) {
     return array;
 }
 
-jobject toArea(JNIEnv *env, jlong id, jobject tags, const osmium::Area &area) {
+jobject toArea(JNIEnv *env, const osmium::Area &area) {
     std::vector<jobject> shapes;
 
     jobjectArray outerLoop;
@@ -70,25 +70,25 @@ jobject toArea(JNIEnv *env, jlong id, jobject tags, const osmium::Area &area) {
         env->SetObjectArrayElement(shapesArray, i, shapes[i]);
     }
 
-    return env->NewObject(c_area, ctor_area, id, tags, shapesArray);
+    return env->NewObject(c_area, ctor_area, shapesArray);
 }
 
 extern "C" {
 
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssembler_init
         (JNIEnv *env, jclass cla) {
-    c_area = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/osm/area/Area"));
-    c_shape = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/osm/area/Shape"));
+    c_area = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/geometry/Area"));
+    c_shape = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/geometry/Shape"));
     c_point = (jclass) env->NewGlobalRef(env->FindClass("net/daporkchop/tpposmtilegen/util/Point"));
     c_point_array = (jclass) env->NewGlobalRef(env->FindClass("[Lnet/daporkchop/tpposmtilegen/util/Point;"));
 
-    ctor_area = env->GetMethodID(c_area, "<init>", "(JLjava/util/Map;[Lnet/daporkchop/tpposmtilegen/osm/area/Shape;)V");
+    ctor_area = env->GetMethodID(c_area, "<init>", "([Lnet/daporkchop/tpposmtilegen/geometry/Shape;)V");
     ctor_shape = env->GetMethodID(c_shape, "<init>", "([Lnet/daporkchop/tpposmtilegen/util/Point;[[Lnet/daporkchop/tpposmtilegen/util/Point;)V");
     ctor_point = env->GetMethodID(c_point, "<init>", "(II)V");
 }
 
 JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssembler_assembleWay
-        (JNIEnv *env, jclass cla, jlong id, jobject tags, jlong wayId, jlong coordsAddr, jint coordsCount) {
+        (JNIEnv *env, jclass cla, jlong wayId, jlong coordsAddr, jint coordsCount) {
     try {
         osmium::memory::Buffer wayBuffer(1024);
         auto nodes = (osmium::NodeRef *) coordsAddr;
@@ -100,7 +100,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
             throw Exception{"assembler returned false?!?"};
         }
 
-        return toArea(env, id, tags, areaBuffer.get<osmium::Area>(0));
+        return toArea(env, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
         std::cerr << "while assembling area for way " << wayId << ": " << e.what() << std::endl;
         return nullptr;
@@ -108,7 +108,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
 }
 
 JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssembler_assembleRelation
-        (JNIEnv *env, jclass cla, jlong id, jobject tags, jlong relationId, jlongArray wayIds_, jlongArray coordAddrs_, jintArray coordCounts_, jbyteArray roles_) {
+        (JNIEnv *env, jclass cla, jlong relationId, jlongArray wayIds_, jlongArray coordAddrs_, jintArray coordCounts_, jbyteArray roles_) {
     try {
         int count = env->GetArrayLength(wayIds_);
 
@@ -159,7 +159,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
             throw Exception{"assembler returned false?!?"};
         }
 
-        return toArea(env, id, tags, areaBuffer.get<osmium::Area>(0));
+        return toArea(env, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
         std::cerr << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
         return nullptr;

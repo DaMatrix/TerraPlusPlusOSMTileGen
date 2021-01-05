@@ -18,12 +18,11 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.line;
+package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Point;
@@ -38,28 +37,22 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 public final class Line implements Geometry {
-    protected final long gid;
-    protected final Map<String, String> tags;
     protected final Point[] points;
 
-    public Line(long id, @NonNull Map<String, String> tags, @NonNull Point[] points) {
-        this.gid = notNegative(id, "id");
-        this.tags = tags;
+    public Line(@NonNull Point[] points) {
         checkArg(points.length >= 2, "line must consist of at least 2 points!");
         this.points = points;
     }
 
-    public Line(long id, @NonNull ByteBuf src) {
-        this.gid = id;
+    public Line(@NonNull ByteBuf src) {
         this.points = new Point[src.readIntLE()];
         for (int i = 0; i < this.points.length; i++) {
             this.points[i] = new Point(src);
         }
-        this.tags = Persistent.readTags(src);
     }
 
     @Override
-    public void _toGeoJSON(StringBuilder dst) {
+    public void toGeoJSON(@NonNull StringBuilder dst) {
         dst.append("{\"type\":\"LineString\",\"coordinates\":[");
         for (Point point : this.points) {
             dst.append('[');

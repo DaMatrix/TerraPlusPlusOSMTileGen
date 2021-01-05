@@ -27,10 +27,10 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
-import net.daporkchop.tpposmtilegen.osm.area.Area;
-import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
-import net.daporkchop.tpposmtilegen.osm.line.Line;
+import net.daporkchop.tpposmtilegen.geometry.Area;
+import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
@@ -114,7 +114,7 @@ public final class Way extends Element {
 
         Area area = this.toArea(count, points);
         return area == null
-                ? new Line(addTypeToId(TYPE, this.id), this.tags, points.toArray(new Point[0])) //area assembly was unsuccessful
+                ? new Line(points.toArray(new Point[0])) //area assembly was unsuccessful
                 : area;
     }
 
@@ -138,7 +138,7 @@ public final class Way extends Element {
                 PolygonAssembler.putPoint(addr + i * PolygonAssembler.POINT_SIZE, this.nodes[i], points.get(i));
             }
 
-            return PolygonAssembler.assembleWay(addTypeToId(TYPE, this.id), this.tags, this.id, addr, count);
+            return PolygonAssembler.assembleWay(this.id, addr, count);
         } finally {
             PUnsafe.freeMemory(addr);
         }

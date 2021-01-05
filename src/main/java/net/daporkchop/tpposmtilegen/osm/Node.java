@@ -25,6 +25,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Point;
@@ -102,12 +103,7 @@ public final class Node extends Element implements Geometry {
     }
 
     @Override
-    public long gid() {
-        return Element.addTypeToId(TYPE, this.id);
-    }
-
-    @Override
-    public void _toGeoJSON(StringBuilder dst) {
+    public void toGeoJSON(@NonNull StringBuilder dst) {
         dst.append("{\"type\":\"Point\",\"coordinates\":[");
         Point.appendCoordinate(this.point.x(), dst);
         dst.append(',');

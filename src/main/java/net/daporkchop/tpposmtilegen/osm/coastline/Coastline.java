@@ -23,19 +23,22 @@ package net.daporkchop.tpposmtilegen.osm.coastline;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Geometry;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
  * @author DaPorkchop_
  */
 public final class Coastline extends Element {
+    private static final Map<String, String> TAGS = Collections.singletonMap("natural", "coastline");
+
     public static final int TYPE = 3;
 
-    public Coastline(long id, Map<String, String> tags) {
-        super(id, tags);
+    public Coastline(long id) {
+        super(id, TAGS);
     }
 
     public Coastline(long id, @NonNull ByteBuf data) {
@@ -45,6 +48,14 @@ public final class Coastline extends Element {
     @Override
     public int type() {
         return TYPE;
+    }
+
+    @Override
+    public void toBytes(@NonNull ByteBuf dst) {
+    }
+
+    @Override
+    protected void fromBytes(@NonNull ByteBuf src) {
     }
 
     @Override

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,15 +18,13 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.area;
+package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.osm.Geometry;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Point;
 
 import java.util.Map;
@@ -70,28 +68,22 @@ public final class Area implements Geometry {
         dst.append(']');
     }
 
-    protected final long gid;
-    protected final Map<String, String> tags;
     protected final Shape[] shapes;
 
-    public Area(long id, @NonNull Map<String, String> tags, @NonNull Shape[] shapes) {
-        this.gid = notNegative(id, "id");
-        this.tags = tags;
+    public Area(@NonNull Shape[] shapes) {
         notNegative(shapes.length, "area must consist of at least one shape!");
         this.shapes = shapes;
     }
 
-    public Area(long id, @NonNull ByteBuf src) {
-        this.gid = id;
+    public Area(@NonNull ByteBuf src) {
         this.shapes = new Shape[src.readIntLE()];
         for (int i = 0; i < this.shapes.length; i++) {
             this.shapes[i] = new Shape(src);
         }
-        this.tags = Persistent.readTags(src);
     }
 
     @Override
-    public void _toGeoJSON(StringBuilder dst) {
+    public void toGeoJSON(@NonNull StringBuilder dst) {
         if (this.shapes.length == 1) {
             dst.append("{\"type\":\"Polygon\",\"coordinates\":");
             shapeToGeoJSON(this.shapes[0], dst);
@@ -131,6 +123,5 @@ public final class Area implements Geometry {
         for (Shape shape : this.shapes) {
             shape.toBytes(dst);
         }
-        Persistent.writeTags(dst, this.tags);
     }
 }

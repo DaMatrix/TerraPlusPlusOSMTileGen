@@ -30,8 +30,8 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
-import net.daporkchop.tpposmtilegen.osm.area.AreaKeys;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.Point;
 
@@ -184,7 +184,7 @@ public final class Relation extends Element {
                 }
             }
 
-            return PolygonAssembler.assembleRelation(addTypeToId(TYPE, this.id), this.tags, this.id, wayIds, coordAddrs, coordCounts, roles);
+            return PolygonAssembler.assembleRelation(this.id, wayIds, coordAddrs, coordCounts, roles);
         } finally {
             Arrays.stream(coordAddrs).forEach(PUnsafe::freeMemory);
         }
