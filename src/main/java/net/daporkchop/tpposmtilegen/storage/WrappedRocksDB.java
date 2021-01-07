@@ -79,7 +79,7 @@ public abstract class WrappedRocksDB {
                 .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
                         .setAllowTrivialMove(true))
                 .setKeepLogFileNum(2L)
-                .setMaxOpenFiles(-1)
+                .setMaxOpenFiles(1024)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true);
 

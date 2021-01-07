@@ -22,10 +22,10 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.geotools.data.FileDataStore;
 import org.geotools.data.FileDataStoreFinder;

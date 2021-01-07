@@ -19,6 +19,10 @@
  */
 
 apply plugin: "java"
+apply plugin: "application"
+
+mainClassName = "net.daporkchop.tpposmtilegen.Main"
+applicationDefaultJvmArgs = [ "-Xmx4G", "-Xms4G", "-XX:+UseG1GC" ]
 
 ext {
     //general things
@@ -91,25 +95,6 @@ dependencies {
     annotationProcessor "org.projectlombok:lombok:$lombokVersion"
     testCompileOnly "org.projectlombok:lombok:$lombokVersion"
     testAnnotationProcessor "org.projectlombok:lombok:$lombokVersion"
-}
-
-jar {
-    from {
-        configurations.shade.collect {
-            it.isDirectory() ? it : zipTree(it)
-        }.unique()
-    } {
-        exclude "META-INF/**"
-        exclude sourceSets.main.output.asFileTree.collect {
-            return it.getPath().split("java/main/").last()
-        }
-    }
-
-    manifest {
-        attributes "Implementation-Title": "DaPorkchop_",
-                "Implementation-Version": version,
-                "Main-Class": "net.daporkchop.tpposmtilegen.Main"
-    }
 }
 
 if (System.getProperty("os.name", "").toLowerCase().replaceAll("[^a-z0-9]+", "").startsWith("windows")) {
