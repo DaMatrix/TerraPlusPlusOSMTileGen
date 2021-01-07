@@ -26,12 +26,13 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.storage.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-import org.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.util.DuplicatedList;
+import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -43,13 +44,17 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 /**
  * @author DaPorkchop_
  */
-public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements PersistentMap<V> {
-    public RocksDBPersistentMap(@NonNull Path root, @NonNull String name) throws Exception {
-        super(DEFAULT_OPTIONS, root, name, 8);
+public abstract class RocksDBMap<V> extends WrappedRocksDB {
+    public RocksDBMap(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override
-    public void put(long key, @NonNull V value) throws Exception {
+    protected int keySize() {
+        return 8;
+    }
+
+    public void put(@NonNull WriteBatch batch, long key, @NonNull V value) throws Exception {
         ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
         ByteBuf buf = WRITE_BUFFER_CACHE.get();
 
@@ -57,11 +62,10 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
         keyBuffer.putLong(key).flip();
 
         this.valueToBytes(value, buf.clear());
-        this.delegate.put(WRITE_OPTIONS, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
+        batch.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
     }
 
-    @Override
-    public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
+    public void putAll(@NonNull WriteBatch batch, @NonNull LongList keys, @NonNull List<V> values) throws Exception {
         checkArg(keys.size() == values.size(), "must have same number of keys as values!");
         int size = keys.size();
         if (size == 0) {
@@ -71,37 +75,48 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
         ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
         ByteBuf buf = WRITE_BUFFER_CACHE.get();
 
-        WriteBatch batch = WRITE_BATCH_CACHE.get();
-        try {
-            for (int i = 0; i < size; i++) {
-                keyBuffer.clear();
-                keyBuffer.putLong(keys.getLong(i)).flip();
+        for (int i = 0; i < size; i++) {
+            keyBuffer.clear();
+            keyBuffer.putLong(keys.getLong(i)).flip();
 
-                this.valueToBytes(values.get(i), buf.clear());
-                batch.put(keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
-            }
-
-            this.delegate.write(WRITE_OPTIONS, batch);
-        } finally {
-            batch.clear();
+            this.valueToBytes(values.get(i), buf.clear());
+            batch.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
         }
     }
 
-    @Override
+    public void deleteAll(@NonNull WriteBatch batch, @NonNull LongList keys) throws Exception {
+        int size = keys.size();
+        if (size == 0) {
+            return;
+        }
+
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+        byte[] keyArray = keyArrayRecycler.get();
+        try {
+            //serialize keys to bytes
+            for (int i = 0; i < size; i++) {
+                long key = keys.getLong(i);
+                PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                batch.delete(this.column, keyArray);
+            }
+        } finally {
+            keyArrayRecycler.release(keyArray);
+        }
+    }
+
     public V get(long key) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();
         try {
             PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
 
-            byte[] valueData = this.delegate.get(READ_OPTIONS, keyArray);
+            byte[] valueData = this.database.delegate().get(this.column, Database.READ_OPTIONS, keyArray);
             return valueData != null ? this.valueFromBytes(key, Unpooled.wrappedBuffer(valueData)) : null;
         } finally {
             keyArrayRecycler.release(keyArray);
         }
     }
 
-    @Override
     public List<V> getAll(@NonNull LongList keys) throws Exception {
         int size = keys.size();
         if (size == 0) {
@@ -127,7 +142,7 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
             }
 
             //look up values from key
-            valueBytes = this.delegate.multiGetAsList(keyBytes);
+            valueBytes = this.database.delegate().multiGetAsList(new DuplicatedList<>(this.column, size), keyBytes);
         } finally {
             keyBytes.forEach(keyArrayRecycler::release);
         }
@@ -141,35 +156,6 @@ public abstract class RocksDBPersistentMap<V> extends WrappedRocksDB implements 
             values.add(value != null ? this.valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
         }
         return values;
-    }
-
-    @Override
-    public void deleteAll(@NonNull LongList keys) throws Exception {
-        int size = keys.size();
-        if (size == 0) {
-            return;
-        }
-
-        WriteBatch batch = WRITE_BATCH_CACHE.get();
-        try {
-            ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
-            byte[] keyArray = keyArrayRecycler.get();
-            try {
-                //serialize keys to bytes
-                for (int i = 0; i < size; i++) {
-                    long key = keys.getLong(i);
-                    PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
-                }
-
-                batch.delete(keyArray);
-            } finally {
-                keyArrayRecycler.release(keyArray);
-            }
-
-            this.delegate.write(WRITE_OPTIONS, batch);
-        } finally {
-            batch.clear();
-        }
     }
 
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);

@@ -34,6 +34,7 @@ import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -97,14 +98,14 @@ public final class Relation extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull Storage storage) throws Exception {
+    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
         LongList ids = new LongArrayList(this.members.length);
         for (Member member : this.members) {
             ids.add(member.combined);
         }
 
         //first parameter (type) is 0 because the ids are already combined with their type
-        storage.references().addReferences(0, ids, Relation.TYPE, this.id);
+        storage.references().addReferences(batch, 0, ids, Relation.TYPE, this.id);
     }
 
     @Override

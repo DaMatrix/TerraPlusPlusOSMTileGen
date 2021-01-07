@@ -23,18 +23,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-
-import java.nio.file.Path;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyHandle;
 
 /**
- * {@link PersistentMap} for storing {@link Way}s.
- *
  * @author DaPorkchop_
  */
-public final class WayDB extends RocksDBPersistentMap<Way> {
-    public WayDB(@NonNull Path root, @NonNull String name) throws Exception {
-        super(root, name);
+public final class WayDB extends RocksDBMap<Way> {
+    public WayDB(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override

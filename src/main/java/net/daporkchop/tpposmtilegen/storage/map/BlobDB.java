@@ -22,19 +22,17 @@ package net.daporkchop.tpposmtilegen.storage.map;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
-import java.nio.file.Path;
 
 /**
- * {@link PersistentMap} for storing {@link ByteBuffer}s.
- *
  * @author DaPorkchop_
  */
-public final class BlobDB extends RocksDBPersistentMap<ByteBuffer> {
-    public BlobDB(@NonNull Path root, @NonNull String name) throws Exception {
-        super(root, name);
+public final class BlobDB extends RocksDBMap<ByteBuffer> {
+    public BlobDB(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override

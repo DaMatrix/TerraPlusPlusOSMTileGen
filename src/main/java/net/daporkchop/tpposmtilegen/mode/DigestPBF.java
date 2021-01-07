@@ -32,11 +32,13 @@ import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 
@@ -59,8 +61,13 @@ public class DigestPBF implements IMode {
              Storage storage = new Storage(dst.toPath());
              InputStream is = new FileInputStream(src)) {
 
+            List<Thread> threads = new ArrayList<>(PorkUtil.CPU_COUNT);
             new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
-                    .setThreadFactory(PThreadFactories.DEFAULT_THREAD_FACTORY)
+                    .setThreadFactory(r -> {
+                        Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
+                        threads.add(t);
+                        return t;
+                    })
                     .onHeader(header -> {
                         System.out.println(header);
                         if (header.getReplicationSequenceNumber() != null) {
@@ -75,8 +82,9 @@ public class DigestPBF implements IMode {
                     .onBoundBox(System.out::println).onChangeset(System.out::println)
                     .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                         Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
-                        storage.putNode(node, new Point(in.getLon(), in.getLat()));
-                        node.computeReferences(storage);
+                        WriteBatch batch = storage.db().batch();
+                        storage.putNode(batch, node, new Point(in.getLon(), in.getLat()));
+                        node.computeReferences(batch, storage);
 
                         notifier.step(Node.TYPE);
                     })
@@ -88,8 +96,9 @@ public class DigestPBF implements IMode {
                         }
 
                         Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
-                        storage.putWay(way);
-                        way.computeReferences(storage);
+                        WriteBatch batch = storage.db().batch();
+                        storage.putWay(batch, way);
+                        way.computeReferences(batch, storage);
 
                         notifier.step(Way.TYPE);
                     })
@@ -101,12 +110,16 @@ public class DigestPBF implements IMode {
                         }
 
                         Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
-                        storage.putRelation(relation);
-                        relation.computeReferences(storage);
+                        WriteBatch batch = storage.db().batch();
+                        storage.putRelation(batch, relation);
+                        relation.computeReferences(batch, storage);
 
                         notifier.step(Relation.TYPE);
                     })
                     .parse();
+
+            //this ensure that the threads have flushed their contents before exiting
+            threads.forEach((EConsumer<Thread>) Thread::join);
 
             //ensure everything is written to disk before advancing
             storage.flush();

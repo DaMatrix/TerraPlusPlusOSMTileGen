@@ -33,6 +33,7 @@ import net.daporkchop.tpposmtilegen.geometry.Area;
 import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 
 import java.util.List;
 import java.util.Map;
@@ -91,8 +92,8 @@ public final class Way extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull Storage storage) throws Exception {
-        storage.references().addReferences(Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
+    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
+        storage.references().addReferences(batch, Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
     }
 
     @Override

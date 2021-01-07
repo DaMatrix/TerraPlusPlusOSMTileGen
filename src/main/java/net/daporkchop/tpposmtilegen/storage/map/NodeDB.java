@@ -23,18 +23,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-
-import java.nio.file.Path;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyHandle;
 
 /**
- * {@link PersistentMap} for storing {@link Node}s.
- *
  * @author DaPorkchop_
  */
-public final class NodeDB extends RocksDBPersistentMap<Node> {
-    public NodeDB(@NonNull Path root, @NonNull String name) throws Exception {
-        super(root, name);
+public final class NodeDB extends RocksDBMap<Node> {
+    public NodeDB(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override

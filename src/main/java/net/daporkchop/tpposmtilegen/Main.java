@@ -8,6 +8,7 @@ import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
 import net.daporkchop.tpposmtilegen.mode.TestIndex;
+import net.daporkchop.tpposmtilegen.mode.Update;
 
 import java.util.Arrays;
 import java.util.HashMap;
@@ -25,6 +26,7 @@ public class Main {
         MODES.put("digest_pbf", DigestPBF::new);
         MODES.put("rebuild_planet", RebuildPlanet::new);
         MODES.put("test_index", TestIndex::new);
+        MODES.put("update", Update::new);
     }
 
     public static void main(String... args) throws Exception {

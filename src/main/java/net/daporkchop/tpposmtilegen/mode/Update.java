@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,31 +18,30 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.persistent;
+package net.daporkchop.tpposmtilegen.mode;
 
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
+import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
-import java.util.List;
+import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public interface PersistentMap<V> extends AutoCloseable {
-    void put(long key, @NonNull V value) throws Exception;
-
-    void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception;
-
-    V get(long key) throws Exception;
-
-    List<V> getAll(@NonNull LongList keys) throws Exception;
-
-    void deleteAll(@NonNull LongList keys) throws Exception;
-
-    void clear() throws Exception;
-
-    void flush() throws Exception;
-
+public class Update implements IMode {
     @Override
-    void close() throws Exception;
+    public void run(@NonNull String... args) throws Exception {
+        checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
+        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path dst = Paths.get(args[1]);
+
+        try (Storage storage = new Storage(src.toPath())) {
+            //TODO
+        }
+    }
 }

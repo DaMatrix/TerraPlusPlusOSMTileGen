@@ -29,9 +29,10 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
@@ -41,17 +42,17 @@ import net.daporkchop.tpposmtilegen.storage.map.LongArrayDB;
 import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
+import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
-import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
-import net.daporkchop.tpposmtilegen.util.persistent.BufferedPersistentMap;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -73,12 +74,12 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @Getter
 public final class Storage implements AutoCloseable {
-    protected final PersistentMap<Node> nodes;
-    protected final PersistentMap<Point> points;
-    protected final PersistentMap<Way> ways;
-    protected final PersistentMap<Relation> relations;
-    protected final PersistentMap<Coastline> coastlines;
-    protected final Int2ObjectMap<PersistentMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
+    protected NodeDB nodes;
+    protected PointDB points;
+    protected WayDB ways;
+    protected RelationDB relations;
+    protected CoastlineDB coastlines;
+    protected final Int2ObjectMap<RocksDBMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
     protected final OffHeapAtomicBitSet nodeFlags;
     protected final OffHeapAtomicBitSet taggedNodeFlags;
@@ -90,18 +91,27 @@ public final class Storage implements AutoCloseable {
     protected final OffHeapAtomicLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
 
-    protected final ReferenceDB references;
-    protected final TileDB tileContents;
+    protected ReferenceDB references;
+    protected TileDB tileContents;
     protected final OffHeapAtomicBitSet dirtyTiles;
-    protected final PersistentMap<long[]> intersectedTiles;
-    protected final PersistentMap<ByteBuffer> tempJsonStorage;
+    protected LongArrayDB intersectedTiles;
+    protected BlobDB tempJsonStorage;
+
+    protected final Database db;
 
     public Storage(@NonNull Path root) throws Exception {
-        this.nodes = new BufferedPersistentMap<>(new NodeDB(root, "osm_nodes"), 100_000);
-        this.points = new BufferedPersistentMap<>(new PointDB(root, "osm_node_locations"), 100_000);
-        this.ways = new BufferedPersistentMap<>(new WayDB(root, "osm_ways"), 10_000);
-        this.relations = new BufferedPersistentMap<>(new RelationDB(root, "osm_relations"), 10_000);
-        this.coastlines = new CoastlineDB(root, "coastlines");
+        this.db = new Database.Builder()
+                .add("nodes", (database, handle) -> this.nodes = new NodeDB(database, handle))
+                .add("points", (database, handle) -> this.points = new PointDB(database, handle))
+                .add("ways", (database, handle) -> this.ways = new WayDB(database, handle))
+                .add("relations", (database, handle) -> this.relations = new RelationDB(database, handle))
+                .add("coastlines", (database, handle) -> this.coastlines = new CoastlineDB(database, handle))
+                .add("references", (database, handle) -> this.references = new ReferenceDB(database, handle))
+                .add("tiles", (database, handle) -> this.tileContents = new TileDB(database, handle))
+                .add("intersected_tiles", (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
+                .add("json", (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
+                .autoFlush(true)
+                .build(root.resolve("db"));
 
         this.nodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
         this.taggedNodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
@@ -113,11 +123,7 @@ public final class Storage implements AutoCloseable {
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
-        this.references = new ReferenceDB(root, "refs");
-        this.tileContents = new TileDB(root, "tiles");
         this.dirtyTiles = new OffHeapAtomicBitSet(root.resolve("tiles_dirty"), 1L << 40L);
-        this.intersectedTiles = new LongArrayDB(root, "intersected_tiles");
-        this.tempJsonStorage = new BlobDB(root, "geojson_temp");
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
@@ -125,23 +131,23 @@ public final class Storage implements AutoCloseable {
         this.elementsByType.put(Coastline.TYPE, this.coastlines);
     }
 
-    public void putNode(@NonNull Node node, @NonNull Point point) throws Exception {
-        this.nodes.put(node.id(), node);
-        this.points.put(node.id(), point);
+    public void putNode(@NonNull WriteBatch batch, @NonNull Node node, @NonNull Point point) throws Exception {
+        this.points.put(batch, node.id(), point);
         this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {
+            this.nodes.put(batch, node.id(), node);
             this.taggedNodeFlags.set(node.id());
         }
     }
 
-    public void putWay(@NonNull Way way) throws Exception {
-        this.ways.put(way.id(), way);
+    public void putWay(@NonNull WriteBatch batch, @NonNull Way way) throws Exception {
+        this.ways.put(batch, way.id(), way);
         this.wayFlags.set(way.id());
     }
 
-    public void putRelation(@NonNull Relation relation) throws Exception {
-        this.relations.put(relation.id(), relation);
+    public void putRelation(@NonNull WriteBatch batch, @NonNull Relation relation) throws Exception {
+        this.relations.put(batch, relation.id(), relation);
         this.relationFlags.set(relation.id());
     }
 
@@ -202,12 +208,12 @@ public final class Storage implements AutoCloseable {
     public Element getElement(long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         long id = Element.extractId(combinedId);
-        PersistentMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
+        RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
         checkArg(map != null, "unknown element type %d (id %d)", type, id);
         return map.get(id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull Path outputRoot, long combinedId) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull WriteBatch batch, @NonNull Path outputRoot, long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
@@ -245,8 +251,8 @@ public final class Storage implements AutoCloseable {
                 }
             }
 
-            this.tileContents.addElementToTiles(LongArrayList.wrap(arr), type, id); //add this element to all tiles
-            this.intersectedTiles.put(combinedId, arr);
+            this.tileContents.addElementToTiles(batch, LongArrayList.wrap(arr), type, id); //add this element to all tiles
+            this.intersectedTiles.put(batch, combinedId, arr);
 
             //encode geometry to GeoJSON
             StringBuilder builder = new StringBuilder();
@@ -258,7 +264,7 @@ public final class Storage implements AutoCloseable {
             try {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
                 if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) { //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.tempJsonStorage.put(batch, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
                     String path = geometry.externalStoragePath(type, id);
                     Path file = outputRoot.resolve(path);
@@ -275,7 +281,7 @@ public final class Storage implements AutoCloseable {
                     builder = new StringBuilder();
                     builder.append("{\"type\":\"Reference\",\"location\":\"").append(path).append("\"}\n");
                     buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
-                    this.tempJsonStorage.put(combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.tempJsonStorage.put(batch, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }
             } finally {
                 buf.release();
@@ -319,34 +325,21 @@ public final class Storage implements AutoCloseable {
         this.flush();
         if (temp) {
             System.out.println("Clearing temporary GeoJSON storage...");
-            this.tempJsonStorage.clear();
+            this.tempJsonStorage.clear(this.db.batch());
         }
         if (index) {
             System.out.println("Clearing tile index...");
-            this.tileContents.clear();
+            this.tileContents.clear(this.db.batch());
         }
         System.out.println("Cleared.");
     }
 
     public void flush() throws Exception {
-        this.nodes.flush();
-        this.points.flush();
-        this.ways.flush();
-        this.relations.flush();
-        this.coastlines.flush();
-
-        this.references.flush();
-        this.tileContents.flush();
+        this.db.flush();
     }
 
     @Override
     public void close() throws Exception {
-        this.nodes.close();
-        this.points.close();
-        this.ways.close();
-        this.relations.close();
-        this.coastlines.close();
-
         this.nodeFlags.close();
         this.taggedNodeFlags.close();
         this.wayFlags.close();
@@ -357,9 +350,8 @@ public final class Storage implements AutoCloseable {
         this.sequenceNumber.close();
         this.replicationTimestamp.close();
 
-        this.references.close();
-        this.tileContents.close();
         this.dirtyTiles.close();
-        this.tempJsonStorage.close();
+
+        this.db.close();
     }
 }

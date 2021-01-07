@@ -28,6 +28,7 @@ import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 
 import java.util.Map;
 
@@ -59,7 +60,7 @@ public final class Node extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull Storage storage) throws Exception {
+    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
         //a node doesn't reference anything
     }
 

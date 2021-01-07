@@ -23,18 +23,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-
-import java.nio.file.Path;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyHandle;
 
 /**
- * {@link PersistentMap} for storing {@link Coastline}s.
- *
  * @author DaPorkchop_
  */
-public final class CoastlineDB extends RocksDBPersistentMap<Coastline> {
-    public CoastlineDB(@NonNull Path root, @NonNull String name) throws Exception {
-        super(root, name);
+public final class CoastlineDB extends RocksDBMap<Coastline> {
+    public CoastlineDB(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override

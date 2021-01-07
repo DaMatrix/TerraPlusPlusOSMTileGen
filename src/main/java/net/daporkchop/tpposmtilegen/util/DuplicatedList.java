@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,59 +18,24 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.persistent;
+package net.daporkchop.tpposmtilegen.util;
 
-import it.unimi.dsi.fastutil.longs.LongList;
-import lombok.NonNull;
+import lombok.Getter;
 import lombok.RequiredArgsConstructor;
 
-import java.util.List;
+import java.util.AbstractList;
 
 /**
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-public abstract class ForwardingPersistentMap<V> implements PersistentMap<V> {
-    @NonNull
-    protected final PersistentMap<V> delegate;
+@Getter
+public final class DuplicatedList<T> extends AbstractList<T> {
+    protected final T value;
+    protected final int size;
 
     @Override
-    public void put(long key, @NonNull V value) throws Exception {
-        this.delegate.put(key, value);
-    }
-
-    @Override
-    public void putAll(@NonNull LongList keys, @NonNull List<V> values) throws Exception {
-        this.delegate.putAll(keys, values);
-    }
-
-    @Override
-    public V get(long key) throws Exception {
-        return this.delegate.get(key);
-    }
-
-    @Override
-    public List<V> getAll(@NonNull LongList keys) throws Exception {
-        return this.delegate.getAll(keys);
-    }
-
-    @Override
-    public void deleteAll(@NonNull LongList keys) throws Exception {
-        this.delegate.deleteAll(keys);
-    }
-
-    @Override
-    public void clear() throws Exception {
-        this.delegate.clear();
-    }
-
-    @Override
-    public void flush() throws Exception {
-        this.delegate.flush();
-    }
-
-    @Override
-    public void close() throws Exception {
-        this.delegate.close();
+    public T get(int index) {
+        return this.value;
     }
 }

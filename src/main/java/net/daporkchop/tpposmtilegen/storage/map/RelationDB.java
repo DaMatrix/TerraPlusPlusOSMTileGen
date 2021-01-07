@@ -23,18 +23,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Relation;
-import net.daporkchop.tpposmtilegen.util.persistent.PersistentMap;
-
-import java.nio.file.Path;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyHandle;
 
 /**
- * {@link PersistentMap} for storing {@link Relation}s.
- *
  * @author DaPorkchop_
  */
-public final class RelationDB extends RocksDBPersistentMap<Relation> {
-    public RelationDB(@NonNull Path root, @NonNull String name) throws Exception {
-        super(root, name);
+public final class RelationDB extends RocksDBMap<Relation> {
+    public RelationDB(Database database, ColumnFamilyHandle column) {
+        super(database, column);
     }
 
     @Override

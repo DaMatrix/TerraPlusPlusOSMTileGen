@@ -26,6 +26,7 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 
 import java.util.Collections;
 import java.util.Map;
@@ -67,8 +68,8 @@ public final class Coastline extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull Storage storage) throws Exception {
-        //coastline isn't a real OpenStreetMap primitive type, so we skip it
+    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
+        //coastline isn't a real OpenStreetMap primitive type, so it has no references
     }
 
     @Override

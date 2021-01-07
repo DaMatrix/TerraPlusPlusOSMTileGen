@@ -80,7 +80,7 @@ public class RebuildPlanet implements IMode {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(dst, combinedId);
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), dst, combinedId);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
                     }
@@ -91,7 +91,7 @@ public class RebuildPlanet implements IMode {
 
             storage.exportDirtyTiles(dst);
 
-            //storage.purge(true, false); //erase temporary data
+            storage.purge(true, false); //erase temporary data
         }
     }
 }
