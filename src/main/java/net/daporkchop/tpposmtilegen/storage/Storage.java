@@ -67,6 +67,7 @@ import java.util.List;
 import java.util.Spliterator;
 import java.util.function.LongConsumer;
 import java.util.stream.LongStream;
+import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -264,7 +265,8 @@ public final class Storage implements AutoCloseable {
             ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(builder.length());
             try {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
-                if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) { //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) {
+                    //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.tempJsonStorage.put(batch, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
                     String path = geometry.externalStoragePath(type, id);
@@ -291,7 +293,9 @@ public final class Storage implements AutoCloseable {
     }
 
     public void exportDirtyTiles(@NonNull Path outputRoot) throws Exception {
-        try (ProgressNotifier notifier = new ProgressNotifier("Write tiles: ", 5000L, "tiles")) {
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles: ")
+                .slot("tiles", StreamSupport.longStream(this.dirtyTiles.spliterator(), false).count())
+                .build()) {
             Threading.forEachParallelLong(tilePos -> {
                 int tileX = Tile.tileX(tilePos);
                 int tileY = Tile.tileY(tilePos);

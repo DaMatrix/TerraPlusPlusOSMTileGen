@@ -27,11 +27,11 @@ import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
@@ -57,7 +57,9 @@ public class DigestPBF implements IMode {
         checkArg(!PFiles.checkDirectoryExists(dst), "destination folder already exists: %s", dst);
         PFiles.ensureDirectoryExists(dst);
 
-        try (ProgressNotifier notifier = new ProgressNotifier("Read PBF: ", 5000L, "nodes", "ways", "relations");
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF: ")
+                .slot("nodes").slot("ways").slot("relations")
+                .build();
              Storage storage = new Storage(dst.toPath());
              InputStream is = new FileInputStream(src)) {
 

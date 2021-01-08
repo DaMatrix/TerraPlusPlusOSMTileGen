@@ -30,7 +30,9 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.geotools.data.FileDataStore;
 import org.geotools.data.FileDataStoreFinder;
+import org.geotools.data.simple.SimpleFeatureCollection;
 import org.geotools.data.simple.SimpleFeatureSource;
+import org.geotools.feature.FeatureCollection;
 import org.geotools.feature.FeatureIterator;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -52,15 +54,19 @@ public class DigestCoastlines implements IMode {
         File src = PFiles.assertFileExists(new File(args[0]));
         File dst = new File(args[1]);
 
-        try (ProgressNotifier notifier = new ProgressNotifier("Digest coastlines: ", 5000L, "pieces");
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines: ")
+                .slot("pieces")
+                .build();
              Storage storage = new Storage(dst.toPath())) {
             WriteBatch batch = storage.db().batch();
             storage.coastlines().clear(batch);
 
             FileDataStore store = FileDataStoreFinder.getDataStore(src);
             SimpleFeatureSource featureSource = store.getFeatureSource();
+            SimpleFeatureCollection featureCollection = featureSource.getFeatures();
+            notifier.setTotal(0, featureCollection.size());
 
-            FeatureIterator itr = featureSource.getFeatures().features();
+            FeatureIterator itr = featureCollection.features();
             long id = 0L;
             while (itr.hasNext()) {
                 Feature feature = itr.next();

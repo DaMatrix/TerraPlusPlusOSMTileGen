@@ -20,12 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.util;
 
+import lombok.AllArgsConstructor;
 import lombok.NonNull;
-import net.daporkchop.lib.common.pool.handle.Handle;
+import lombok.Setter;
+import net.daporkchop.lib.common.util.PorkUtil;
 
-import java.util.Arrays;
-import java.util.Objects;
-import java.util.StringJoiner;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.atomic.LongAdder;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -34,19 +35,42 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 public final class ProgressNotifier implements AutoCloseable {
-    protected final LongAdder[] counters;
-    protected final String[] names;
+    private static void append(@NonNull StringBuilder builder, long l) {
+        if (l == 0L) {
+            builder.append('0');
+        } else {
+            boolean firstSection = true;
+            for (long div = 1_000_000_000L; div > 0L; div /= 1000L) {
+                if (l / div > 0L) {
+                    long section = (l / div) % 1000L;
+                    if (firstSection) {
+                        builder.append(section);
+                    } else {
+                        for (long j = 100L; j > 0L; j /= 10L) {
+                            builder.append((section / j) % 10L);
+                        }
+                    }
+
+                    if (div != 1L) {
+                        builder.append('\'');
+                    }
+
+                    firstSection = false;
+                }
+            }
+        }
+    }
+
+    protected final Slot[] slots;
     protected final Thread thread;
 
     protected final String prefix;
     protected final StringBuilder builder = new StringBuilder();
 
-    public ProgressNotifier(@NonNull String prefix, long interval, @NonNull String... names) {
+    private ProgressNotifier(@NonNull Slot[] slots, @NonNull String prefix, long interval) {
+        this.slots = slots;
         this.prefix = prefix;
         positive(interval, "interval");
-        positive(names.length, "names.length");
-        this.names = names.clone();
-        this.counters = Arrays.stream(names).peek(Objects::requireNonNull).map(s -> new LongAdder()).toArray(LongAdder[]::new);
 
         this.thread = new Thread(() -> {
             try {
@@ -65,43 +89,36 @@ public final class ProgressNotifier implements AutoCloseable {
         this.builder.setLength(0);
         this.builder.append(this.prefix);
 
-        for (int i = 0; i < this.names.length; i++) {
-            this.builder.append(this.names[i]).append('=');
+        for (Slot slot : this.slots) {
+            this.builder.append(slot.name).append('=');
 
-            long l = this.counters[i].sum();
-            if (l == 0L) {
-                this.builder.append('0');
-            } else {
-                boolean firstSection = true;
-                for (long div = 1_000_000_000L; div > 0L; div /= 1000L) {
-                    if (l / div > 0L) {
-                        long section = (l / div) % 1000L;
-                        if (firstSection) {
-                            this.builder.append(section);
-                        } else {
-                            for (long j = 100L; j > 0L; j /= 10L) {
-                                this.builder.append((section / j) % 10L);
-                            }
-                        }
+            append(this.builder, slot.sum());
 
-                        if (div != 1L) {
-                            this.builder.append('\'');
-                        }
-
-                        firstSection = false;
-                    }
-                }
+            long total = slot.total.sum();
+            if (total >= 0L) {
+                this.builder.append('/');
+                append(this.builder, total);
             }
 
-            if (i + 1 != this.names.length) {
-                this.builder.append(", ");
-            }
+            this.builder.append(',').append(' ');
         }
+        this.builder.setLength(this.builder.length() - 2);
+
         System.out.println(this.builder);
     }
 
     public void step(int slot) {
-        this.counters[slot].increment();
+        this.slots[slot].increment();
+    }
+
+    public ProgressNotifier setTotal(int slot, long total) {
+        this.slots[slot].total.reset();
+        this.slots[slot].total.add(total);
+        return this;
+    }
+
+    public void incrementTotal(int slot) {
+        this.slots[slot].total.increment();
     }
 
     @Override
@@ -111,5 +128,37 @@ public final class ProgressNotifier implements AutoCloseable {
 
         this.print();
         System.out.println(this.prefix + "done.");
+    }
+
+    @AllArgsConstructor
+    private static final class Slot extends LongAdder {
+        @NonNull
+        protected final String name;
+        @NonNull
+        protected final LongAdder total;
+    }
+
+    @Setter
+    public static final class Builder {
+        private final List<Slot> slots = new ArrayList<>();
+        @NonNull
+        private String prefix = "";
+        private long interval = 5000L;
+
+        public Builder slot(@NonNull String name) {
+            return this.slot(name, -1L);
+        }
+
+        public Builder slot(@NonNull String name, long max) {
+            LongAdder adder = new LongAdder();
+            adder.add(max);
+            this.slots.add(new Slot(name, adder));
+            return this;
+        }
+
+        public ProgressNotifier build() {
+            checkState(!this.slots.isEmpty(), "at least one slot must be defined!");
+            return new ProgressNotifier(this.slots.toArray(new Slot[0]), this.prefix, this.interval);
+        }
     }
 }

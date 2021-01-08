@@ -20,20 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.osm.Node;
-import net.daporkchop.tpposmtilegen.osm.Relation;
-import net.daporkchop.tpposmtilegen.osm.Way;
-import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-
-import java.nio.file.Paths;
-import java.util.Objects;
-import java.util.stream.StreamSupport;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -41,77 +28,5 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 public class TestIndex implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
-        //System.setProperty("java.util.concurrent.ForkJoinPool.common.parallelism", "1");
-
-        long start = System.currentTimeMillis();
-        try (Storage storage = new Storage(Paths.get(args[0]))) {
-            //System.out.println("nodes: " + StreamSupport.longStream(storage.nodeFlags().spliterator(), true).count());
-
-            if (false) {
-                try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "ways", "and areas")) {
-                    System.out.println("ways that are also areas:" + StreamSupport.longStream(storage.wayFlags().spliterator(), true)
-                            .mapToObj(id -> {
-                                try {
-                                    Way way = storage.ways().get(id);
-                                    checkState(way != null, "unknown way with id: %d", id);
-
-                                    notifier.step(0);
-
-                                    return way.toGeometry(storage);
-                                } catch (Exception e) {
-                                    RuntimeException re = new RuntimeException(String.valueOf(id), e);
-                                    re.printStackTrace();
-                                    throw re;
-                                }
-                            })
-                            .filter(Objects::nonNull)
-                            .peek(a -> notifier.step(1))
-                            .count());
-                }
-            }
-
-            if (false) {
-                try (ProgressNotifier notifier = new ProgressNotifier(" found ", 500L, "relations", "and areas")) {
-                    System.out.println("relations that are also areas:" + StreamSupport.longStream(storage.relationFlags().spliterator(), false)
-                            .mapToObj(id -> {
-                                try {
-                                    Relation relation = storage.relations().get(id);
-                                    checkState(relation != null, "unknown relation with id: %d", id);
-
-                                    notifier.step(0);
-
-                                    return relation.toGeometry(storage);
-                                } catch (Exception e) {
-                                    RuntimeException re = new RuntimeException(String.valueOf(id), e);
-                                    re.printStackTrace();
-                                    System.exit(1);
-                                    throw re;
-                                }
-                            })
-                            .filter(Objects::nonNull)
-                            .peek(a -> notifier.step(1))
-                            .count());
-                }
-            }
-
-            if (false) {
-                StreamSupport.longStream(storage.nodeFlags().spliterator(), true)
-                        .forEach(id -> {
-                            try {
-                                LongList dst = new LongArrayList();
-                                storage.references().getReferencesTo(Node.TYPE, id, dst);
-                                if (dst.isEmpty()) {
-                                    System.out.printf("node %d is referenced 0 times\n", id);
-                                } else {
-                                    System.out.printf("node %d is referenced %d times: %s\n", id, dst.size(), dst);
-                                }
-                            } catch (Exception e) {
-                                throw new RuntimeException(String.valueOf(id), e);
-                            }
-                        });
-            }
-        }
-        long end = System.currentTimeMillis();
-        System.out.printf(" took %.2fs\n", (end - start) / 1000.0d);
     }
 }
