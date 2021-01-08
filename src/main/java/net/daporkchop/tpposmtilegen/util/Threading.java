@@ -23,10 +23,13 @@ package net.daporkchop.tpposmtilegen.util;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
@@ -52,7 +55,12 @@ public class Threading {
     }
 
     public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) {
-        ExecutorService executor = Executors.newFixedThreadPool(threads, PThreadFactories.DEFAULT_THREAD_FACTORY);
+        List<Thread> threadList = new ArrayList<>();
+        ExecutorService executor = Executors.newFixedThreadPool(threads, r -> {
+            Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
+            threadList.add(t);
+            return t;
+        });
         try {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
@@ -63,6 +71,7 @@ public class Threading {
                     .join();
         } finally {
             executor.shutdown();
+            threadList.forEach((EConsumer<Thread>) Thread::join);
         }
     }
 

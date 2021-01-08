@@ -33,28 +33,33 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @UtilityClass
 public class Tile {
     public static final int TILES_PER_DEGREE = 64;
+    public static final int TILE_SIZE_POINT_SCALE = Point.PRECISION / TILES_PER_DEGREE;
 
-    public static int x_point2tile(int pointCoordinate) {
-        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE) + 180 * TILES_PER_DEGREE;
+    public static int point2tile(int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, TILE_SIZE_POINT_SCALE);
     }
 
-    public static int y_point2tile(int pointCoordinate) {
-        return Math.floorDiv(pointCoordinate, Point.PRECISION / TILES_PER_DEGREE) + 90 * TILES_PER_DEGREE;
+    public static int tile2point(int tileCoordinate) {
+        return tileCoordinate * TILE_SIZE_POINT_SCALE;
     }
 
     public static long point2tile(int x, int y) {
-        return xy2tilePos(x_point2tile(x), y_point2tile(y));
+        return xy2tilePos(point2tile(x), point2tile(y));
     }
 
     public static long xy2tilePos(int tileX, int tileY) {
-        return tileX << 16 | tileY;
+        tileX += 180 * TILES_PER_DEGREE;
+        tileY += 90 * TILES_PER_DEGREE;
+        checkArg(tileX >= 0 && tileX < 65536, "tileX: %d", tileX);
+        checkArg(tileY >= 0 && tileY < 65536, "tileY: %d", tileY);
+        return (tileX << 16) | tileY;
     }
 
     public static int tileX(long tilePos) {
-        return toInt(tilePos >>> 16L);
+        return toInt(tilePos >>> 16L) - 180 * TILES_PER_DEGREE;
     }
 
     public static int tileY(long tilePos) {
-        return toInt(tilePos & 0xFFFF);
+        return toInt(tilePos & 0xFFFF) - 90 * TILES_PER_DEGREE;
     }
 }

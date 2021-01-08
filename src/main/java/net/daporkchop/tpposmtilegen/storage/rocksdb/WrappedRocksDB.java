@@ -66,7 +66,12 @@ public abstract class WrappedRocksDB {
         batch.delete(this.column, highKey); //deleteRange's upper bound is exclusive
 
         batch.flush();
-        this.database.delegate().compactRange(this.column); //force compaction to delete all table files
+        this.optimize(); //force compaction to delete all table files
+    }
+
+    public void optimize() throws Exception {
+        //forces compaction of the entire column family
+        this.database.delegate().compactRange(this.column);
     }
 
     @RequiredArgsConstructor

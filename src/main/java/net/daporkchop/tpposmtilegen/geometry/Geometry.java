@@ -26,9 +26,9 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
+import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.util.Map;
-import java.util.stream.Stream;
 
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
@@ -61,22 +61,7 @@ public interface Geometry extends Persistent {
         dst.append('}').append('\n');
     }
 
-    Bounds2d computeObjectBounds();
-
-    default long[] listIntersectedTiles() {
-        Bounds2d bounds = this.computeObjectBounds();
-        int tileMinX = x_point2tile(bounds.minX());
-        int tileMaxX = x_point2tile(bounds.maxX());
-        int tileMinY = y_point2tile(bounds.minY());
-        int tileMaxY = y_point2tile(bounds.maxY());
-        long[] arr = new long[(tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1)];
-        for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
-            for (int y = tileMinY; y <= tileMaxY; y++) {
-                arr[i++] = xy2tilePos(x, y);
-            }
-        }
-        return arr;
-    }
+    long[] listIntersectedTiles();
 
     /**
      * Checks whether or not this geometry object should be stored externally.

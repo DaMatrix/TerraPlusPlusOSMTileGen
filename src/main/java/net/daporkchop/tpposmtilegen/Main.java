@@ -1,7 +1,6 @@
 package net.daporkchop.tpposmtilegen;
 
 import io.netty.util.concurrent.FastThreadLocalThread;
-import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;

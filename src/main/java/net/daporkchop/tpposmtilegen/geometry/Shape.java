@@ -21,11 +21,18 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.NonNull;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.util.Persistent;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.Tile;
 
+import java.awt.Polygon;
+
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * A closed line loop in an {@link Area}, possibly with holes.
@@ -35,7 +42,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @ToString
-public final class Shape implements Persistent {
+public final class Shape extends ComplexGeometry {
     private static Point[] loopFromBytes(ByteBuf src) {
         int count = src.readIntLE();
         Point[] loop = new Point[count + 1];
@@ -44,6 +51,16 @@ public final class Shape implements Persistent {
         }
         loop[count] = loop[0];
         return loop;
+    }
+
+    protected static void emitPolygon(Shape shape, StringBuilder dst) {
+        dst.append('[');
+        Line.emitLineString(shape.outerLoop, dst);
+        for (Point[] innerLoop : shape.innerLoops) {
+            dst.append(',');
+            Line.emitLineString(innerLoop, dst);
+        }
+        dst.append(']');
     }
 
     protected final Point[] outerLoop;
@@ -67,6 +84,76 @@ public final class Shape implements Persistent {
         for (int i = 0; i < this.innerLoops.length; i++) {
             this.innerLoops[i] = loopFromBytes(src);
         }
+    }
+
+    @Override
+    public Bounds2d computeObjectBounds() {
+        int minX = Integer.MAX_VALUE;
+        int maxX = Integer.MIN_VALUE;
+        int minY = Integer.MAX_VALUE;
+        int maxY = Integer.MIN_VALUE;
+        for (Point point : this.outerLoop) {
+            int x = point.x();
+            int y = point.y();
+            minX = min(minX, x);
+            maxX = max(maxX, x);
+            minY = min(minY, y);
+            maxY = max(maxY, y);
+        }
+        return Bounds2d.of(minX, maxX, minY, maxY);
+    }
+
+    @Override
+    protected long[] listIntersectedTilesComplex(int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+        //convert all loops into java.awt.Polygons
+        PolygonRecycler recycler = POLYGON_RECYCLER.get();
+        Polygon outerPoly = recycler.fromClosedLineString(this.outerLoop);
+        int innerCount = this.innerLoops.length;
+        Polygon[] innerPolys = new Polygon[innerCount];
+        for (int i = 0; i < innerCount; i++) {
+            innerPolys[i] = recycler.fromClosedLineString(this.innerLoops[i]);
+        }
+
+        try {
+            LongSet tilePositions = new LongOpenHashSet(tileCount);
+
+            for (int x = tileMinX; x <= tileMaxX; x++) {
+                for (int y = tileMinY; y <= tileMaxY; y++) {
+                    ADD:
+                    if (outerPoly.intersects(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) {
+                        for (Polygon innerPoly : innerPolys) {
+                            if (innerPoly.contains(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) { //tile is entirely contained within a hole
+                                break ADD;
+                            }
+                        }
+                        tilePositions.add(xy2tilePos(x, y));
+                    }
+                }
+            }
+            return tilePositions.toLongArray();
+        } finally {
+            for (int i = innerCount - 1; i >= 0; i--) {
+                recycler.release(innerPolys[i]);
+            }
+            recycler.release(outerPoly);
+        }
+    }
+
+    @Override
+    public void toGeoJSON(@NonNull StringBuilder dst) {
+        dst.append("{\"type\":\"Polygon\",\"coordinates\":");
+        emitPolygon(this, dst);
+        dst.append('}');
+    }
+
+    @Override
+    public boolean shouldStoreExternally(int tiles, int dataSize) {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public String externalStoragePath(int type, long id) {
+        throw new UnsupportedOperationException();
     }
 
     @Override

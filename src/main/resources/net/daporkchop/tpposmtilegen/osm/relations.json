@@ -1,5 +1,14 @@
 [
   {
-    "type": "multipolygon"
+    "type": "multipolygon",
+    "natural": "water"
+  },
+  {
+    "type": "multipolygon",
+    "water": null
+  },
+  {
+    "type": "multipolygon",
+    "waterway": null
   }
 ]

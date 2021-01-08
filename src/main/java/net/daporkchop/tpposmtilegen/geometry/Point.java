@@ -99,11 +99,6 @@ public final class Point implements Geometry {
     }
 
     @Override
-    public Bounds2d computeObjectBounds() {
-        return Bounds2d.of(this.x, this.x, this.y, this.y);
-    }
-
-    @Override
     public long[] listIntersectedTiles() {
         return new long[]{ point2tile(this.x, this.y) };
     }

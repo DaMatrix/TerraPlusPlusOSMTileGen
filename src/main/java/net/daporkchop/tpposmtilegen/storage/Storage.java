@@ -53,6 +53,7 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import org.rocksdb.CompressionType;
 
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -102,7 +103,7 @@ public final class Storage implements AutoCloseable {
     public Storage(@NonNull Path root) throws Exception {
         this.db = new Database.Builder()
                 .add("nodes", (database, handle) -> this.nodes = new NodeDB(database, handle))
-                .add("points", (database, handle) -> this.points = new PointDB(database, handle))
+                .add("points", CompressionType.NO_COMPRESSION, (database, handle) -> this.points = new PointDB(database, handle))
                 .add("ways", (database, handle) -> this.ways = new WayDB(database, handle))
                 .add("relations", (database, handle) -> this.relations = new RelationDB(database, handle))
                 .add("coastlines", (database, handle) -> this.coastlines = new CoastlineDB(database, handle))
@@ -330,6 +331,8 @@ public final class Storage implements AutoCloseable {
         if (index) {
             System.out.println("Clearing tile index...");
             this.tileContents.clear(this.db.batch());
+            System.out.println("Clearing dirty tile flags...");
+            this.dirtyTiles.clear();
         }
         System.out.println("Cleared.");
     }

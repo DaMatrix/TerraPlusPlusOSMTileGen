@@ -21,12 +21,13 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
 
-import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
@@ -41,30 +42,6 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @ToString
 public class Area implements Geometry {
-    protected static void lineToGeoJSON(Point[] points, StringBuilder dst) {
-        dst.append('[');
-        for (Point point : points) {
-            dst.append('[');
-            Point.appendCoordinate(point.x(), dst);
-            dst.append(',');
-            Point.appendCoordinate(point.y(), dst);
-            dst.append(']').append(',');
-        }
-        dst.setCharAt(dst.length() - 1, ']');
-    }
-
-    protected static void shapeToGeoJSON(Shape shape, StringBuilder dst) {
-        dst.append('[');
-        lineToGeoJSON(shape.outerLoop, dst);
-        if (shape.innerLoops.length != 0) {
-            for (Point[] innerLoop : shape.innerLoops) {
-                dst.append(',');
-                lineToGeoJSON(innerLoop, dst);
-            }
-        }
-        dst.append(']');
-    }
-
     protected final Shape[] shapes;
 
     public Area(@NonNull Shape[] shapes) {
@@ -83,11 +60,11 @@ public class Area implements Geometry {
     public void toGeoJSON(@NonNull StringBuilder dst) {
         if (this.shapes.length == 1) {
             dst.append("{\"type\":\"Polygon\",\"coordinates\":");
-            shapeToGeoJSON(this.shapes[0], dst);
+            Shape.emitPolygon(this.shapes[0], dst);
         } else {
             dst.append("{\"type\":\"MultiPolygon\",\"coordinates\":[");
             for (Shape shape : this.shapes) {
-                shapeToGeoJSON(shape, dst);
+                Shape.emitPolygon(shape, dst);
                 dst.append(',');
             }
             dst.setCharAt(dst.length() - 1, ']');
@@ -96,22 +73,16 @@ public class Area implements Geometry {
     }
 
     @Override
-    public Bounds2d computeObjectBounds() {
-        int minX = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE;
-        int minY = Integer.MAX_VALUE;
-        int maxY = Integer.MIN_VALUE;
-        for (Shape shape : this.shapes) {
-            for (Point point : shape.outerLoop) {
-                int x = point.x();
-                int y = point.y();
-                minX = min(minX, x);
-                maxX = max(maxX, x);
-                minY = min(minY, y);
-                maxY = max(maxY, y);
+    public long[] listIntersectedTiles() {
+        if (this.shapes.length == 1) { //only a single shape, so we don't need to aggregate intersected tiles from multiple child shapes
+            return this.shapes[0].listIntersectedTiles();
+        } else {
+            LongSet tilePositions = new LongOpenHashSet();
+            for (Shape shape : this.shapes) {
+                tilePositions.addAll(LongArrayList.wrap(shape.listIntersectedTiles()));
             }
+            return tilePositions.toLongArray();
         }
-        return Bounds2d.of(minX, maxX, minY, maxY);
     }
 
     @Override

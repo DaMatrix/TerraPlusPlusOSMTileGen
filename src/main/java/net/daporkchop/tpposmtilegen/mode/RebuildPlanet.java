@@ -76,6 +76,10 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true, true); //clear everything
 
+            System.out.println("Optimizing point DB...");
+            storage.points().optimize();
+            System.out.println("Optimization complete.");
+
             try (ProgressNotifier notifier = new ProgressNotifier("Assemble & index geometry: ", 5000L, "nodes", "ways", "relations", "coastlines")) {
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
@@ -85,7 +89,7 @@ public class RebuildPlanet implements IMode {
                         throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
                     }
                     notifier.step(type);
-                }, storage.spliterateElements(true, true, true, true));
+                }, storage.spliterateElements(false, true, true, true));
                 storage.flush();
             }
 
