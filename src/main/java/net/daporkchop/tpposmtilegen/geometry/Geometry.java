@@ -36,7 +36,7 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  * @author DaPorkchop_
  */
 public interface Geometry extends Persistent {
-    static void toGeoJSON(@NonNull StringBuilder dst, @NonNull Geometry geometry, @NonNull Map<String, String> tags, long id) {
+    static void toGeoJSON(@NonNull StringBuilder dst, @NonNull Geometry geometry, @NonNull Map<String, String> tags, long combinedId) {
         dst.append("{\"type\":\"Feature\",\"geometry\":");
 
         //geometry
@@ -56,7 +56,7 @@ public interface Geometry extends Persistent {
         }
 
         //id
-        dst.append(",\"id\":").append(id);
+        dst.append(",\"id\":\"").append(Element.typeName(Element.extractType(combinedId)).charAt(0)).append(Element.extractId(combinedId)).append('"');
 
         dst.append('}').append('\n');
     }

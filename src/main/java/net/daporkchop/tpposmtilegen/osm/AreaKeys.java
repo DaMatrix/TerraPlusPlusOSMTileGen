@@ -93,7 +93,9 @@ public class AreaKeys {
         } else {
             Predicate<Map<String, String>>[] filters = uncheckedCast(StreamSupport.stream(Spliterators.spliteratorUnknownSize(root.fields(), 0), false)
                     .map((Function<Map.Entry<String, JsonNode>, Predicate<Map<String, String>>>) entry -> {
-                        String key = entry.getKey().intern();
+                        String key = (entry.getKey().contains("#")
+                                ? entry.getKey().substring(entry.getKey().indexOf('#') + 1)
+                                : entry.getKey()).intern();
                         if (entry.getValue().isArray()) {
                             Set<String> values = ImmutableSet.copyOf(StreamSupport.stream(entry.getValue().spliterator(), false)
                                     .map(JsonNode::asText).map(String::intern).collect(Collectors.toList()));
@@ -103,10 +105,18 @@ public class AreaKeys {
                             };
                         } else if (entry.getValue().isTextual()) {
                             String value = entry.getValue().asText().intern();
-                            return tags -> {
-                                String v = tags.get(key);
-                                return value.equals(v);
-                            };
+                            if (value.startsWith("!")) {
+                                String v2 = value.substring(1).intern();
+                                return tags -> {
+                                    String v = tags.get(key);
+                                    return !v2.equals(v);
+                                };
+                            } else {
+                                return tags -> {
+                                    String v = tags.get(key);
+                                    return value.equals(v);
+                                };
+                            }
                         } else if (entry.getValue().isNull()) {
                             return tags -> tags.get(key) != null;
                         } else {

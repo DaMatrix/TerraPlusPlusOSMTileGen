@@ -103,6 +103,10 @@ public final class Way extends Element {
             return null;
         }
 
+        if ("coastline".equals(this.tags.get("natural"))) { //skip coastlines because they're processed separately
+            return null;
+        }
+
         //get points by their IDs
         List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes));
 

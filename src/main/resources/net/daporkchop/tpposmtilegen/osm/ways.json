@@ -1,18 +1,114 @@
 [
   {
-    "natural": "water"
+    "0#building": null,
+    "1#building": "!no"
   },
   {
-    "water": null
+    "highway": "services"
   },
   {
-    "waterway": null
+    "highway": "rest_area"
   },
   {
-    "landuse": [
-      "basin",
-      "reservoir",
-      "pond"
+    "0#natural": null,
+    "1#natural": "!no",
+    "2#natural": "!coastline",
+    "3#natural": "!ridge",
+    "4#natural": "!arete",
+    "5#natural": "!tree_row"
+  },
+  {
+    "0#landuse": null,
+    "1#landuse": "!no"
+  },
+  {
+    "waterway": [
+      "riverbank",
+      "dock",
+      "boatyard",
+      "dam"
     ]
+  },
+  {
+    "0#amenity": null,
+    "1#amenity": "!no"
+  },
+  {
+    "0#leisure": null,
+    "1#leisure": "!no"
+  },
+  {
+    "barrier": [
+      "city_wall",
+      "ditch",
+      "hedge",
+      "retaining_wall",
+      "wall",
+      "spikes"
+    ]
+  },
+  {
+    "railway": [
+      "station",
+      "turntable",
+      "roundhouse",
+      "platform"
+    ]
+  },
+  {
+    "0#boundary": null,
+    "1#boundary": "!no"
+  },
+  {
+    "0#man_made": null,
+    "1#man_made": "!no",
+    "2#man_made": "!cutline",
+    "3#man_made": "!embankment",
+    "4#man_made": "!pipeline"
+  },
+  {
+    "power": [
+      "generator",
+      "station",
+      "sub_station",
+      "transformer"
+    ]
+  },
+  {
+    "0#place": null,
+    "1#place": "!no"
+  },
+  {
+    "0#shop": null,
+    "1#shop": "!no"
+  },
+  {
+    "0#aeroway": null,
+    "1#aeroway": "!no",
+    "2#aeroway": "!taxiway"
+  },
+  {
+    "0#tourism": null,
+    "1#tourism": "!no"
+  },
+  {
+    "0#historic": null,
+    "1#historic": "!no"
+  },
+  {
+    "0#office": null,
+    "1#office": "!no"
+  },
+  {
+    "0#building:part": null,
+    "1#building:part": "!no"
+  },
+  {
+    "0#military": null,
+    "1#military": "!no"
+  },
+  {
+    "0#craft": null,
+    "1#craft": "!no"
   }
 ]

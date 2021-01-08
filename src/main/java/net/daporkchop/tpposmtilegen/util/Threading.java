@@ -37,6 +37,7 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
@@ -55,7 +56,7 @@ public class Threading {
     }
 
     public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) {
-        List<Thread> threadList = new ArrayList<>();
+        List<Thread> threadList = new ArrayList<>(threads);
         ExecutorService executor = Executors.newFixedThreadPool(threads, r -> {
             Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
             threadList.add(t);
@@ -71,6 +72,7 @@ public class Threading {
                     .join();
         } finally {
             executor.shutdown();
+            checkState(!threadList.contains(null), "a thread was null?!?");
             threadList.forEach((EConsumer<Thread>) Thread::join);
         }
     }
