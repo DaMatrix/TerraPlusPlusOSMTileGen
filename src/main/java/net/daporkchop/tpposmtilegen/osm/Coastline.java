@@ -98,7 +98,7 @@ public final class Coastline extends Element {
 
         @Override
         public String externalStoragePath(int type, long id) {
-            return PStrings.fastFormat("%s/%03d/%d.json", Element.typeName(type), id % 1000L, id);
+            return PStrings.fastFormat("%s/%03d/%d.json", Element.typeName(type), id % 1000L, id / 1000L);
         }
     }
 }

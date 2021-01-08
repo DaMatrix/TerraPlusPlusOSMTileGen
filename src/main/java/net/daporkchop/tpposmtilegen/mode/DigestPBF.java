@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
+import com.wolt.osm.parallelpbf.entity.Header;
 import com.wolt.osm.parallelpbf.entity.RelationMember;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
@@ -70,15 +71,21 @@ public class DigestPBF implements IMode {
                         threads.add(t);
                         return t;
                     })
-                    .onHeader(header -> {
+                    .onHeader((EConsumer<Header>) header -> {
                         System.out.println(header);
-                        if (header.getReplicationSequenceNumber() != null) {
-                            storage.sequenceNumber().set(header.getReplicationSequenceNumber());
-                        } else if (header.getReplicationTimestamp() != null) {
-                            storage.replicationTimestamp().set(header.getReplicationTimestamp());
-                        } else {
+                        if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
                             System.err.printf("\"%s\" doesn't contain a replication timestamp or sequence number!\n", src);
                             System.exit(1);
+                        }
+
+                        if (header.getReplicationSequenceNumber() != null) {
+                            storage.sequenceNumber().set(header.getReplicationSequenceNumber());
+                        }
+                        if (header.getReplicationTimestamp() != null) {
+                            storage.replicationTimestamp().set(header.getReplicationTimestamp());
+                        }
+                        if (header.getReplicationBaseUrl() != null) {
+                            storage.setReplicationBaseUrl(header.getReplicationBaseUrl());
                         }
                     })
                     .onBoundBox(System.out::println).onChangeset(System.out::println)

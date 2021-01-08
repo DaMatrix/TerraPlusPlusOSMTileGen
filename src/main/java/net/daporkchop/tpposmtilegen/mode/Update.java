@@ -25,11 +25,12 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileNotFoundException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -37,6 +38,7 @@ import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -55,50 +57,107 @@ public class Update implements IMode {
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
-            server.createContext("/tile/", exchange -> {
-                try {
-                    Matcher matcher = Pattern.compile("^/tile/(\\d+)/(\\d+)\\.json$").matcher(exchange.getRequestURI().getPath());
-                    checkArg(matcher.find());
-                    int tileX = Integer.parseInt(matcher.group(1));
-                    int tileY = Integer.parseInt(matcher.group(2));
-                    long tilePos = xy2tilePos(tileX, tileY);
+            if (false) {
+                HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
+                server.createContext("/tile/", exchange -> {
+                    try {
+                        Matcher matcher = Pattern.compile("^/tile/(\\d+)/(\\d+)\\.json$").matcher(exchange.getRequestURI().getPath());
+                        checkArg(matcher.find());
+                        int tileX = Integer.parseInt(matcher.group(1));
+                        int tileY = Integer.parseInt(matcher.group(2));
+                        long tilePos = xy2tilePos(tileX, tileY);
 
-                    LongList elements = new LongArrayList();
-                    storage.tileContents().getElementsInTile(tilePos, elements);
+                        LongList elements = new LongArrayList();
+                        storage.tileContents().getElementsInTile(tilePos, elements);
 
-                    ByteBuffer[] buffers = storage.tempJsonStorage().getAll(elements).toArray(new ByteBuffer[0]);
-                    exchange.sendResponseHeaders(200, 0);
+                        ByteBuffer[] buffers = storage.tempJsonStorage().getAll(elements).toArray(new ByteBuffer[0]);
+                        exchange.sendResponseHeaders(200, 0);
 
-                    try (OutputStream out = exchange.getResponseBody()) {
-                        for (ByteBuffer buffer : buffers) {
-                            out.write(buffer.array(), buffer.arrayOffset(), buffer.remaining());
+                        try (OutputStream out = exchange.getResponseBody()) {
+                            for (ByteBuffer buffer : buffers) {
+                                out.write(buffer.array(), buffer.arrayOffset(), buffer.remaining());
+                            }
                         }
+                    } catch (Exception e) {
+                        throw new RuntimeException(exchange.getRequestURI().getPath(), e);
                     }
-                } catch (Exception e) {
-                    throw new RuntimeException(exchange.getRequestURI().getPath(), e);
-                }
-            });
-            server.createContext("/", exchange -> {
-                Path path = dst.resolve(exchange.getRequestURI().getPath().substring(1));
-                if (Files.isRegularFile(path)) {
-                    exchange.sendResponseHeaders(200, 0);
-                    try (InputStream in = new FileInputStream(path.toFile());
-                         OutputStream out = exchange.getResponseBody()) {
-                        byte[] buf = new byte[4096];
-                        for (int i; (i = in.read(buf)) > 0; ) {
-                            out.write(buf, 0, i);
+                });
+                server.createContext("/", exchange -> {
+                    Path path = dst.resolve(exchange.getRequestURI().getPath().substring(1));
+                    if (Files.isRegularFile(path)) {
+                        exchange.sendResponseHeaders(200, 0);
+                        try (InputStream in = new FileInputStream(path.toFile());
+                             OutputStream out = exchange.getResponseBody()) {
+                            byte[] buf = new byte[4096];
+                            for (int i; (i = in.read(buf)) > 0; ) {
+                                out.write(buf, 0, i);
+                            }
                         }
+                    } else {
+                        exchange.sendResponseHeaders(404, 0);
+                        exchange.getResponseBody().close();
                     }
-                } else {
-                    exchange.sendResponseHeaders(404, 0);
-                    exchange.getResponseBody().close();
-                }
-            });
-            server.start();
+                });
+                server.start();
 
-            new Scanner(System.in).nextLine();
-            server.stop(5000);
+                new Scanner(System.in).nextLine();
+                server.stop(5000);
+                return;
+            }
+
+            ChangesetState globalState = storage.getChangesetState();
+
+            SEQ:
+            if (storage.sequenceNumber().get() < 0L) { //compute sequence number
+                System.out.println("attempting to find sequence number...");
+
+                long replicationTimestamp = storage.replicationTimestamp().get();
+                checkState(replicationTimestamp >= 0L, "no replication info!");
+
+                long targetTimestamp = replicationTimestamp / 60L; //convert to minutes
+
+                //binary search to find sequence number from timestamp
+                int min = 0;
+                int max = globalState.sequenceNumber();
+                while (true) {
+                    int middle = (min + max) >> 1;
+                    long middleTimestamp;
+                    try {
+                        middleTimestamp = Instant.parse(storage.getChangesetState(middle).timestamp()).toEpochMilli() / 1000L / 60L;
+                    } catch (FileNotFoundException e) {
+                        middleTimestamp = -1L; //fallback if file not found, assume we're too low
+                    }
+
+                    if (middleTimestamp == targetTimestamp) {
+                        System.out.println("found sequence number: " + middle);
+                        storage.sequenceNumber().set(middle);
+                        break SEQ;
+                    } else if (middleTimestamp < targetTimestamp) {
+                        System.out.println("sequence number too high: " + middle);
+                        min = middle;
+                    } else {
+                        System.out.println("sequence number too low: " + middle);
+                        max = middle;
+                    }
+
+                    checkState(min != max, "unable to find sequence number!");
+                }
+            }
+
+            int sequenceNumber = toInt(storage.sequenceNumber().get());
+            System.out.println("sequence number: " + sequenceNumber);
+            System.out.println("latest: " + globalState.sequenceNumber());
+
+            if (sequenceNumber >= globalState.sequenceNumber()) {
+                System.out.println("nothing to do...");
+                return;
+            }
+
+            System.out.println("updating...");
+            for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
+                int next = sequenceNumber + 1;
+                System.out.printf("updating from %d to %d\n", sequenceNumber, next);
+            }
         }
     }
 }

@@ -78,7 +78,7 @@ public interface Geometry extends Persistent {
     }
 
     default String externalStoragePath(int type, long id) {
-        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), (id / 1000L) % 1000L, id % 1000L, id);
+        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id % 1000L, (id / 1000L) % 1000L, id / 1000_000L);
     }
 
     void toGeoJSON(@NonNull StringBuilder dst);

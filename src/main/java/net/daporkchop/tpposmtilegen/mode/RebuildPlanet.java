@@ -41,6 +41,7 @@ import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -73,10 +74,12 @@ public class RebuildPlanet implements IMode {
     private static CompletableFuture<Void> _enumerateFilesRecursive(@NonNull ExecutorService executor, @NonNull ProgressNotifier notifier, @NonNull Path path) throws Exception {
         if (Files.isDirectory(path)) {
             notifier.incrementTotal(1);
-            return CompletableFuture.allOf(Files.list(path)
-                    .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _enumerateFilesRecursive(executor, notifier, p), executor)
-                            .thenCompose(PFunctions.identity()))
-                    .toArray(CompletableFuture[]::new));
+            try (Stream<Path> stream = Files.list(path)) {
+                return CompletableFuture.allOf(stream
+                        .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _enumerateFilesRecursive(executor, notifier, p), executor)
+                                .thenCompose(PFunctions.identity()))
+                        .toArray(CompletableFuture[]::new));
+            }
         } else {
             notifier.incrementTotal(0);
             return CompletableFuture.completedFuture(null);
@@ -85,14 +88,16 @@ public class RebuildPlanet implements IMode {
 
     private static CompletableFuture<Void> _deleteFilesRecursive(@NonNull ExecutorService executor, @NonNull ProgressNotifier notifier, @NonNull Path path) throws Exception {
         if (Files.isDirectory(path)) {
-            return CompletableFuture.allOf(Files.list(path)
-                    .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _deleteFilesRecursive(executor, notifier, p), executor)
-                            .thenCompose(PFunctions.identity()))
-                    .toArray(CompletableFuture[]::new))
-                    .thenRun((ERunnable) () -> {
-                        Files.delete(path);
-                        notifier.step(1);
-                    });
+            try (Stream<Path> stream = Files.list(path)) {
+                return CompletableFuture.allOf(stream
+                        .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _deleteFilesRecursive(executor, notifier, p), executor)
+                                .thenCompose(PFunctions.identity()))
+                        .toArray(CompletableFuture[]::new))
+                        .thenRun((ERunnable) () -> {
+                            Files.delete(path);
+                            notifier.step(1);
+                        });
+            }
         } else {
             Files.delete(path);
             notifier.step(0);

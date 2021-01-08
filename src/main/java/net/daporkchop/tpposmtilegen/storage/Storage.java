@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -29,6 +30,8 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.binary.oio.StreamUtil;
+import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
@@ -36,6 +39,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
 import net.daporkchop.tpposmtilegen.storage.map.BlobDB;
 import net.daporkchop.tpposmtilegen.storage.map.CoastlineDB;
 import net.daporkchop.tpposmtilegen.storage.map.LongArrayDB;
@@ -55,6 +59,9 @@ import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.CompressionType;
 
+import java.io.File;
+import java.io.InputStream;
+import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -92,6 +99,7 @@ public final class Storage implements AutoCloseable {
 
     protected final OffHeapAtomicLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
+    protected String replicationBaseUrl;
 
     protected ReferenceDB references;
     protected TileDB tileContents;
@@ -101,7 +109,11 @@ public final class Storage implements AutoCloseable {
 
     protected final Database db;
 
+    protected final Path root;
+
     public Storage(@NonNull Path root) throws Exception {
+        this.root = root;
+
         this.db = new Database.Builder()
                 .add("nodes", (database, handle) -> this.nodes = new NodeDB(database, handle))
                 .add("points", CompressionType.NO_COMPRESSION, (database, handle) -> this.points = new PointDB(database, handle))
@@ -109,9 +121,9 @@ public final class Storage implements AutoCloseable {
                 .add("relations", (database, handle) -> this.relations = new RelationDB(database, handle))
                 .add("coastlines", (database, handle) -> this.coastlines = new CoastlineDB(database, handle))
                 .add("references", (database, handle) -> this.references = new ReferenceDB(database, handle))
-                .add("tiles", (database, handle) -> this.tileContents = new TileDB(database, handle))
-                .add("intersected_tiles", (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
-                .add("json", (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
+                .add("tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.tileContents = new TileDB(database, handle))
+                .add("intersected_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
+                .add("json", CompressionType.NO_COMPRESSION, (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
                 .autoFlush(true)
                 .build(root.resolve("db"));
 
@@ -131,6 +143,13 @@ public final class Storage implements AutoCloseable {
         this.elementsByType.put(Way.TYPE, this.ways);
         this.elementsByType.put(Relation.TYPE, this.relations);
         this.elementsByType.put(Coastline.TYPE, this.coastlines);
+
+        Path replicationUrlFile = root.resolve("replication_base_url.txt");
+        if (Files.exists(replicationUrlFile)) {
+            this.replicationBaseUrl = new String(Files.readAllBytes(replicationUrlFile)).trim();
+        } else {
+            this.setReplicationBaseUrl("https://planet.openstreetmap.org/replication/minute/");
+        }
     }
 
     public void putNode(@NonNull WriteBatch batch, @NonNull Node node, @NonNull Point point) throws Exception {
@@ -333,8 +352,10 @@ public final class Storage implements AutoCloseable {
             this.tempJsonStorage.clear(this.db.batch());
         }
         if (index) {
-            System.out.println("Clearing tile index...");
+            System.out.println("Clearing tile content index...");
             this.tileContents.clear(this.db.batch());
+            System.out.println("Clearing geometry intersection index...");
+            this.intersectedTiles.clear(this.db.batch());
             System.out.println("Clearing dirty tile flags...");
             this.dirtyTiles.clear();
         }
@@ -360,5 +381,50 @@ public final class Storage implements AutoCloseable {
         this.dirtyTiles.close();
 
         this.db.close();
+    }
+
+    public void setReplicationBaseUrl(@NonNull String baseUrl) throws Exception {
+        if (!baseUrl.endsWith("/")) {
+            baseUrl += '/';
+        }
+        this.replicationBaseUrl = baseUrl;
+        Files.write(this.root.resolve("replication_base_url.txt"), baseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+    }
+
+    public ChangesetState getChangesetState() throws Exception {
+        return this.getChangesetState("state.txt", false);
+    }
+
+    public ChangesetState getChangesetState(int sequence) throws Exception {
+        return this.getChangesetState(PStrings.fastFormat("%03d/%03d/%03d.state.txt", sequence / 1000000, (sequence / 1000) % 1000, sequence % 1000), true);
+    }
+
+    public ChangesetState getChangesetState(String path, boolean cache) throws Exception {
+        Path file = this.root.resolve("replication").resolve(path);
+        if (cache && Files.exists(file)) {
+            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(toInt(channel.size()));
+                try {
+                    buf.writeBytes(channel, 0, buf.writableBytes());
+                    return new ChangesetState(buf);
+                } finally {
+                    buf.release();
+                }
+            }
+        }
+
+        byte[] data;
+        try (InputStream in = new URL(this.replicationBaseUrl + path).openStream()) {
+            data = StreamUtil.toByteArray(in);
+        }
+
+        if (cache) {
+            Files.createDirectories(file.getParent());
+            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                channel.write(ByteBuffer.wrap(data));
+            }
+        }
+
+        return new ChangesetState(Unpooled.wrappedBuffer(data));
     }
 }
