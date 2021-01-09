@@ -45,6 +45,7 @@ import java.util.stream.Stream;
 import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -53,7 +54,7 @@ public class RebuildPlanet implements IMode {
     private static void nukeTileDirectory(@NonNull Path dir) throws Exception {
         final int threadCount = 32; //SATA has a command buffer size of 32
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Nuke tile directory: ")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Nuke tile directory")
                 .slot("files").slot("directories")
                 .build()) {
             List<Thread> threads = new ArrayList<>(threadCount);
@@ -106,6 +107,21 @@ public class RebuildPlanet implements IMode {
     }
 
     @Override
+    public String name() {
+        return "rebuild_planet";
+    }
+
+    @Override
+    public String synopsis() {
+        return "<index_dir> <tile_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Regenerates all tiles.";
+    }
+
+    @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: rebuild_planet <index_dir> <tile_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
@@ -117,11 +133,11 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true, true); //clear everything
 
-            System.out.println("Optimizing point DB...");
+            logger.info("Optimizing point DB...");
             storage.points().optimize();
-            System.out.println("Optimization complete.");
+            logger.info("Optimization complete.");
 
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry: ")
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines", storage.coastlineCount().get())
                     .build()) {
                 CompletableFuture.allOf(

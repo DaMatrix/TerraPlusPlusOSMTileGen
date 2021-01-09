@@ -26,5 +26,5 @@ package net.daporkchop.tpposmtilegen.osm.changeset;
 public enum Operation {
     CREATE,
     MODIFY,
-    DELETE;
+    DELETE
 }

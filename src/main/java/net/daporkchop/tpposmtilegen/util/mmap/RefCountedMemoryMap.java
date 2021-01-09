@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -35,7 +35,7 @@ import java.nio.channels.FileChannel;
 public final class RefCountedMemoryMap extends MemoryMap implements RefCounted {
     protected static final long REFCNT_OFFSET = PUnsafe.pork_getOffset(RefCountedMemoryMap.class, "refCnt");
 
-    private volatile int refCnt = 1;
+    private final int refCnt = 1;
 
     public RefCountedMemoryMap(@NonNull FileChannel channel, @NonNull FileChannel.MapMode mode, long position, long size) {
         super(channel, mode, position, size);

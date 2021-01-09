@@ -24,13 +24,9 @@ import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
-import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.util.Map;
-
-import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_

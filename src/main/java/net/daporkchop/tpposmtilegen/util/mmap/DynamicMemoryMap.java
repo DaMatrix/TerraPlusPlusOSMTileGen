@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -26,12 +26,8 @@ import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
 import net.daporkchop.tpposmtilegen.util.mmap.growfunc.DefaultGrowFunction;
 
-import java.io.FileDescriptor;
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 import java.nio.channels.FileChannel;
-import java.nio.file.OpenOption;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.function.LongUnaryOperator;
@@ -90,7 +86,6 @@ public class DynamicMemoryMap extends AbstractRefCounted {
     protected void doRelease() {
         try {
             this.channel.close();
-            System.out.println("Closed memory map wrapper");
         } catch (IOException e) {
             throw new RuntimeException(e);
         }

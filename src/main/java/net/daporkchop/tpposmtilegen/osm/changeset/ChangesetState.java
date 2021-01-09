@@ -31,6 +31,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -57,7 +58,7 @@ public class ChangesetState {
                     sequenceNumber = Integer.parseInt(matcher.group(2));
                     break;
                 default:
-                    System.err.println("Skipping unknown entry: " + matcher.group());
+                    logger.warn("Skipping unknown entry: " + matcher.group());
             }
         }
 

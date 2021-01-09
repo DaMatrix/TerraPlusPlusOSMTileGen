@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Map;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -122,7 +123,7 @@ public final class Relation extends Element {
             if (member.getType() == Way.TYPE) {
                 wayMembers.add(member);
             } else {
-                System.err.printf("warning: skipping invalid member of type %d (%s) in area relation %d\n",
+                logger.warn("skipping invalid member of type %d (%s) in area relation %d",
                         member.getType(), typeName(member.getType()), this.id);
             }
         }
@@ -155,7 +156,7 @@ public final class Relation extends Element {
         //ensure all ways exist
         for (int i = 0; i < wayCount; i++) {
             if (ways.get(i) == null) {
-                System.err.printf("unknown way %d in area relation %d\n", wayIds[i], this.id);
+                logger.warn("unknown way %d in area relation %d", wayIds[i], this.id);
                 return null;
             }
         }
@@ -179,7 +180,7 @@ public final class Relation extends Element {
             for (int w = 0, p = 0; w < wayCount; w++) {
                 for (int n = 0, coordCount = coordCounts[w]; n < coordCount; n++, p++) {
                     if (points.get(p) == null) {
-                        System.err.printf("unknown node %d in way %d in area relation %d\n", pointIds[p], wayIds[w], this.id);
+                        logger.warn("unknown node %d in way %d in area relation %d", pointIds[p], wayIds[w], this.id);
                         return null;
                     }
                     PolygonAssembler.putPoint(coordAddrs[w] + n * PolygonAssembler.POINT_SIZE, pointIds[p], points.get(p));

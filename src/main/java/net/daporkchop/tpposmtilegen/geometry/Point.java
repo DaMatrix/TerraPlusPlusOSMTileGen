@@ -26,9 +26,6 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
-import net.daporkchop.tpposmtilegen.util.Bounds2d;
-
-import java.util.stream.Stream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.math.PMath.*;

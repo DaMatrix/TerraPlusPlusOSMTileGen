@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -77,6 +77,7 @@ import java.util.stream.LongStream;
 import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -312,7 +313,7 @@ public final class Storage implements AutoCloseable {
     }
 
     public void exportDirtyTiles(@NonNull Path outputRoot) throws Exception {
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles: ")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
                 .slot("tiles", StreamSupport.longStream(this.dirtyTiles.spliterator(), false).count())
                 .build()) {
             Threading.forEachParallelLong(tilePos -> {
@@ -345,21 +346,21 @@ public final class Storage implements AutoCloseable {
             return;
         }
 
-        System.out.println("Cleaning up... (this might take a while)");
+        logger.info("Cleaning up... (this might take a while)");
         this.flush();
         if (temp) {
-            System.out.println("Clearing temporary GeoJSON storage...");
+            logger.trace("Clearing temporary GeoJSON storage...");
             this.tempJsonStorage.clear(this.db.batch());
         }
         if (index) {
-            System.out.println("Clearing tile content index...");
+            logger.trace("Clearing tile content index...");
             this.tileContents.clear(this.db.batch());
-            System.out.println("Clearing geometry intersection index...");
+            logger.trace("Clearing geometry intersection index...");
             this.intersectedTiles.clear(this.db.batch());
-            System.out.println("Clearing dirty tile flags...");
+            logger.trace("Clearing dirty tile flags...");
             this.dirtyTiles.clear();
         }
-        System.out.println("Cleared.");
+        logger.success("Cleared.");
     }
 
     public void flush() throws Exception {

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -23,7 +23,8 @@ package net.daporkchop.tpposmtilegen.util;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import lombok.Setter;
-import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.logging.Logger;
+import net.daporkchop.lib.logging.Logging;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -67,10 +68,14 @@ public final class ProgressNotifier implements AutoCloseable {
     protected final String prefix;
     protected final StringBuilder builder = new StringBuilder();
 
+    protected final Logger logger;
+
     private ProgressNotifier(@NonNull Slot[] slots, @NonNull String prefix, long interval) {
         this.slots = slots;
         this.prefix = prefix;
         positive(interval, "interval");
+
+        this.logger = Logging.logger.channel(prefix);
 
         this.thread = new Thread(() -> {
             try {
@@ -87,7 +92,6 @@ public final class ProgressNotifier implements AutoCloseable {
 
     public synchronized void print() {
         this.builder.setLength(0);
-        this.builder.append(this.prefix);
 
         for (Slot slot : this.slots) {
             this.builder.append(slot.name).append('=');
@@ -104,7 +108,7 @@ public final class ProgressNotifier implements AutoCloseable {
         }
         this.builder.setLength(this.builder.length() - 2);
 
-        System.out.println(this.builder);
+        this.logger.info(this.builder.toString());
     }
 
     public void step(int slot) {
@@ -127,7 +131,7 @@ public final class ProgressNotifier implements AutoCloseable {
         this.thread.join();
 
         this.print();
-        System.out.println(this.prefix + "done.");
+        this.logger.success("Done.");
     }
 
     @AllArgsConstructor

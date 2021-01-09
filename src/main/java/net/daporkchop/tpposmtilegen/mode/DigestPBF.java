@@ -44,11 +44,27 @@ import java.util.Collections;
 import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
  */
 public class DigestPBF implements IMode {
+    @Override
+    public String name() {
+        return "digest_pbf";
+    }
+
+    @Override
+    public String synopsis() {
+        return "<planet-latest.osm.pbf> <index_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Creates a new index from a full OSM planet file.";
+    }
+
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: digest_pbf <pbf> <index_dir>");
@@ -58,7 +74,7 @@ public class DigestPBF implements IMode {
         checkArg(!PFiles.checkDirectoryExists(dst), "destination folder already exists: %s", dst);
         PFiles.ensureDirectoryExists(dst);
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF: ")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                 .slot("nodes").slot("ways").slot("relations")
                 .build();
              Storage storage = new Storage(dst.toPath());
@@ -72,9 +88,9 @@ public class DigestPBF implements IMode {
                         return t;
                     })
                     .onHeader((EConsumer<Header>) header -> {
-                        System.out.println(header);
+                        logger.info("PBF header: %s", header);
                         if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
-                            System.err.printf("\"%s\" doesn't contain a replication timestamp or sequence number!\n", src);
+                            logger.error("\"%s\" doesn't contain a replication timestamp or sequence number!", src);
                             System.exit(1);
                         }
 
@@ -88,7 +104,8 @@ public class DigestPBF implements IMode {
                             storage.setReplicationBaseUrl(header.getReplicationBaseUrl());
                         }
                     })
-                    .onBoundBox(System.out::println).onChangeset(System.out::println)
+                    .onBoundBox(bb -> logger.info("bounding box: %s", bb))
+                    .onChangeset(changeset -> logger.info("changeset: %s", changeset))
                     .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                         Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
                         WriteBatch batch = storage.db().batch();

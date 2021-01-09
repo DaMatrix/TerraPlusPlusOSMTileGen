@@ -32,7 +32,6 @@ import org.geotools.data.FileDataStore;
 import org.geotools.data.FileDataStoreFinder;
 import org.geotools.data.simple.SimpleFeatureCollection;
 import org.geotools.data.simple.SimpleFeatureSource;
-import org.geotools.feature.FeatureCollection;
 import org.geotools.feature.FeatureIterator;
 import org.locationtech.jts.geom.LinearRing;
 import org.locationtech.jts.geom.MultiPolygon;
@@ -49,12 +48,27 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 public class DigestCoastlines implements IMode {
     @Override
+    public String name() {
+        return "digest_coastlines";
+    }
+
+    @Override
+    public String synopsis() {
+        return "<shapefile> <index_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Reads assembled coastline polygons from a shapefile and adds them to the index.";
+    }
+
+    @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: digest_coastlines <shapefile> <index_dir>");
         File src = PFiles.assertFileExists(new File(args[0]));
         File dst = new File(args[1]);
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines: ")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines")
                 .slot("pieces")
                 .build();
              Storage storage = new Storage(dst.toPath())) {

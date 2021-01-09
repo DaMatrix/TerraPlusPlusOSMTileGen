@@ -40,13 +40,29 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
  */
 public class Compact implements IMode {
     private static CompletableFuture<Void> run(@NonNull Executor executor, @NonNull WrappedRocksDB db, @NonNull String name) {
-        return CompletableFuture.runAsync((ERunnable) db::optimize, executor).thenRun(() -> System.out.printf("Compacted %s.\n", name));
+        return CompletableFuture.runAsync((ERunnable) db::optimize, executor).thenRun(() -> logger.info("Compacted %s.", name));
+    }
+
+    @Override
+    public String name() {
+        return "compact";
+    }
+
+    @Override
+    public String synopsis() {
+        return "<index_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Runs RocksDB compaction on the index's databases.";
     }
 
     @Override
@@ -54,9 +70,9 @@ public class Compact implements IMode {
         checkArg(args.length == 1, "Usage: compact <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        System.out.println("Opening storage...");
+        logger.info("Opening storage...");
         try (Storage storage = new Storage(src.toPath())) {
-            System.out.println("Running compaction...");
+            logger.info("Running compaction...");
 
             List<Thread> threads = new ArrayList<>();
             ExecutorService executor = Executors.newCachedThreadPool(r -> {
@@ -74,10 +90,10 @@ public class Compact implements IMode {
                             .toArray(CompletableFuture[]::new)
             ).join();
 
-            System.out.println("Wrapping up...");
+            logger.info("Wrapping up...");
             executor.shutdown();
             threads.forEach((EConsumer<Thread>) Thread::join);
         }
-        System.out.println("Done.");
+        logger.success("Done.");
     }
 }

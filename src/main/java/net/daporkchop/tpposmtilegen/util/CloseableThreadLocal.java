@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -26,16 +26,15 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
-import java.util.Set;
 import java.util.concurrent.Callable;
 import java.util.function.Consumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * Implementation of {@link FastThreadLocal} which is able to close resources when the thread exits.
@@ -59,7 +58,7 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
     protected V initialValue() throws Exception {
         Thread currentThread = Thread.currentThread();
         if (!(currentThread instanceof FastThreadLocalThread)) {
-            System.err.println("[WARN] Not a FastThreadLocalThread: " + Thread.currentThread());
+            logger.warn("Not a FastThreadLocalThread: %s", Thread.currentThread());
         }
 
         try {
@@ -108,7 +107,7 @@ public abstract class CloseableThreadLocal<V extends AutoCloseable> extends Fast
     }
 
     private void cleanup() throws Exception {
-        for (Iterator<Map.Entry<V, Thread>> itr = this.instances.entrySet().iterator(); itr.hasNext();) {
+        for (Iterator<Map.Entry<V, Thread>> itr = this.instances.entrySet().iterator(); itr.hasNext(); ) {
             Map.Entry<V, Thread> entry = itr.next();
             if (!entry.getValue().isAlive()) {
                 entry.getKey().close();

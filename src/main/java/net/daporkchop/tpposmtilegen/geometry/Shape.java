@@ -26,7 +26,6 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
-import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.awt.Polygon;
 

@@ -28,7 +28,6 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.util.PArrays;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -56,12 +55,28 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
  */
 public class Update implements IMode {
+    @Override
+    public String name() {
+        return "update";
+    }
+
+    @Override
+    public String synopsis() {
+        return "<index_dir> <tile_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Updates the index and tiles by applying the latest changesets from the OpenStreetMap database.";
+    }
+
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
@@ -121,7 +136,7 @@ public class Update implements IMode {
 
             SEQ:
             if (storage.sequenceNumber().get() < 0L) { //compute sequence number
-                System.out.println("attempting to find sequence number...");
+                logger.info("attempting to compute sequence number from timestamp...");
 
                 long replicationTimestamp = storage.replicationTimestamp().get();
                 checkState(replicationTimestamp >= 0L, "no replication info!");
@@ -141,14 +156,14 @@ public class Update implements IMode {
                     }
 
                     if (middleTimestamp == targetTimestamp) {
-                        System.out.println("found sequence number: " + middle);
+                        logger.success("found sequence number: " + middle);
                         storage.sequenceNumber().set(middle);
                         break SEQ;
                     } else if (middleTimestamp < targetTimestamp) {
-                        System.out.println("sequence number too high: " + middle);
+                        logger.trace("sequence number too high: " + middle);
                         min = middle;
                     } else {
-                        System.out.println("sequence number too low: " + middle);
+                        logger.trace("sequence number too low: " + middle);
                         max = middle;
                     }
 
@@ -157,18 +172,17 @@ public class Update implements IMode {
             }
 
             int sequenceNumber = toInt(storage.sequenceNumber().get());
-            System.out.println("sequence number: " + sequenceNumber);
-            System.out.println("latest: " + globalState.sequenceNumber());
+            logger.info("sequence number: %d\nlatest: %d", sequenceNumber, globalState.sequenceNumber());
 
             if (sequenceNumber >= globalState.sequenceNumber()) {
-                System.out.println("nothing to do...");
+                logger.info("nothing to do...");
                 return;
             }
 
-            System.out.println("updating...");
+            logger.info("updating...");
             for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
                 int next = sequenceNumber + 1;
-                System.out.printf("updating from %d to %d\n", sequenceNumber, next);
+                logger.trace("updating from %d to %d\n", sequenceNumber, next);
 
                 ChangesetState state = storage.getChangesetState(next);
                 Changeset changeset = storage.getChangeset(next);
@@ -193,7 +207,7 @@ public class Update implements IMode {
                         break;
                 }
             }
-            System.out.printf("batched %.2fMiB of updates\n", batch.getDataSize() / (1024.0d * 1024.0d));
+            logger.debug("batched %.2fMiB of updates\n", batch.getDataSize() / (1024.0d * 1024.0d));
             batch.clear();
         }
         storage.sequenceNumber().set(state.sequenceNumber());
