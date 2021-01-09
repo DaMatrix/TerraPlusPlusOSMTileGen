@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import com.sun.net.httpserver.HttpServer;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongLists;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -178,24 +179,28 @@ public class Update implements IMode {
                 return;
             }
 
+            try (DBAccess access = storage.db().newNotAutoFlushingWriteBatch()) { //clear anything that might be left over in the temp geojson storage
+                storage.tempJsonStorage().clear(access);
+            }
+
             logger.info("updating...");
-            try (DBAccess access = storage.db().newTransaction()) {
-                ChangesetState state = storage.getChangesetState(sequenceNumber);
-                for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
-                    int next = sequenceNumber + 1;
-                    ChangesetState nextState = storage.getChangesetState(next);
-                    logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
+            ChangesetState state = storage.getChangesetState(sequenceNumber);
+            for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
+                int next = sequenceNumber + 1;
+                ChangesetState nextState = storage.getChangesetState(next);
+                logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
-                    Changeset changeset = storage.getChangeset(next);
-                    this.applyChanges(storage, access, now, changeset);
-
-                    state = nextState;
+                Changeset changeset = storage.getChangeset(next);
+                try (DBAccess access = storage.db().newTransaction()) {
+                    this.applyChanges(storage, access, dst, now, changeset);
                 }
+
+                state = nextState;
             }
         }
     }
 
-    private void applyChanges(Storage storage, DBAccess access, Instant now, Changeset changeset) throws Exception {
+    private void applyChanges(Storage storage, DBAccess access, Path tileDir, Instant now, Changeset changeset) throws Exception {
         LongSet changedIds = new LongOpenHashSet();
         for (Changeset.Entry entry : changeset.entries()) {
             entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
@@ -217,6 +222,63 @@ public class Update implements IMode {
                     break;
             }
         }
+
+        logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+
+        LongSet changedIdsProcessed = new LongOpenHashSet();
+        LongSet dirtyTiles = new LongOpenHashSet();
+        while (!changedIds.isEmpty()) {
+            LongIterator itr = changedIds.iterator();
+            long id = itr.nextLong();
+            itr.remove();
+
+            //find and recursively process all elements that reference this one
+            LongList referents = new LongArrayList();
+            storage.references().getReferencesTo(access, 0, id, referents);
+            if (!referents.isEmpty()) {
+                storage.references().deleteReferencesTo(access, 0, id);
+                referents.removeAll(changedIdsProcessed);
+                changedIds.addAll(referents);
+            }
+
+            //mark all tiles that were intersected as dirty
+            long[] intersectedTiles = storage.intersectedTiles().get(access, id);
+            if (intersectedTiles != null) {
+                storage.intersectedTiles().deleteAll(access, LongLists.singleton(id));
+                dirtyTiles.addAll(LongArrayList.wrap(intersectedTiles));
+            }
+
+            changedIdsProcessed.add(id);
+        }
+
+        for (LongIterator itr = changedIdsProcessed.iterator(); itr.hasNext();) {
+            long id = itr.nextLong();
+            Element element = storage.getElement(access, id);
+            if (element != null) { //if it's null the element was deleted, which we don't care about handling
+                element.computeReferences(access, storage);
+            } else {
+                itr.remove();
+            }
+        }
+
+        LongSet elementsToRegenerate = new LongOpenHashSet(changedIdsProcessed);
+        for (long tilePos : dirtyTiles) {
+            LongList elementsInTile = new LongArrayList();
+            storage.tileContents().getElementsInTile(access, tilePos, elementsInTile);
+            if (!elementsInTile.isEmpty()) {
+                storage.tileContents().clearTile(access, tilePos);
+                elementsToRegenerate.addAll(elementsInTile);
+            }
+        }
+
+        for (long element : elementsToRegenerate) {
+            storage.convertToGeoJSONAndStoreInDB(access, tileDir, element);
+        }
+
+        storage.exportDirtyTiles(access, tileDir);
+
+        storage.tempJsonStorage().clear(access);
+
         logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
@@ -321,6 +383,7 @@ public class Update implements IMode {
 
     private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
         long id = element.id();
+
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
             Point point = storage.points().get(access, id);

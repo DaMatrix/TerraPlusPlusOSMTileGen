@@ -158,7 +158,7 @@ public class RebuildPlanet implements IMode {
                 storage.flush();
             }
 
-            storage.exportDirtyTiles(dst);
+            storage.exportDirtyTiles(storage.db().read(), dst);
 
             storage.purge(true, false); //erase temporary data
         }

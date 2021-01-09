@@ -22,12 +22,13 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.Slice;
 import org.rocksdb.Transaction;
-import org.rocksdb.WriteBatch;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
@@ -91,7 +92,13 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
-        throw new UnsupportedOperationException();
+        try (Slice toSlice = new Slice(endKey);
+             ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
+             RocksIterator iterator = this.transaction.getIterator(options, columnFamilyHandle)) {
+            for (iterator.seek(beginKey); iterator.isValid(); iterator.next()) {
+                this.transaction.delete(columnFamilyHandle, iterator.key());
+            }
+        }
     }
 
     @Override

@@ -243,10 +243,10 @@ public final class Storage implements AutoCloseable {
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        Element element = this.getElement(this.db.read(), combinedId);
+        Element element = this.getElement(access, combinedId);
         checkState(element != null, "unknown %s %d", typeName, id);
 
-        Geometry geometry = element.toGeometry(this, this.db.read());
+        Geometry geometry = element.toGeometry(this, access);
         if (geometry != null) {
             long[] arr = geometry.listIntersectedTiles();
             int tileCount = arr.length;
@@ -299,7 +299,7 @@ public final class Storage implements AutoCloseable {
                     Files.createDirectories(file.getParent());
 
                     //write to file
-                    try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                    try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
                         buf.readBytes(channel, buf.readableBytes());
                     }
 
@@ -315,7 +315,7 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportDirtyTiles(@NonNull Path outputRoot) throws Exception {
+    public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
                 .slot("tiles", StreamSupport.longStream(this.dirtyTiles.spliterator(), false).count())
                 .build()) {
@@ -324,15 +324,15 @@ public final class Storage implements AutoCloseable {
                 int tileY = Tile.tileY(tilePos);
                 try {
                     LongList elements = new LongArrayList();
-                    this.tileContents.getElementsInTile(this.db.read(), tilePos, elements);
+                    this.tileContents.getElementsInTile(access, tilePos, elements);
                     if (elements.isEmpty()) { //nothing to write
                         return;
                     }
 
                     Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
                     Files.createDirectories(dir);
-                    try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-                        channel.write(this.tempJsonStorage.getAll(this.db.read(), elements).toArray(new ByteBuffer[0]));
+                    try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                        channel.write(this.tempJsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
                     }
                 } catch (Exception e) {
                     throw new RuntimeException("tile " + tileX + ' ' + tileY, e);

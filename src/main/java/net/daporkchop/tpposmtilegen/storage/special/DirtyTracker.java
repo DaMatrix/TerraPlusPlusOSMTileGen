@@ -24,6 +24,7 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
@@ -36,6 +37,18 @@ import java.util.function.LongConsumer;
  * @author DaPorkchop_
  */
 public final class DirtyTracker extends WrappedRocksDB {
+    private static long combine(int type, long id) {
+        return ((long) type << 62L) | id;
+    }
+
+    private static int extractType(long combined) {
+        return (int) (combined >>> 62L);
+    }
+
+    private static long extractId(long combined) {
+        return combined & ~(3L << 62L);
+    }
+
     public DirtyTracker(Database database, ColumnFamilyHandle column) {
         super(database, column);
     }
@@ -46,6 +59,8 @@ public final class DirtyTracker extends WrappedRocksDB {
     }
 
     public void markDirty(@NonNull DBAccess access, long id) throws Exception {
+        id = combine(Element.extractType(id), Element.extractId(id));
+
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] key = recycler.get();
         try {
@@ -66,6 +81,7 @@ public final class DirtyTracker extends WrappedRocksDB {
         try {
             for (int i = 0, size = ids.size(); i < size; i++) {
                 long id = ids.getLong(i);
+                id = combine(Element.extractType(id), Element.extractId(id));
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
                 access.put(this.column, key, EMPTY_BYTE_ARRAY);
             }
@@ -74,10 +90,21 @@ public final class DirtyTracker extends WrappedRocksDB {
         }
     }
 
+    public void forEach(@NonNull DBAccess access, int type, @NonNull LongConsumer callback) throws Exception {
+        try (RocksIterator iterator = access.iterator(this.column)) {
+            for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                long id = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                id = Element.addTypeToId(extractType(id), extractId(id));
+                callback.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            }
+        }
+    }
+
     public void forEach(@NonNull DBAccess access, @NonNull LongConsumer callback) throws Exception {
         try (RocksIterator iterator = access.iterator(this.column)) {
             for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                 long id = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                id = Element.addTypeToId(extractType(id), extractId(id));
                 callback.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
             }
         }

@@ -61,6 +61,7 @@ public class CloseableExecutor implements Executor, AutoCloseable {
 
     @Override
     public void close() throws Exception {
+        this.delegate.shutdown();
         this.factory.close();
     }
 }
