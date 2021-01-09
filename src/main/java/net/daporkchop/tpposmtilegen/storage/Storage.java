@@ -102,6 +102,8 @@ public final class Storage implements AutoCloseable {
     protected final OffHeapAtomicLong replicationTimestamp;
     protected String replicationBaseUrl;
 
+    protected final OffHeapAtomicBitSet dirtyElements;
+
     protected ReferenceDB references;
     protected TileDB tileContents;
     protected final OffHeapAtomicBitSet dirtyTiles;
@@ -138,6 +140,7 @@ public final class Storage implements AutoCloseable {
         this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
+        this.dirtyElements = new OffHeapAtomicBitSet(root.resolve("elements_dirty"), 1L << 40L);
         this.dirtyTiles = new OffHeapAtomicBitSet(root.resolve("tiles_dirty"), 1L << 40L);
 
         this.elementsByType.put(Node.TYPE, this.nodes);
@@ -379,6 +382,7 @@ public final class Storage implements AutoCloseable {
         this.sequenceNumber.close();
         this.replicationTimestamp.close();
 
+        this.dirtyElements.close();
         this.dirtyTiles.close();
 
         this.db.close();

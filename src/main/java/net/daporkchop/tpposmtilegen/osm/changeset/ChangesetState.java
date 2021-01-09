@@ -27,6 +27,7 @@ import lombok.NonNull;
 import lombok.ToString;
 
 import java.nio.charset.StandardCharsets;
+import java.time.Instant;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -40,7 +41,7 @@ import static net.daporkchop.lib.logging.Logging.*;
 @ToString
 @EqualsAndHashCode
 public class ChangesetState {
-    protected final String timestamp;
+    protected final Instant timestamp;
     protected final int sequenceNumber;
 
     public ChangesetState(@NonNull ByteBuf data) {
@@ -57,6 +58,9 @@ public class ChangesetState {
                 case "sequenceNumber":
                     sequenceNumber = Integer.parseInt(matcher.group(2));
                     break;
+                case "txnMax":
+                case "txnMaxQueried":
+                    break;
                 default:
                     logger.warn("Skipping unknown entry: " + matcher.group());
             }
@@ -65,7 +69,7 @@ public class ChangesetState {
         checkState(timestamp != null, "timestamp not set!");
         checkState(sequenceNumber >= 0, "sequenceNumber not set!");
 
-        this.timestamp = timestamp;
+        this.timestamp = Instant.parse(timestamp);
         this.sequenceNumber = sequenceNumber;
     }
 }

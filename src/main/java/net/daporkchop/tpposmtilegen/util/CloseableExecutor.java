@@ -18,10 +18,49 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm.changeset;
+package net.daporkchop.tpposmtilegen.util;
+
+import lombok.AllArgsConstructor;
+import lombok.NonNull;
+import net.daporkchop.lib.common.util.PorkUtil;
+
+import java.util.concurrent.Executor;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 /**
  * @author DaPorkchop_
  */
-public final class Change {
+@AllArgsConstructor
+public class CloseableExecutor implements Executor, AutoCloseable {
+    @NonNull
+    protected final ExecutorService delegate;
+    @NonNull
+    protected final CloseableThreadFactory factory;
+
+    public CloseableExecutor() {
+        this(new CloseableThreadFactory(), PorkUtil.CPU_COUNT);
+    }
+
+    public CloseableExecutor(@NonNull String name) {
+        this(new CloseableThreadFactory(name), PorkUtil.CPU_COUNT);
+    }
+
+    public CloseableExecutor(@NonNull CloseableThreadFactory factory) {
+        this(factory, PorkUtil.CPU_COUNT);
+    }
+
+    public CloseableExecutor(@NonNull CloseableThreadFactory factory, int threads) {
+        this(Executors.newFixedThreadPool(threads, factory), factory);
+    }
+
+    @Override
+    public void execute(@NonNull Runnable command) {
+        this.delegate.execute(command);
+    }
+
+    @Override
+    public void close() throws Exception {
+        this.factory.close();
+    }
 }

@@ -39,7 +39,7 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  * Tracks which elements are contained in each tile.
  * <p>
  * struct Key {
- * long tilePos; //interleaved bits of the tile's X and Y coordinates after applying ZigZag encoding
+ * long tilePos; //packed tile position
  * long elementId; //the id of the element
  * };
  *

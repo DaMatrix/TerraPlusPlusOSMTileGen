@@ -34,6 +34,7 @@ import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
@@ -78,15 +79,10 @@ public class DigestPBF implements IMode {
                 .slot("nodes").slot("ways").slot("relations")
                 .build();
              Storage storage = new Storage(dst.toPath());
-             InputStream is = new FileInputStream(src)) {
-
-            List<Thread> threads = new ArrayList<>(PorkUtil.CPU_COUNT);
+             InputStream is = new FileInputStream(src);
+             CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker")) {
             new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
-                    .setThreadFactory(r -> {
-                        Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
-                        threads.add(t);
-                        return t;
-                    })
+                    .setThreadFactory(threadFactory)
                     .onHeader((EConsumer<Header>) header -> {
                         logger.info("PBF header: %s", header);
                         if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
@@ -143,9 +139,6 @@ public class DigestPBF implements IMode {
                         notifier.step(Relation.TYPE);
                     })
                     .parse();
-
-            //this ensure that the threads have flushed their contents before exiting
-            threads.forEach((EConsumer<Thread>) Thread::join);
 
             //ensure everything is written to disk before advancing
             storage.flush();

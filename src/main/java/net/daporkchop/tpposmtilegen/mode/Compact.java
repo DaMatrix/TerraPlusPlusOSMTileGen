@@ -21,19 +21,16 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.function.throwing.EFunction;
 import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 
 import java.io.File;
 import java.lang.reflect.Field;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
@@ -71,15 +68,11 @@ public class Compact implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         logger.info("Opening storage...");
-        try (Storage storage = new Storage(src.toPath())) {
+        try (Storage storage = new Storage(src.toPath());
+             CloseableThreadFactory threadFactory = new CloseableThreadFactory("Compaction worker")) {
             logger.info("Running compaction...");
 
-            List<Thread> threads = new ArrayList<>();
-            ExecutorService executor = Executors.newCachedThreadPool(r -> {
-                Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
-                threads.add(t);
-                return t;
-            });
+            ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
 
             CompletableFuture.allOf(
                     Arrays.stream(Storage.class.getDeclaredFields())
@@ -90,9 +83,9 @@ public class Compact implements IMode {
                             .toArray(CompletableFuture[]::new)
             ).join();
 
-            logger.info("Wrapping up...");
             executor.shutdown();
-            threads.forEach((EConsumer<Thread>) Thread::join);
+
+            logger.info("Wrapping up...");
         }
         logger.success("Done.");
     }

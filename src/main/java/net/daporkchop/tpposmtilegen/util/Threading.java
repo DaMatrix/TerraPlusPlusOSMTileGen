@@ -23,21 +23,15 @@ package net.daporkchop.tpposmtilegen.util;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.common.util.PorkUtil;
 
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.concurrent.Executor;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
@@ -47,22 +41,16 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  */
 @UtilityClass
 public class Threading {
-    public void forEachParallelLong(@NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) {
+    public void forEachParallelLong(@NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) throws Exception {
         forEachParallel(PorkUtil.CPU_COUNT, s -> s.forEachRemaining(callback), spliterators);
     }
 
-    public void forEachParallelLong(int threads, @NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) {
+    public void forEachParallelLong(int threads, @NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) throws Exception {
         forEachParallel(threads, s -> s.forEachRemaining(callback), spliterators);
     }
 
-    public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) {
-        List<Thread> threadList = new ArrayList<>(threads);
-        ExecutorService executor = Executors.newFixedThreadPool(threads, r -> {
-            Thread t = PThreadFactories.DEFAULT_THREAD_FACTORY.newThread(r);
-            threadList.add(t);
-            return t;
-        });
-        try {
+    public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) throws Exception {
+        try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
                         long targetSize = Math.max(spliterator.estimateSize() / (threads << 3), 1L);
@@ -70,14 +58,10 @@ public class Threading {
                     })
                     .toArray(CompletableFuture[]::new))
                     .join();
-        } finally {
-            executor.shutdown();
-            checkState(!threadList.contains(null), "a thread was null?!?");
-            threadList.forEach((EConsumer<Thread>) Thread::join);
         }
     }
 
-    private <S extends Spliterator<?>> CompletableFuture<Void> forEachParallel0(ExecutorService executor, long targetSize, S spliterator, Consumer<S> callback) {
+    private <S extends Spliterator<?>> CompletableFuture<Void> forEachParallel0(Executor executor, long targetSize, S spliterator, Consumer<S> callback) {
         long sizeEstimate = spliterator.estimateSize();
         S leftSplit;
         if (sizeEstimate <= targetSize || (leftSplit = uncheckedCast(spliterator.trySplit())) == null) {

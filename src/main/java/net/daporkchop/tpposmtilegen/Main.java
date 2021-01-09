@@ -96,7 +96,7 @@ public final class Main implements Runnable {
             this.printUsage(mode);
             System.exit(1);
         } catch (Exception e) {
-            logger.alert("Exception while running %s with arguments:\n%s", e, String.join("\n", modeArgs));
+            logger.alert("Exception while running %s with arguments:\n%s", e, this.args[0], String.join("\n", modeArgs));
             System.exit(1);
         }
     }

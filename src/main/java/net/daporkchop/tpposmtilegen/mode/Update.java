@@ -134,41 +134,39 @@ public class Update implements IMode {
 
             ChangesetState globalState = storage.getChangesetState();
 
-            SEQ:
             if (storage.sequenceNumber().get() < 0L) { //compute sequence number
                 logger.info("attempting to compute sequence number from timestamp...");
 
                 long replicationTimestamp = storage.replicationTimestamp().get();
                 checkState(replicationTimestamp >= 0L, "no replication info!");
 
-                long targetTimestamp = replicationTimestamp / 60L; //convert to minutes
-
                 //binary search to find sequence number from timestamp
                 int min = 0;
                 int max = globalState.sequenceNumber();
-                while (true) {
+                while (min <= max) {
                     int middle = (min + max) >> 1;
                     long middleTimestamp;
                     try {
-                        middleTimestamp = Instant.parse(storage.getChangesetState(middle).timestamp()).toEpochMilli() / 1000L / 60L;
+                        middleTimestamp = storage.getChangesetState(middle).timestamp().toEpochMilli() / 1000L;
                     } catch (FileNotFoundException e) {
                         middleTimestamp = -1L; //fallback if file not found, assume we're too low
                     }
 
-                    if (middleTimestamp == targetTimestamp) {
+                    if (middleTimestamp == replicationTimestamp) {
                         logger.success("found sequence number: " + middle);
-                        storage.sequenceNumber().set(middle);
-                        break SEQ;
-                    } else if (middleTimestamp < targetTimestamp) {
+                    } else if (middleTimestamp < replicationTimestamp) {
                         logger.trace("sequence number too high: " + middle);
-                        min = middle;
+                        min = middle + 1;
                     } else {
                         logger.trace("sequence number too low: " + middle);
-                        max = middle;
+                        max = middle - 1;
                     }
-
-                    checkState(min != max, "unable to find sequence number!");
                 }
+
+                logger.success("offsetting sequence number by 60 to be sure we have the right one", min - 60);
+                storage.sequenceNumber().set(min - 60);
+            } else if (storage.replicationTimestamp().get() < 0L) { //set timestamp
+                storage.replicationTimestamp().set(storage.getChangesetState(toInt(storage.sequenceNumber().get())).timestamp().toEpochMilli() / 1000L);
             }
 
             int sequenceNumber = toInt(storage.sequenceNumber().get());
@@ -179,6 +177,8 @@ public class Update implements IMode {
                 return;
             }
 
+            Instant now = Instant.ofEpochSecond(storage.replicationTimestamp().get());
+
             logger.info("updating...");
             for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
                 int next = sequenceNumber + 1;
@@ -186,15 +186,16 @@ public class Update implements IMode {
 
                 ChangesetState state = storage.getChangesetState(next);
                 Changeset changeset = storage.getChangeset(next);
-                this.applyChanges(storage, changeset, state);
+                this.applyChanges(storage, now, changeset, state);
             }
         }
     }
 
-    private void applyChanges(Storage storage, Changeset changeset, ChangesetState state) throws Exception {
+    private void applyChanges(Storage storage, Instant now, Changeset changeset, ChangesetState state) throws Exception {
         try (WriteBatch batch = storage.db().newNotAutoFlushingWriteBatch()) {
             LongSet changedIds = new LongOpenHashSet();
             for (Changeset.Entry entry : changeset.entries()) {
+                entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
                 switch (entry.op()) {
                     case CREATE:
                         this.create(storage, batch, entry, changedIds);
@@ -310,7 +311,7 @@ public class Update implements IMode {
             if (element instanceof Changeset.Node) {
                 Changeset.Node changedNode = (Changeset.Node) element;
                 Point point = storage.points().get(id);
-                checkState(point != null, "node with id %d doesn't exist", id);
+                checkState(storage.nodeFlags().get(id), "node with id %d doesn't exist", id);
 
                 storage.points().deleteAll(batch, LongLists.singleton(id));
                 storage.nodes().deleteAll(batch, LongLists.singleton(id));
