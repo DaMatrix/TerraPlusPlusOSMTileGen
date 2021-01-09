@@ -26,9 +26,16 @@ import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
+import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.lib.common.ref.ThreadRef;
+
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.math.PMath.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
@@ -43,6 +50,8 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 @Setter
 @EqualsAndHashCode
 public final class Point implements Geometry {
+    private static final Ref<Matcher> PARSE_MATCHER_CACHE = ThreadRef.regex(Pattern.compile("^(-)?(\\d+)(?:\\.(\\d+))?$"));
+
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;
 
@@ -81,21 +90,31 @@ public final class Point implements Geometry {
     }
 
     public static int parse(String s) { //my god this is ugly and slow, but it works
-        boolean minus = s.charAt(0) == '-';
-        int i = minus ? 1 : 0;
-        int dot = s.indexOf('.');
-        int v = Integer.parseInt(s.substring(i, dot)) * PRECISION;
+        Matcher matcher = PARSE_MATCHER_CACHE.get().reset(s);
+        checkArg(matcher.find(), s);
+        try {
+            int significant = Integer.parseInt(matcher.group(2));
+            String frac = matcher.group(3);
 
-        s = s.substring(dot + 1);
-        if (s.length() > 7) {
-            s = s.substring(0, 7);
-        } else {
-            while (s.length() < 7) {
-                s += '0';
+            if (frac == null) {
+                frac = "0";
+            } else if (frac.length() != 7) {
+                if (frac.length() > 7) {
+                    frac = frac.substring(0, 7);
+                } else {
+                    StringBuilder builder = new StringBuilder(7);
+                    builder.append(frac);
+                    PStrings.appendMany(builder, '0', 7 - frac.length());
+                    frac = builder.toString();
+                }
             }
-        }
 
-        return v + Integer.parseInt(s) * (minus ? -1 : 1);
+            int fraction = Integer.parseInt(frac);
+            int i = significant * PRECISION + fraction;
+            return i * (matcher.group(1) != null ? -1 : 1);
+        } catch (Exception e) {
+            throw new RuntimeException(s, e);
+        }
     }
 
     private int x;

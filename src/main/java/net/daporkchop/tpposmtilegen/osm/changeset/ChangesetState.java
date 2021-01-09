@@ -60,6 +60,7 @@ public class ChangesetState {
                     break;
                 case "txnMax":
                 case "txnMaxQueried":
+                case "txnActiveList":
                     break;
                 default:
                     logger.warn("Skipping unknown entry: " + matcher.group());

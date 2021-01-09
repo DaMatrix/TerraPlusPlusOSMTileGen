@@ -114,6 +114,10 @@ public final class Database implements AutoCloseable {
         return new FlushableWriteBatch(this.delegate);
     }
 
+    public DBAccess newTransaction() {
+        return new TransactionAccess(this.delegate, this.delegate.beginTransaction(SYNC_WRITE_OPTIONS));
+    }
+
     public void flush() throws Exception {
         this.batches.forEach((EConsumer<FlushableWriteBatch>) b -> b.flush(true));
     }

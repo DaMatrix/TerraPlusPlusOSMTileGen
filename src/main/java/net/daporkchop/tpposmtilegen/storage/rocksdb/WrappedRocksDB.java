@@ -66,7 +66,6 @@ public abstract class WrappedRocksDB {
         access.delete(this.column, highKey); //deleteRange's upper bound is exclusive
 
         access.flush(true);
-        this.optimize(); //force compaction to delete all table files
     }
 
     public void optimize() throws Exception {

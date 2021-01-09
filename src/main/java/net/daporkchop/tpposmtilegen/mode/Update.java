@@ -170,167 +170,179 @@ public class Update implements IMode {
             }
 
             int sequenceNumber = toInt(storage.sequenceNumber().get());
-            logger.info("sequence number: %d\nlatest: %d", sequenceNumber, globalState.sequenceNumber());
+            Instant now = Instant.ofEpochSecond(storage.replicationTimestamp().get());
+            logger.info("current: %d (%s)\nlatest: %d (%s)", sequenceNumber, now, globalState.sequenceNumber(), globalState.timestamp());
 
             if (sequenceNumber >= globalState.sequenceNumber()) {
                 logger.info("nothing to do...");
                 return;
             }
 
-            Instant now = Instant.ofEpochSecond(storage.replicationTimestamp().get());
-
             logger.info("updating...");
-            for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
-                int next = sequenceNumber + 1;
-                logger.trace("updating from %d to %d\n", sequenceNumber, next);
+            try (DBAccess access = storage.db().newTransaction()) {
+                ChangesetState state = storage.getChangesetState(sequenceNumber);
+                for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
+                    int next = sequenceNumber + 1;
+                    ChangesetState nextState = storage.getChangesetState(next);
+                    logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
-                ChangesetState state = storage.getChangesetState(next);
-                Changeset changeset = storage.getChangeset(next);
-                this.applyChanges(storage, now, changeset, state);
-            }
-        }
-    }
+                    Changeset changeset = storage.getChangeset(next);
+                    this.applyChanges(storage, access, now, changeset);
 
-    private void applyChanges(Storage storage, Instant now, Changeset changeset, ChangesetState state) throws Exception {
-        try (DBAccess access = storage.db().newNotAutoFlushingWriteBatch()) {
-            LongSet changedIds = new LongOpenHashSet();
-            for (Changeset.Entry entry : changeset.entries()) {
-                entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
-                switch (entry.op()) {
-                    case CREATE:
-                        this.create(storage, access, entry, changedIds);
-                        break;
-                    case MODIFY:
-                        this.modify(storage, access, entry, changedIds);
-                        break;
-                    case DELETE:
-                        this.delete(storage, access, entry, changedIds);
-                        break;
+                    state = nextState;
                 }
             }
-            logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
-            access.clear();
-        }
-        storage.sequenceNumber().set(state.sequenceNumber());
-    }
-
-    private void create(Storage storage, DBAccess access, Changeset.Entry entry, LongSet changedIds) throws Exception {
-        for (Changeset.Element element : entry.elements()) {
-            long id = element.id();
-            if (element instanceof Changeset.Node) {
-                Changeset.Node changedNode = (Changeset.Node) element;
-
-                storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
-                if (!changedNode.tags().isEmpty()) {
-                    storage.nodes().put(access, id, new Node(id, changedNode.tags()));
-                }
-
-                changedIds.add(Element.addTypeToId(Node.TYPE, id));
-            } else if (element instanceof Changeset.Way) {
-                Changeset.Way changedWay = (Changeset.Way) element;
-
-                storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
-
-                changedIds.add(Element.addTypeToId(Way.TYPE, id));
-            } else if (element instanceof Changeset.Relation) {
-                Changeset.Relation changedRelation = (Changeset.Relation) element;
-
-                Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-                storage.relations().put(access, id, new Relation(id, changedRelation.tags(), members));
-
-                changedIds.add(Element.addTypeToId(Relation.TYPE, id));
-            }
         }
     }
 
-    private void modify(Storage storage, DBAccess access, Changeset.Entry entry, LongSet changedIds) throws Exception {
-        for (Changeset.Element element : entry.elements()) {
-            long id = element.id();
-            if (element instanceof Changeset.Node) {
-                Changeset.Node changedNode = (Changeset.Node) element;
-                Point point = storage.points().get(access, id);
-                checkState(point != null, "node with id %d doesn't exist", id);
-
-                storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
-                if (changedNode.tags().isEmpty()) {
-                    if (storage.nodes().get(access, id) != null) {
-                        storage.nodes().deleteAll(access, LongLists.singleton(id));
+    private void applyChanges(Storage storage, DBAccess access, Instant now, Changeset changeset) throws Exception {
+        LongSet changedIds = new LongOpenHashSet();
+        for (Changeset.Entry entry : changeset.entries()) {
+            entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
+            switch (entry.op()) {
+                case CREATE:
+                    for (Changeset.Element element : entry.elements()) {
+                        this.create(storage, access, element, changedIds);
                     }
-                } else {
-                    storage.nodes().put(access, id, new Node(id, changedNode.tags()));
-                }
-
-                changedIds.add(Element.addTypeToId(Node.TYPE, id));
-            } else if (element instanceof Changeset.Way) {
-                Changeset.Way changedWay = (Changeset.Way) element;
-                Way way = storage.ways().get(access, id);
-                checkState(way != null, "way with id %d doesn't exist", id);
-
-                LongSet oldNodes = new LongOpenHashSet(way.nodes());
-                LongSet newNodes = new LongOpenHashSet(changedWay.refs());
-                for (long node : newNodes) {
-                    if (!oldNodes.remove(node)) { //node was newly added to this way
-                        storage.references().addReference(access, Node.TYPE, node, Way.TYPE, id);
+                    break;
+                case MODIFY:
+                    for (Changeset.Element element : entry.elements()) {
+                        this.modify(storage, access, element, changedIds);
                     }
-                }
-                for (long node : oldNodes) { //all nodes that remain are no longer referenced
-                    storage.references().deleteReference(access, Node.TYPE, node, Way.TYPE, id);
-                }
-
-                storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
-
-                changedIds.add(Element.addTypeToId(Way.TYPE, id));
-            } else if (element instanceof Changeset.Relation) {
-                Changeset.Relation changedRelation = (Changeset.Relation) element;
-                Relation relation = storage.relations().get(access, id);
-                checkState(relation != null, "relation with id %d doesn't exist", id);
-
-                Relation.Member[] newMembers = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-
-                LongSet oldRefs = new LongOpenHashSet(Arrays.stream(relation.members()).mapToLong(Relation.Member::combinedId).toArray());
-                LongSet newRefs = new LongOpenHashSet(Arrays.stream(newMembers).mapToLong(Relation.Member::combinedId).toArray());
-                for (long ref : newRefs) {
-                    if (!oldRefs.remove(ref)) { //element was newly added to this relation
-                        storage.references().addReference(access, 0, ref, Relation.TYPE, id);
+                    break;
+                case DELETE:
+                    for (Changeset.Element element : entry.elements()) {
+                        this.delete(storage, access, element, changedIds);
                     }
-                }
-                for (long ref : oldRefs) { //all elements that remain are no longer referenced
-                    storage.references().deleteReference(access, 0, ref, Relation.TYPE, id);
-                }
-
-                storage.relations().put(access, id, new Relation(id, changedRelation.tags(), newMembers));
-
-                changedIds.add(Element.addTypeToId(Relation.TYPE, id));
+                    break;
             }
+        }
+        logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+    }
+
+    private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+        long id = element.id();
+        if (element instanceof Changeset.Node) {
+            Changeset.Node changedNode = (Changeset.Node) element;
+
+            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
+            if (!changedNode.tags().isEmpty()) {
+                storage.nodes().put(access, id, new Node(id, changedNode.tags()));
+            }
+
+            changedIds.add(Element.addTypeToId(Node.TYPE, id));
+        } else if (element instanceof Changeset.Way) {
+            Changeset.Way changedWay = (Changeset.Way) element;
+
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
+
+            changedIds.add(Element.addTypeToId(Way.TYPE, id));
+        } else if (element instanceof Changeset.Relation) {
+            Changeset.Relation changedRelation = (Changeset.Relation) element;
+
+            Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), members));
+
+            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
         }
     }
 
-    private void delete(Storage storage, DBAccess access, Changeset.Entry entry, LongSet changedIds) throws Exception {
-        for (Changeset.Element element : entry.elements()) {
-            long id = element.id();
-            if (element instanceof Changeset.Node) {
-                Changeset.Node changedNode = (Changeset.Node) element;
-                Point point = storage.points().get(access, id);
-                checkState(storage.nodeFlags().get(id), "node with id %d doesn't exist", id);
-
-                storage.points().deleteAll(access, LongLists.singleton(id));
-                storage.nodes().deleteAll(access, LongLists.singleton(id));
-                changedIds.add(Element.addTypeToId(Node.TYPE, id));
-            } else if (element instanceof Changeset.Way) {
-                Changeset.Way changedWay = (Changeset.Way) element;
-                Way way = storage.ways().get(access, id);
-                checkState(way != null, "way with id %d doesn't exist", id);
-
-                storage.ways().deleteAll(access, LongLists.singleton(id));
-                changedIds.add(Element.addTypeToId(Way.TYPE, id));
-            } else if (element instanceof Changeset.Relation) {
-                Changeset.Relation changedRelation = (Changeset.Relation) element;
-                Relation relation = storage.relations().get(access, id);
-                checkState(relation != null, "relation with id %d doesn't exist", id);
-
-                storage.relations().deleteAll(access, LongLists.singleton(id));
-                changedIds.add(Element.addTypeToId(Relation.TYPE, id));
+    private void modify(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+        long id = element.id();
+        if (element instanceof Changeset.Node) {
+            Changeset.Node changedNode = (Changeset.Node) element;
+            Point point = storage.points().get(access, id);
+            if (point == null) {
+                logger.warn("attempting to modify non-existent node with id %d, assuming that it's newly re-created!", id);
+                this.create(storage, access, element, changedIds);
+                return;
             }
+
+            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
+            if (changedNode.tags().isEmpty()) {
+                if (storage.nodes().get(access, id) != null) {
+                    storage.nodes().deleteAll(access, LongLists.singleton(id));
+                }
+            } else {
+                storage.nodes().put(access, id, new Node(id, changedNode.tags()));
+            }
+
+            changedIds.add(Element.addTypeToId(Node.TYPE, id));
+        } else if (element instanceof Changeset.Way) {
+            Changeset.Way changedWay = (Changeset.Way) element;
+            Way way = storage.ways().get(access, id);
+            if (way == null) {
+                logger.warn("attempting to modify non-existent way with id %d, assuming that it's newly re-created!", id);
+                this.create(storage, access, element, changedIds);
+                return;
+            }
+
+            LongSet oldNodes = new LongOpenHashSet(way.nodes());
+            LongSet newNodes = new LongOpenHashSet(changedWay.refs());
+            for (long node : newNodes) {
+                if (!oldNodes.remove(node)) { //node was newly added to this way
+                    storage.references().addReference(access, Node.TYPE, node, Way.TYPE, id);
+                }
+            }
+            for (long node : oldNodes) { //all nodes that remain are no longer referenced
+                storage.references().deleteReference(access, Node.TYPE, node, Way.TYPE, id);
+            }
+
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
+
+            changedIds.add(Element.addTypeToId(Way.TYPE, id));
+        } else if (element instanceof Changeset.Relation) {
+            Changeset.Relation changedRelation = (Changeset.Relation) element;
+            Relation relation = storage.relations().get(access, id);
+            if (relation == null) {
+                logger.warn("attempting to modify non-existent relation with id %d, assuming that it's newly re-created!", id);
+                this.create(storage, access, element, changedIds);
+                return;
+            }
+
+            Relation.Member[] newMembers = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
+
+            LongSet oldRefs = new LongOpenHashSet(Arrays.stream(relation.members()).mapToLong(Relation.Member::combinedId).toArray());
+            LongSet newRefs = new LongOpenHashSet(Arrays.stream(newMembers).mapToLong(Relation.Member::combinedId).toArray());
+            for (long ref : newRefs) {
+                if (!oldRefs.remove(ref)) { //element was newly added to this relation
+                    storage.references().addReference(access, 0, ref, Relation.TYPE, id);
+                }
+            }
+            for (long ref : oldRefs) { //all elements that remain are no longer referenced
+                storage.references().deleteReference(access, 0, ref, Relation.TYPE, id);
+            }
+
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), newMembers));
+
+            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
+        }
+    }
+
+    private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+        long id = element.id();
+        if (element instanceof Changeset.Node) {
+            Changeset.Node changedNode = (Changeset.Node) element;
+            Point point = storage.points().get(access, id);
+            checkState(point != null, "node with id %d doesn't exist", id);
+
+            storage.points().deleteAll(access, LongLists.singleton(id));
+            storage.nodes().deleteAll(access, LongLists.singleton(id));
+            changedIds.add(Element.addTypeToId(Node.TYPE, id));
+        } else if (element instanceof Changeset.Way) {
+            Changeset.Way changedWay = (Changeset.Way) element;
+            Way way = storage.ways().get(access, id);
+            checkState(way != null, "way with id %d doesn't exist", id);
+
+            storage.ways().deleteAll(access, LongLists.singleton(id));
+            changedIds.add(Element.addTypeToId(Way.TYPE, id));
+        } else if (element instanceof Changeset.Relation) {
+            Changeset.Relation changedRelation = (Changeset.Relation) element;
+            Relation relation = storage.relations().get(access, id);
+            checkState(relation != null, "relation with id %d doesn't exist", id);
+
+            storage.relations().deleteAll(access, LongLists.singleton(id));
+            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
         }
     }
 }
