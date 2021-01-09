@@ -54,12 +54,12 @@ tasks.withType(JavaCompile) {
 
 repositories {
     maven {
-        name = "OSGeo"
-        url = "https://repo.osgeo.org/repository/release/"
-    }
-    maven {
         name = "DaPorkchop_"
         url = "https://maven.daporkchop.net/"
+    }
+    maven {
+        name = "OSGeo"
+        url = "https://repo.osgeo.org/repository/release/"
     }
     maven {
         name = "JitPack"
@@ -80,6 +80,7 @@ dependencies {
     shade "net.daporkchop.lib:natives:$porklibVersion"
 
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
+    shade "com.fasterxml.jackson.dataformat:jackson-dataformat-xml:$jacksonVersion"
 
     shade "com.github.DaMatrix:parallelpbf:$parallelpbfVersion"
     shade "org.geotools:gt-shapefile:$geotoolsVersion"

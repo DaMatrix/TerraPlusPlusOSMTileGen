@@ -89,6 +89,21 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
+    public void deleteReference(@NonNull WriteBatch batch, int type, long id, int referentType, long referent) throws Exception {
+        id = Element.addTypeToId(type, id);
+        referent = Element.addTypeToId(referentType, referent);
+
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
+        byte[] key = recycler.get();
+        try {
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
+            batch.delete(this.column, key);
+        } finally {
+            recycler.release(key);
+        }
+    }
+
     public void deleteReferencesTo(@NonNull WriteBatch batch, int type, long id) throws Exception {
         id = Element.addTypeToId(type, id);
 

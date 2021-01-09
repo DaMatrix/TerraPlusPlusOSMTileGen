@@ -83,6 +83,24 @@ public final class Point implements Geometry {
         }
     }
 
+    public static int parse(String s) { //my god this is ugly and slow, but it works
+        boolean minus = s.charAt(0) == '-';
+        int i = minus ? 1 : 0;
+        int dot = s.indexOf('.');
+        int v = Integer.parseInt(s.substring(i, dot)) * PRECISION;
+
+        s = s.substring(dot + 1);
+        if (s.length() > 7) {
+            s = s.substring(0, 7);
+        } else {
+            while (s.length() < 7) {
+                s += '0';
+            }
+        }
+
+        return v + Integer.parseInt(s) * (minus ? -1 : 1);
+    }
+
     private int x;
     private int y;
 
@@ -92,6 +110,10 @@ public final class Point implements Geometry {
 
     public Point(double lon, double lat) {
         this(doubleToFix(lon), doubleToFix(lat));
+    }
+
+    public Point(String lon, String lat) {
+        this(parse(lon), parse(lat));
     }
 
     public Point(@NonNull ByteBuf src) {

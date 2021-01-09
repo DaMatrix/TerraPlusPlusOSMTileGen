@@ -39,6 +39,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
 import net.daporkchop.tpposmtilegen.storage.map.BlobDB;
 import net.daporkchop.tpposmtilegen.storage.map.CoastlineDB;
@@ -59,7 +60,6 @@ import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.CompressionType;
 
-import java.io.File;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -399,7 +399,7 @@ public final class Storage implements AutoCloseable {
         return this.getChangesetState(PStrings.fastFormat("%03d/%03d/%03d.state.txt", sequence / 1000000, (sequence / 1000) % 1000, sequence % 1000), true);
     }
 
-    public ChangesetState getChangesetState(String path, boolean cache) throws Exception {
+    private ChangesetState getChangesetState(String path, boolean cache) throws Exception {
         Path file = this.root.resolve("replication").resolve(path);
         if (cache && Files.exists(file)) {
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
@@ -426,5 +426,38 @@ public final class Storage implements AutoCloseable {
         }
 
         return new ChangesetState(Unpooled.wrappedBuffer(data));
+    }
+
+    public Changeset getChangeset(int sequence) throws Exception {
+        return this.getChangeset(PStrings.fastFormat("%03d/%03d/%03d.osc.gz", sequence / 1000000, (sequence / 1000) % 1000, sequence % 1000), true);
+    }
+
+    private Changeset getChangeset(String path, boolean cache) throws Exception {
+        Path file = this.root.resolve("replication").resolve(path);
+        if (cache && Files.exists(file)) {
+            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
+                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(toInt(channel.size()));
+                try {
+                    buf.writeBytes(channel, 0, buf.writableBytes());
+                    return Changeset.parse(buf);
+                } finally {
+                    buf.release();
+                }
+            }
+        }
+
+        byte[] data;
+        try (InputStream in = new URL(this.replicationBaseUrl + path).openStream()) {
+            data = StreamUtil.toByteArray(in);
+        }
+
+        if (cache) {
+            Files.createDirectories(file.getParent());
+            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
+                channel.write(ByteBuffer.wrap(data));
+            }
+        }
+
+        return Changeset.parse(Unpooled.wrappedBuffer(data));
     }
 }

@@ -31,9 +31,10 @@ import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
-import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
+import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
 
 import java.nio.charset.StandardCharsets;
@@ -101,7 +102,7 @@ public final class Relation extends Element {
     public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
         LongList ids = new LongArrayList(this.members.length);
         for (Member member : this.members) {
-            ids.add(member.combined);
+            ids.add(member.combinedId);
         }
 
         //first parameter (type) is 0 because the ids are already combined with their type
@@ -197,6 +198,7 @@ public final class Relation extends Element {
      * @author DaPorkchop_
      */
     @AllArgsConstructor
+    @Getter
     @ToString
     public static final class Member {
         static {
@@ -210,8 +212,7 @@ public final class Relation extends Element {
             return size >= 0 ? src.readCharSequence(size, StandardCharsets.UTF_8).toString() : null;
         }
 
-        protected final long combined;
-        @Getter
+        protected final long combinedId;
         protected final String role;
 
         protected Member(ByteBuf src) {
@@ -220,20 +221,40 @@ public final class Relation extends Element {
 
         public Member(@NonNull RelationMember osm) {
             long id = osm.getId();
-            this.combined = addTypeToId(osm.getType().ordinal(), id);
+            this.combinedId = addTypeToId(osm.getType().ordinal(), id);
             this.role = osm.getRole();
         }
 
+        public Member(@NonNull Changeset.Relation.Member change) {
+            long id = change.ref();
+            int type;
+            switch (change.type()) {
+                case "node":
+                    type = Node.TYPE;
+                    break;
+                case "way":
+                    type = Way.TYPE;
+                    break;
+                case "relation":
+                    type = Relation.TYPE;
+                    break;
+                default:
+                    throw new IllegalArgumentException(change.type());
+            }
+            this.combinedId = addTypeToId(type, id);
+            this.role = change.role();
+        }
+
         public long getId() {
-            return extractId(this.combined);
+            return extractId(this.combinedId);
         }
 
         public int getType() {
-            return extractType(this.combined);
+            return extractType(this.combinedId);
         }
 
         protected void write(ByteBuf dst) {
-            dst.writeLong(this.combined);
+            dst.writeLong(this.combinedId);
             int sizeIndex = dst.writerIndex();
             dst.writeInt(-1);
             if (this.role != null) {

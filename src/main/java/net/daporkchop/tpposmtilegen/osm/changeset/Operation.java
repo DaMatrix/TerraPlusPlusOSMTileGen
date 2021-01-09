@@ -18,15 +18,13 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
-
-import lombok.NonNull;
+package net.daporkchop.tpposmtilegen.osm.changeset;
 
 /**
  * @author DaPorkchop_
  */
-public class TestIndex implements IMode {
-    @Override
-    public void run(@NonNull String... args) throws Exception {
-    }
+public enum Operation {
+    CREATE,
+    MODIFY,
+    DELETE;
 }

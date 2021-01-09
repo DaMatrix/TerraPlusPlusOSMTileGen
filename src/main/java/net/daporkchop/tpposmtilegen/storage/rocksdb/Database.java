@@ -104,6 +104,10 @@ public final class Database implements AutoCloseable {
         return this.batches.get();
     }
 
+    public WriteBatch newNotAutoFlushingWriteBatch() {
+        return new WriteBatch(this.delegate);
+    }
+
     public void flush() throws Exception {
         this.batches.forEach(WriteBatch::flush);
     }
