@@ -36,6 +36,7 @@ import lombok.ToString;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -107,16 +108,32 @@ public final class Changeset {
         @JsonProperty
         protected long id;
 
-        @JsonProperty
-        protected long changeset;
-
-        @JsonProperty
-        protected long version;
+        protected Instant timestamp;
 
         protected final Map<String, String> tags = new HashMap<>();
 
         @JsonSetter("timestamp")
         private void timestamp(String timestamp) {
+            this.timestamp = Instant.parse(timestamp);
+        }
+
+        @JsonSetter("changeset")
+        private void changeset(String changeset) {
+            //discard
+        }
+
+        @JsonSetter("version")
+        private void version(String version) {
+            //discard
+        }
+
+        @JsonSetter("uid")
+        private void uid(String uid) {
+            //discard
+        }
+
+        @JsonSetter("user")
+        private void user(String user) {
             //discard
         }
 

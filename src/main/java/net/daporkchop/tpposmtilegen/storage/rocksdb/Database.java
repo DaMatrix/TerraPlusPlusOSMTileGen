@@ -24,6 +24,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.lib.common.function.throwing.EBiConsumer;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -33,6 +34,7 @@ import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.WriteOptions;
@@ -85,31 +87,35 @@ public final class Database implements AutoCloseable {
     }
 
     @Getter
-    private final RocksDB delegate;
+    private final OptimisticTransactionDB delegate;
     private final List<ColumnFamilyHandle> columns;
-    private final CloseableThreadLocal<WriteBatch> batches;
+    private final CloseableThreadLocal<FlushableWriteBatch> batches;
 
-    private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
+    @Getter
+    private final DBAccess read;
+
+    private Database(@NonNull OptimisticTransactionDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
         this.delegate = delegate;
         this.columns = columns;
-        this.batches = new CloseableThreadLocal<WriteBatch>() {
+        this.batches = new CloseableThreadLocal<FlushableWriteBatch>() {
             @Override
-            protected WriteBatch initialValue0() throws Exception {
-                return autoFlush ? new AutoFlushingWriteBatch(delegate, 64L << 20L) : new WriteBatch(delegate);
+            protected FlushableWriteBatch initialValue0() throws Exception {
+                return autoFlush ? new AutoFlushingWriteBatch(delegate, 64L << 20L) : new FlushableWriteBatch(delegate);
             }
         };
+        this.read = new ReadAccess(delegate);
     }
 
-    public WriteBatch batch() {
+    public DBAccess batch() {
         return this.batches.get();
     }
 
-    public WriteBatch newNotAutoFlushingWriteBatch() {
-        return new WriteBatch(this.delegate);
+    public DBAccess newNotAutoFlushingWriteBatch() {
+        return new FlushableWriteBatch(this.delegate);
     }
 
     public void flush() throws Exception {
-        this.batches.forEach(WriteBatch::flush);
+        this.batches.forEach((EConsumer<FlushableWriteBatch>) b -> b.flush(true));
     }
 
     @Override
@@ -152,7 +158,7 @@ public final class Database implements AutoCloseable {
 
         public Database build(@NonNull Path path) throws Exception {
             List<ColumnFamilyHandle> columns = new ArrayList<>(this.columns.size());
-            RocksDB db = RocksDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+            OptimisticTransactionDB db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
             Database database = new Database(db, columns, this.autoFlush);
 
             for (int i = 1; i < columns.size(); i++) {

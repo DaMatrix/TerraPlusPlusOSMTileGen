@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -27,7 +27,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.util.Map;
@@ -89,7 +89,7 @@ public abstract class Element implements Persistent {
         this.tags = Persistent.readTags(src);
     }
 
-    public abstract void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception;
+    public abstract void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception;
 
-    public abstract Geometry toGeometry(@NonNull Storage storage) throws Exception;
+    public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception;
 }

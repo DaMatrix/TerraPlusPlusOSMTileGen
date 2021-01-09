@@ -33,7 +33,7 @@ import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
@@ -104,9 +104,9 @@ public class DigestPBF implements IMode {
                     .onChangeset(changeset -> logger.info("changeset: %s", changeset))
                     .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                         Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
-                        WriteBatch batch = storage.db().batch();
-                        storage.putNode(batch, node, new Point(in.getLon(), in.getLat()));
-                        node.computeReferences(batch, storage);
+                        DBAccess access = storage.db().batch();
+                        storage.putNode(access, node, new Point(in.getLon(), in.getLat()));
+                        node.computeReferences(access, storage);
 
                         notifier.step(Node.TYPE);
                     })
@@ -118,9 +118,9 @@ public class DigestPBF implements IMode {
                         }
 
                         Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
-                        WriteBatch batch = storage.db().batch();
-                        storage.putWay(batch, way);
-                        way.computeReferences(batch, storage);
+                        DBAccess access = storage.db().batch();
+                        storage.putWay(access, way);
+                        way.computeReferences(access, storage);
 
                         notifier.step(Way.TYPE);
                     })
@@ -132,9 +132,9 @@ public class DigestPBF implements IMode {
                         }
 
                         Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
-                        WriteBatch batch = storage.db().batch();
-                        storage.putRelation(batch, relation);
-                        relation.computeReferences(batch, storage);
+                        DBAccess access = storage.db().batch();
+                        storage.putRelation(access, relation);
+                        relation.computeReferences(access, storage);
 
                         notifier.step(Relation.TYPE);
                     })

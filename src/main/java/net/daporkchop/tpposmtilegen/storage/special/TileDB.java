@@ -27,7 +27,7 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
@@ -55,7 +55,7 @@ public final class TileDB extends WrappedRocksDB {
         return 16;
     }
 
-    public void addElementToTiles(@NonNull WriteBatch batch, @NonNull LongList tilePositions, int elementType, long element) throws Exception {
+    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, int elementType, long element) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
@@ -69,18 +69,18 @@ public final class TileDB extends WrappedRocksDB {
             for (int i = 0; i < size; i++) {
                 long id = tilePositions.getLong(i);
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-                batch.put(this.column, key, EMPTY_BYTE_ARRAY);
+                access.put(this.column, key, EMPTY_BYTE_ARRAY);
             }
         } finally {
             recycler.release(key);
         }
     }
 
-    public void clearTile(@NonNull WriteBatch batch, int tileX, int tileY) throws Exception {
-        this.clearTile(batch, xy2tilePos(tileX, tileY));
+    public void clearTile(@NonNull DBAccess access, int tileX, int tileY) throws Exception {
+        this.clearTile(access, xy2tilePos(tileX, tileY));
     }
 
-    public void clearTile(@NonNull WriteBatch batch, long tilePos) throws Exception {
+    public void clearTile(@NonNull DBAccess access, long tilePos) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
@@ -89,18 +89,14 @@ public final class TileDB extends WrappedRocksDB {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos + 1L) : tilePos + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            batch.deleteRange(this.column, from, to);
+            access.deleteRange(this.column, from, to);
         } finally {
             recycler.release(from);
             recycler.release(to);
         }
     }
 
-    public void getElementsInTile(int tileX, int tileY, @NonNull LongList dst) throws Exception {
-        this.getElementsInTile(xy2tilePos(tileX, tileY), dst);
-    }
-
-    public void getElementsInTile(long tilePos, @NonNull LongList dst) throws Exception {
+    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongList dst) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
@@ -111,7 +107,7 @@ public final class TileDB extends WrappedRocksDB {
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
-                 RocksIterator iterator = this.database.delegate().newIterator(this.column, options)) {
+                 RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
                     long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
                     dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);

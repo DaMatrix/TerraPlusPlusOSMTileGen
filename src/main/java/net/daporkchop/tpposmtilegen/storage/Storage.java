@@ -50,7 +50,7 @@ import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -156,23 +156,23 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void putNode(@NonNull WriteBatch batch, @NonNull Node node, @NonNull Point point) throws Exception {
-        this.points.put(batch, node.id(), point);
+    public void putNode(@NonNull DBAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
+        this.points.put(access, node.id(), point);
         this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {
-            this.nodes.put(batch, node.id(), node);
+            this.nodes.put(access, node.id(), node);
             this.taggedNodeFlags.set(node.id());
         }
     }
 
-    public void putWay(@NonNull WriteBatch batch, @NonNull Way way) throws Exception {
-        this.ways.put(batch, way.id(), way);
+    public void putWay(@NonNull DBAccess access, @NonNull Way way) throws Exception {
+        this.ways.put(access, way.id(), way);
         this.wayFlags.set(way.id());
     }
 
-    public void putRelation(@NonNull WriteBatch batch, @NonNull Relation relation) throws Exception {
-        this.relations.put(batch, relation.id(), relation);
+    public void putRelation(@NonNull DBAccess access, @NonNull Relation relation) throws Exception {
+        this.relations.put(access, relation.id(), relation);
         this.relationFlags.set(relation.id());
     }
 
@@ -230,23 +230,23 @@ public final class Storage implements AutoCloseable {
         return list.toArray(new Spliterator.OfLong[0]);
     }
 
-    public Element getElement(long combinedId) throws Exception {
+    public Element getElement(@NonNull DBAccess access, long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         long id = Element.extractId(combinedId);
         RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
         checkArg(map != null, "unknown element type %d (id %d)", type, id);
-        return map.get(id);
+        return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull WriteBatch batch, @NonNull Path outputRoot, long combinedId) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, @NonNull Path outputRoot, long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        Element element = this.getElement(combinedId);
+        Element element = this.getElement(this.db.read(), combinedId);
         checkState(element != null, "unknown %s %d", typeName, id);
 
-        Geometry geometry = element.toGeometry(this);
+        Geometry geometry = element.toGeometry(this, this.db.read());
         if (geometry != null) {
             long[] arr = geometry.listIntersectedTiles();
             int tileCount = arr.length;
@@ -276,8 +276,8 @@ public final class Storage implements AutoCloseable {
                 }
             }
 
-            this.tileContents.addElementToTiles(batch, LongArrayList.wrap(arr), type, id); //add this element to all tiles
-            this.intersectedTiles.put(batch, combinedId, arr);
+            this.tileContents.addElementToTiles(access, LongArrayList.wrap(arr), type, id); //add this element to all tiles
+            this.intersectedTiles.put(access, combinedId, arr);
 
             //encode geometry to GeoJSON
             StringBuilder builder = new StringBuilder();
@@ -290,7 +290,7 @@ public final class Storage implements AutoCloseable {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
                 if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.tempJsonStorage.put(batch, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.tempJsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
                     String path = geometry.externalStoragePath(type, id);
                     Path file = outputRoot.resolve(path);
@@ -307,7 +307,7 @@ public final class Storage implements AutoCloseable {
                     builder = new StringBuilder();
                     builder.append("{\"type\":\"Reference\",\"location\":\"").append(path).append("\"}\n");
                     buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
-                    this.tempJsonStorage.put(batch, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.tempJsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }
             } finally {
                 buf.release();
@@ -324,7 +324,7 @@ public final class Storage implements AutoCloseable {
                 int tileY = Tile.tileY(tilePos);
                 try {
                     LongList elements = new LongArrayList();
-                    this.tileContents.getElementsInTile(tilePos, elements);
+                    this.tileContents.getElementsInTile(this.db.read(), tilePos, elements);
                     if (elements.isEmpty()) { //nothing to write
                         return;
                     }
@@ -332,7 +332,7 @@ public final class Storage implements AutoCloseable {
                     Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
                     Files.createDirectories(dir);
                     try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-                        channel.write(this.tempJsonStorage.getAll(elements).toArray(new ByteBuffer[0]));
+                        channel.write(this.tempJsonStorage.getAll(this.db.read(), elements).toArray(new ByteBuffer[0]));
                     }
                 } catch (Exception e) {
                     throw new RuntimeException("tile " + tileX + ' ' + tileY, e);

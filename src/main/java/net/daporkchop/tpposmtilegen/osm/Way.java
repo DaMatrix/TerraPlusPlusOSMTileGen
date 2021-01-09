@@ -33,7 +33,7 @@ import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.util.List;
 import java.util.Map;
@@ -94,12 +94,12 @@ public final class Way extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
-        storage.references().addReferences(batch, Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
+    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
+        storage.references().addReferences(access, Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
     }
 
     @Override
-    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
+    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
         int count = this.nodes.length;
         if (count < 2) { //less than 2 points -> it can't be a valid geometry
             return null;
@@ -110,7 +110,7 @@ public final class Way extends Element {
         }
 
         //get points by their IDs
-        List<Point> points = storage.points().getAll(LongArrayList.wrap(this.nodes));
+        List<Point> points = storage.points().getAll(access, LongArrayList.wrap(this.nodes));
 
         for (int i = 0; i < count; i++) {
             if (points.get(i) == null) {

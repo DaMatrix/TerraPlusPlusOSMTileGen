@@ -20,62 +20,94 @@
 
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
+import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksIterator;
+import org.rocksdb.WriteBatch;
 
 import java.nio.ByteBuffer;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.util.List;
 
 /**
- * Wrapper around a RocksDB {@link org.rocksdb.WriteBatch} with the ability to auto-flush.
- *
  * @author DaPorkchop_
  */
-class AutoFlushingWriteBatch extends FlushableWriteBatch {
-    protected final long threshold;
+@RequiredArgsConstructor
+class FlushableWriteBatch implements DBAccess {
+    @NonNull
+    protected final OptimisticTransactionDB db;
+    protected final WriteBatch batch = new WriteBatch();
 
-    public AutoFlushingWriteBatch(OptimisticTransactionDB db, long threshold) {
-        super(db);
+    @Override
+    public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+        throw new UnsupportedOperationException();
+    }
 
-        this.threshold = positive(threshold, "threshold");
+    @Override
+    public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
+    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle, ReadOptions options) throws Exception {
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
-        super.put(columnFamilyHandle, key, value);
-        this.checkFlush();
+        this.batch.put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
-        super.put(columnFamilyHandle, key, value);
-        this.checkFlush();
+        this.batch.put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
-        super.merge(columnFamilyHandle, key, value);
-        this.checkFlush();
+        this.batch.merge(columnFamilyHandle, key, value);
     }
 
     @Override
     public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
-        super.delete(columnFamilyHandle, key);
-        this.checkFlush();
+        this.batch.delete(columnFamilyHandle, key);
     }
 
     @Override
     public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
-        super.deleteRange(columnFamilyHandle, beginKey, endKey);
-        this.checkFlush();
+        this.batch.deleteRange(columnFamilyHandle, beginKey, endKey);
     }
 
-    protected void checkFlush() throws Exception {
-        if (this.batch.getDataSize() >= this.threshold) {
-            this.flush(false);
+    @Override
+    public long getDataSize() throws Exception {
+        return this.batch.getDataSize();
+    }
+
+    @Override
+    public void flush(boolean sync) throws Exception {
+        try {
+            this.db.write(sync ? Database.SYNC_WRITE_OPTIONS : Database.WRITE_OPTIONS, this.batch);
+        } finally {
+            this.batch.clear();
         }
+    }
+
+    @Override
+    public void clear() throws Exception {
+        this.batch.clear();
+    }
+
+    @Override
+    public void close() throws Exception {
+        this.flush(true);
+
+        this.batch.close();
     }
 }

@@ -22,87 +22,83 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
-import org.rocksdb.WriteOptions;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.OptimisticTransactionDB;
+import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-public class WriteBatch extends org.rocksdb.WriteBatch {
+final class ReadAccess implements DBAccess {
     @NonNull
-    protected final RocksDB delegate;
+    protected final OptimisticTransactionDB db;
 
     @Override
-    @Deprecated
-    public void put(byte[] key, byte[] value) throws RocksDBException {
+    public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+        return this.db.get(columnFamilyHandle, Database.READ_OPTIONS, key);
+    }
+
+    @Override
+    public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
+        return this.db.multiGetAsList(columnFamilyHandleList, keys);
+    }
+
+    @Override
+    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
+        return this.db.newIterator(columnFamilyHandle);
+    }
+
+    @Override
+    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle, ReadOptions options) throws Exception {
+        return this.db.newIterator(columnFamilyHandle, options);
+    }
+
+    @Override
+    public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void merge(byte[] key, byte[] value) throws RocksDBException {
+    public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void remove(byte[] key) throws RocksDBException {
+    public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void put(ByteBuffer key, ByteBuffer value) throws RocksDBException {
+    public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void delete(byte[] key) throws RocksDBException {
+    public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void singleDelete(byte[] key) throws RocksDBException {
+    public long getDataSize() throws Exception {
+        return 0L;
+    }
+
+    @Override
+    public void flush(boolean sync) throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void deleteRange(byte[] beginKey, byte[] endKey) throws RocksDBException {
+    public void clear() throws Exception {
         throw new UnsupportedOperationException();
     }
 
     @Override
-    @Deprecated
-    public void remove(ByteBuffer key) throws RocksDBException {
-        throw new UnsupportedOperationException();
-    }
-
-    public void flush() {
-        this.flush(Database.SYNC_WRITE_OPTIONS);
-    }
-
-    public void flush(@NonNull WriteOptions writeOptions) {
-        try {
-            this.delegate.write(writeOptions, this);
-        } catch (RocksDBException e) {
-            PUnsafe.throwException(e);
-        } finally {
-            this.clear();
-        }
-    }
-
-    @Override
-    public void close() {
-        this.flush();
-
-        super.close();
+    public void close() throws Exception {
     }
 }

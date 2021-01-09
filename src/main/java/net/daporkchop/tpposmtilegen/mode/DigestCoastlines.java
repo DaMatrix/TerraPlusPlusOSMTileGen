@@ -26,7 +26,7 @@ import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.geotools.data.FileDataStore;
 import org.geotools.data.FileDataStoreFinder;
@@ -72,8 +72,8 @@ public class DigestCoastlines implements IMode {
                 .slot("pieces")
                 .build();
              Storage storage = new Storage(dst.toPath())) {
-            WriteBatch batch = storage.db().batch();
-            storage.coastlines().clear(batch);
+            DBAccess access = storage.db().batch();
+            storage.coastlines().clear(access);
 
             FileDataStore store = FileDataStoreFinder.getDataStore(src);
             SimpleFeatureSource featureSource = store.getFeatureSource();
@@ -89,7 +89,7 @@ public class DigestCoastlines implements IMode {
                 MultiPolygon mp = (MultiPolygon) feature.getProperty((String) null).getValue();
 
                 Coastline.Area area = this.toArea(mp);
-                storage.coastlines().put(batch, id, new Coastline(id, area));
+                storage.coastlines().put(access, id, new Coastline(id, area));
                 id++;
                 notifier.step(0);
             }

@@ -55,17 +55,17 @@ public abstract class WrappedRocksDB {
         Arrays.fill(highKey, (byte) 0xFF);
     }
 
-    public void clear(@NonNull WriteBatch batch) throws Exception {
+    public void clear(@NonNull DBAccess access) throws Exception {
         int keySize = this.keySize();
         byte[] lowKey = new byte[keySize];
         Arrays.fill(lowKey, (byte) 0);
         byte[] highKey = new byte[keySize];
         Arrays.fill(highKey, (byte) 0xFF);
 
-        batch.deleteRange(this.column, lowKey, highKey);
-        batch.delete(this.column, highKey); //deleteRange's upper bound is exclusive
+        access.deleteRange(this.column, lowKey, highKey);
+        access.delete(this.column, highKey); //deleteRange's upper bound is exclusive
 
-        batch.flush();
+        access.flush(true);
         this.optimize(); //force compaction to delete all table files
     }
 

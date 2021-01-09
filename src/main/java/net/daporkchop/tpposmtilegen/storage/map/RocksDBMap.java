@@ -28,7 +28,7 @@ import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import org.rocksdb.ColumnFamilyHandle;
 
@@ -54,7 +54,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         return 8;
     }
 
-    public void put(@NonNull WriteBatch batch, long key, @NonNull V value) throws Exception {
+    public void put(@NonNull DBAccess access, long key, @NonNull V value) throws Exception {
         ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
         ByteBuf buf = WRITE_BUFFER_CACHE.get();
 
@@ -62,10 +62,10 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         keyBuffer.putLong(key).flip();
 
         this.valueToBytes(value, buf.clear());
-        batch.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
+        access.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
     }
 
-    public void putAll(@NonNull WriteBatch batch, @NonNull LongList keys, @NonNull List<V> values) throws Exception {
+    public void putAll(@NonNull DBAccess access, @NonNull LongList keys, @NonNull List<V> values) throws Exception {
         checkArg(keys.size() == values.size(), "must have same number of keys as values!");
         int size = keys.size();
         if (size == 0) {
@@ -80,11 +80,11 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             keyBuffer.putLong(keys.getLong(i)).flip();
 
             this.valueToBytes(values.get(i), buf.clear());
-            batch.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
+            access.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
         }
     }
 
-    public void deleteAll(@NonNull WriteBatch batch, @NonNull LongList keys) throws Exception {
+    public void deleteAll(@NonNull DBAccess access, @NonNull LongList keys) throws Exception {
         int size = keys.size();
         if (size == 0) {
             return;
@@ -97,34 +97,34 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             for (int i = 0; i < size; i++) {
                 long key = keys.getLong(i);
                 PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
-                batch.delete(this.column, keyArray);
+                access.delete(this.column, keyArray);
             }
         } finally {
             keyArrayRecycler.release(keyArray);
         }
     }
 
-    public V get(long key) throws Exception {
+    public V get(@NonNull DBAccess access, long key) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();
         try {
             PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
 
-            byte[] valueData = this.database.delegate().get(this.column, Database.READ_OPTIONS, keyArray);
+            byte[] valueData = access.get(this.column, keyArray);
             return valueData != null ? this.valueFromBytes(key, Unpooled.wrappedBuffer(valueData)) : null;
         } finally {
             keyArrayRecycler.release(keyArray);
         }
     }
 
-    public List<V> getAll(@NonNull LongList keys) throws Exception {
+    public List<V> getAll(@NonNull DBAccess access, @NonNull LongList keys) throws Exception {
         int size = keys.size();
         if (size == 0) {
             return Collections.emptyList();
         } else if (size > 10000) { //split into smaller gets (prevents what i can only assume is a rocksdbjni bug where it will throw an NPE when requesting too many elements at once
             List<V> dst = new ArrayList<>(size);
             for (int i = 0; i < size; i += 10000) {
-                dst.addAll(this.getAll(keys.subList(i, min(i + 10000, size))));
+                dst.addAll(this.getAll(access, keys.subList(i, min(i + 10000, size))));
             }
             return dst;
         }
@@ -142,7 +142,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             }
 
             //look up values from key
-            valueBytes = this.database.delegate().multiGetAsList(new DuplicatedList<>(this.column, size), keyBytes);
+            valueBytes = access.multiGetAsList(new DuplicatedList<>(this.column, size), keyBytes);
         } finally {
             keyBytes.forEach(keyArrayRecycler::release);
         }

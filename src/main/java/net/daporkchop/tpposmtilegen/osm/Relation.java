@@ -35,7 +35,7 @@ import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -100,18 +100,18 @@ public final class Relation extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull WriteBatch batch, @NonNull Storage storage) throws Exception {
+    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
         LongList ids = new LongArrayList(this.members.length);
         for (Member member : this.members) {
             ids.add(member.combinedId);
         }
 
         //first parameter (type) is 0 because the ids are already combined with their type
-        storage.references().addReferences(batch, 0, ids, Relation.TYPE, this.id);
+        storage.references().addReferences(access, 0, ids, Relation.TYPE, this.id);
     }
 
     @Override
-    public Geometry toGeometry(@NonNull Storage storage) throws Exception {
+    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
         //we don't care about any relation that isn't an area
 
         if (!AreaKeys.isRelationArea(this.tags)) { //this relations's tags don't indicate that it's an area, don't bother making it into one
@@ -151,7 +151,7 @@ public final class Relation extends Element {
         }
 
         //load ways from db
-        List<Way> ways = storage.ways().getAll(LongArrayList.wrap(wayIds));
+        List<Way> ways = storage.ways().getAll(access, LongArrayList.wrap(wayIds));
 
         //ensure all ways exist
         for (int i = 0; i < wayCount; i++) {
@@ -172,7 +172,7 @@ public final class Relation extends Element {
         }
 
         //load points from db
-        List<Point> points = storage.points().getAll(LongArrayList.wrap(pointIds));
+        List<Point> points = storage.points().getAll(access, LongArrayList.wrap(pointIds));
 
         //copy points into direct memory so that they can be passed along to JNI
         long[] coordAddrs = Arrays.stream(coordCounts).mapToLong(i -> i * PolygonAssembler.POINT_SIZE).map(PUnsafe::allocateMemory).toArray();

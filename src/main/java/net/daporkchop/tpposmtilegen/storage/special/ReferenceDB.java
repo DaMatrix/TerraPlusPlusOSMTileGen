@@ -27,7 +27,7 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteBatch;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
@@ -53,7 +53,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         return 16;
     }
 
-    public void addReference(@NonNull WriteBatch batch, int type, long id, int referentType, long referent) throws Exception {
+    public void addReference(@NonNull DBAccess access, int type, long id, int referentType, long referent) throws Exception {
         id = Element.addTypeToId(type, id);
         referent = Element.addTypeToId(referentType, referent);
 
@@ -62,13 +62,13 @@ public final class ReferenceDB extends WrappedRocksDB {
         try {
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
-            batch.put(this.column, key, EMPTY_BYTE_ARRAY);
+            access.put(this.column, key, EMPTY_BYTE_ARRAY);
         } finally {
             recycler.release(key);
         }
     }
 
-    public void addReferences(@NonNull WriteBatch batch, int type, @NonNull LongList ids, int referentType, long referent) throws Exception {
+    public void addReferences(@NonNull DBAccess access, int type, @NonNull LongList ids, int referentType, long referent) throws Exception {
         int size = ids.size();
         if (size == 0) {
             return;
@@ -82,14 +82,14 @@ public final class ReferenceDB extends WrappedRocksDB {
             for (int i = 0; i < size; i++) {
                 long id = Element.addTypeToId(type, ids.getLong(i));
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-                batch.put(this.column, key, EMPTY_BYTE_ARRAY);
+                access.put(this.column, key, EMPTY_BYTE_ARRAY);
             }
         } finally {
             recycler.release(key);
         }
     }
 
-    public void deleteReference(@NonNull WriteBatch batch, int type, long id, int referentType, long referent) throws Exception {
+    public void deleteReference(@NonNull DBAccess access, int type, long id, int referentType, long referent) throws Exception {
         id = Element.addTypeToId(type, id);
         referent = Element.addTypeToId(referentType, referent);
 
@@ -98,13 +98,13 @@ public final class ReferenceDB extends WrappedRocksDB {
         try {
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
             PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
-            batch.delete(this.column, key);
+            access.delete(this.column, key);
         } finally {
             recycler.release(key);
         }
     }
 
-    public void deleteReferencesTo(@NonNull WriteBatch batch, int type, long id) throws Exception {
+    public void deleteReferencesTo(@NonNull DBAccess access, int type, long id) throws Exception {
         id = Element.addTypeToId(type, id);
 
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
@@ -115,14 +115,14 @@ public final class ReferenceDB extends WrappedRocksDB {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id + 1L) : id + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            batch.deleteRange(this.column, from, to);
+            access.deleteRange(this.column, from, to);
         } finally {
             recycler.release(from);
             recycler.release(to);
         }
     }
 
-    public void getReferencesTo(int type, long id, @NonNull LongList dst) throws Exception {
+    public void getReferencesTo(@NonNull DBAccess access, int type, long id, @NonNull LongList dst) throws Exception {
         id = Element.addTypeToId(type, id);
 
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
@@ -135,7 +135,7 @@ public final class ReferenceDB extends WrappedRocksDB {
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
-                 RocksIterator iterator = this.database.delegate().newIterator(this.column, options)) {
+                 RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
                     dst.add(PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L));
                 }
