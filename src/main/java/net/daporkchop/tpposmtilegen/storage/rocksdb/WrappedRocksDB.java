@@ -50,11 +50,6 @@ public abstract class WrappedRocksDB {
 
     protected abstract int keySize();
 
-    protected void initializeKeyRanges(@NonNull byte[] lowKey, @NonNull byte[] highKey) {
-        Arrays.fill(lowKey, (byte) 0);
-        Arrays.fill(highKey, (byte) 0xFF);
-    }
-
     public void clear(@NonNull DBAccess access) throws Exception {
         int keySize = this.keySize();
         byte[] lowKey = new byte[keySize];

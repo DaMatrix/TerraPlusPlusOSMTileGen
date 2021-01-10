@@ -112,6 +112,8 @@ public final class Changeset {
 
         protected final Map<String, String> tags = new HashMap<>();
 
+        public abstract int type();
+
         @JsonSetter("timestamp")
         private void timestamp(String timestamp) {
             this.timestamp = Instant.parse(timestamp);
@@ -162,12 +164,22 @@ public final class Changeset {
         protected String lon;
         @JsonProperty
         protected String lat;
+
+        @Override
+        public int type() {
+            return net.daporkchop.tpposmtilegen.osm.Node.TYPE;
+        }
     }
 
     @Getter
     @ToString(callSuper = true)
     public static final class Way extends Element {
         protected final LongList refs = new LongArrayList();
+
+        @Override
+        public int type() {
+            return net.daporkchop.tpposmtilegen.osm.Way.TYPE;
+        }
 
         @JsonSetter("nd")
         private void nd(Nd nd) {
@@ -188,6 +200,11 @@ public final class Changeset {
     @ToString(callSuper = true)
     public static final class Relation extends Element {
         protected final List<Member> members = new ArrayList<>();
+
+        @Override
+        public int type() {
+            return net.daporkchop.tpposmtilegen.osm.Relation.TYPE;
+        }
 
         @JsonSetter("member")
         private void member(Member member) {

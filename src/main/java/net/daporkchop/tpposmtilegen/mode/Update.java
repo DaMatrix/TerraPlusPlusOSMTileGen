@@ -21,14 +21,17 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import com.sun.net.httpserver.HttpServer;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongIterator;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongLists;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -46,6 +49,7 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -98,7 +102,7 @@ public class Update implements IMode {
                         LongList elements = new LongArrayList();
                         storage.tileContents().getElementsInTile(storage.db().read(), tilePos, elements);
 
-                        ByteBuffer[] buffers = storage.tempJsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
+                        ByteBuffer[] buffers = storage.jsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
                         exchange.sendResponseHeaders(200, 0);
 
                         try (OutputStream out = exchange.getResponseBody()) {
@@ -135,17 +139,18 @@ public class Update implements IMode {
 
             ChangesetState globalState = storage.getChangesetState();
 
-            if (storage.sequenceNumber().get() < 0L) { //compute sequence number
+            long sequenceNumber = storage.sequenceNumber().get(storage.db().read());
+            if (sequenceNumber < 0L) { //compute sequence number
                 logger.info("attempting to compute sequence number from timestamp...");
 
                 long replicationTimestamp = storage.replicationTimestamp().get();
                 checkState(replicationTimestamp >= 0L, "no replication info!");
 
                 //binary search to find sequence number from timestamp
-                int min = 0;
-                int max = globalState.sequenceNumber();
+                long min = 0;
+                long max = globalState.sequenceNumber();
                 while (min <= max) {
-                    int middle = (min + max) >> 1;
+                    long middle = (min + max) >> 1L;
                     long middleTimestamp;
                     try {
                         middleTimestamp = storage.getChangesetState(middle).timestamp().toEpochMilli() / 1000L;
@@ -157,20 +162,22 @@ public class Update implements IMode {
                         logger.success("found sequence number: " + middle);
                     } else if (middleTimestamp < replicationTimestamp) {
                         logger.trace("sequence number too high: " + middle);
-                        min = middle + 1;
+                        min = middle + 1L;
                     } else {
                         logger.trace("sequence number too low: " + middle);
-                        max = middle - 1;
+                        max = middle - 1L;
                     }
                 }
 
-                logger.success("offsetting sequence number by 60 to be sure we have the right one", min - 60);
-                storage.sequenceNumber().set(min - 60);
+                logger.success("offsetting sequence number %d by 60 to be sure we have the right one -> %d", min, min - 60L);
+                try (DBAccess batch = storage.db().newNotAutoFlushingWriteBatch()) {
+                    storage.sequenceNumber().set(batch, min - 60L);
+                }
+                sequenceNumber = min - 60L;
             } else if (storage.replicationTimestamp().get() < 0L) { //set timestamp
-                storage.replicationTimestamp().set(storage.getChangesetState(toInt(storage.sequenceNumber().get())).timestamp().toEpochMilli() / 1000L);
+                storage.replicationTimestamp().set(storage.getChangesetState(sequenceNumber).timestamp().toEpochMilli() / 1000L);
             }
 
-            int sequenceNumber = toInt(storage.sequenceNumber().get());
             Instant now = Instant.ofEpochSecond(storage.replicationTimestamp().get());
             logger.info("current: %d (%s)\nlatest: %d (%s)", sequenceNumber, now, globalState.sequenceNumber(), globalState.timestamp());
 
@@ -179,28 +186,26 @@ public class Update implements IMode {
                 return;
             }
 
-            try (DBAccess access = storage.db().newNotAutoFlushingWriteBatch()) { //clear anything that might be left over in the temp geojson storage
-                storage.tempJsonStorage().clear(access);
-            }
-
             logger.info("updating...");
             ChangesetState state = storage.getChangesetState(sequenceNumber);
-            for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber++) {
-                int next = sequenceNumber + 1;
-                ChangesetState nextState = storage.getChangesetState(next);
-                logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
+            try (DBAccess txn = storage.db().newTransaction()) {
+                for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber = storage.sequenceNumber().get(txn)) {
+                    long next = sequenceNumber + 1L;
+                    ChangesetState nextState = storage.getChangesetState(next);
+                    logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
-                Changeset changeset = storage.getChangeset(next);
-                try (DBAccess access = storage.db().newTransaction()) {
-                    this.applyChanges(storage, access, dst, now, changeset);
+                    Changeset changeset = storage.getChangeset(next);
+                    this.applyChanges(storage, txn, dst, now, changeset);
+                    storage.sequenceNumber().set(txn, next);
+
+                    state = nextState;
                 }
-
-                state = nextState;
             }
         }
     }
 
     private void applyChanges(Storage storage, DBAccess access, Path tileDir, Instant now, Changeset changeset) throws Exception {
+        //phase 1: find all elements affected by this change, and write out modified elements
         LongSet changedIds = new LongOpenHashSet();
         for (Changeset.Entry entry : changeset.entries()) {
             entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
@@ -222,68 +227,85 @@ public class Update implements IMode {
                     break;
             }
         }
+        logger.debug("phase 1: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
 
-        logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+        //phase 2: update element references
+        for (long combinedId : changedIds) {
+            storage.references().deleteReferencesTo(access, 0, combinedId);
 
-        LongSet changedIdsProcessed = new LongOpenHashSet();
-        LongSet dirtyTiles = new LongOpenHashSet();
-        while (!changedIds.isEmpty()) {
-            LongIterator itr = changedIds.iterator();
-            long id = itr.nextLong();
-            itr.remove();
-
-            //find and recursively process all elements that reference this one
-            LongList referents = new LongArrayList();
-            storage.references().getReferencesTo(access, 0, id, referents);
-            if (!referents.isEmpty()) {
-                storage.references().deleteReferencesTo(access, 0, id);
-                referents.removeAll(changedIdsProcessed);
-                changedIds.addAll(referents);
-            }
-
-            //mark all tiles that were intersected as dirty
-            long[] intersectedTiles = storage.intersectedTiles().get(access, id);
-            if (intersectedTiles != null) {
-                storage.intersectedTiles().deleteAll(access, LongLists.singleton(id));
-                dirtyTiles.addAll(LongArrayList.wrap(intersectedTiles));
-            }
-
-            changedIdsProcessed.add(id);
-        }
-
-        for (LongIterator itr = changedIdsProcessed.iterator(); itr.hasNext();) {
-            long id = itr.nextLong();
-            Element element = storage.getElement(access, id);
-            if (element != null) { //if it's null the element was deleted, which we don't care about handling
+            Element element = storage.getElement(access, combinedId);
+            if (element != null) {
                 element.computeReferences(access, storage);
-            } else {
-                itr.remove();
             }
         }
+        logger.debug("phase 2: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
 
-        LongSet elementsToRegenerate = new LongOpenHashSet(changedIdsProcessed);
-        for (long tilePos : dirtyTiles) {
-            LongList elementsInTile = new LongArrayList();
-            storage.tileContents().getElementsInTile(access, tilePos, elementsInTile);
-            if (!elementsInTile.isEmpty()) {
-                storage.tileContents().clearTile(access, tilePos);
-                elementsToRegenerate.addAll(elementsInTile);
+        //phase 3: update geometry intersections
+        for (long combinedId : changedIds) {
+            LongSet intersectedTilesBefore;
+            {
+                long[] arr = storage.intersectedTiles().get(access, combinedId);
+                intersectedTilesBefore = new LongOpenHashSet(arr != null ? arr : new long[0]);
+            }
+
+            Element element = storage.getElement(access, combinedId);
+            LongSet intersectedTilesNext = LongSets.EMPTY_SET;
+            if (element != null) {
+                Geometry geometry = element.toGeometry(storage, access);
+                if (geometry != null) {
+                    long[] intersectedTilesNextArray = geometry.listIntersectedTiles();
+                    storage.intersectedTiles().put(access, combinedId, intersectedTilesNextArray);
+
+                    intersectedTilesNext = new LongOpenHashSet(intersectedTilesNextArray);
+                } else {
+                    storage.intersectedTiles().deleteAll(access, LongLists.singleton(combinedId));
+                }
+            } else { //element was deleted
+                storage.intersectedTiles().deleteAll(access, LongLists.singleton(combinedId));
+            }
+
+            LongList toDeleteTiles = new LongArrayList(intersectedTilesBefore);
+            toDeleteTiles.removeAll(intersectedTilesNext);
+            storage.tileContents().deleteElementFromTiles(access, toDeleteTiles, 0, combinedId);
+
+            LongList toAddTiles = new LongArrayList(intersectedTilesNext);
+            toAddTiles.removeAll(intersectedTilesBefore);
+            storage.tileContents().addElementToTiles(access, toAddTiles, 0, combinedId);
+        }
+        logger.debug("phase 3: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+
+        //phase 4: actually export geometry as GeoJSON
+        for (long combinedId : changedIds) {
+            Element element = storage.getElement(access, combinedId);
+            if (element != null) {
+                Geometry geometry = element.toGeometry(storage, access);
+                if (geometry != null) {
+                    //encode geometry to GeoJSON
+                    StringBuilder builder = new StringBuilder();
+                    Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
+
+                    //convert json to bytes
+                    ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.heapBuffer(builder.length());
+                    try {
+                        buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
+                        storage.jsonStorage().put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    } finally {
+                        buf.release();
+                    }
+                } else {
+                    storage.jsonStorage().deleteAll(access, LongLists.singleton(combinedId));
+                }
+            } else { //element was deleted
+                storage.jsonStorage().deleteAll(access, LongLists.singleton(combinedId));
             }
         }
-
-        for (long element : elementsToRegenerate) {
-            storage.convertToGeoJSONAndStoreInDB(access, tileDir, element);
-        }
-
-        storage.exportDirtyTiles(access, tileDir);
-
-        storage.tempJsonStorage().clear(access);
-
-        logger.debug("batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.debug("phase 4: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
         long id = element.id();
+        long combinedId = Element.addTypeToId(element.type(), id);
+
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
 
@@ -291,26 +313,25 @@ public class Update implements IMode {
             if (!changedNode.tags().isEmpty()) {
                 storage.nodes().put(access, id, new Node(id, changedNode.tags()));
             }
-
-            changedIds.add(Element.addTypeToId(Node.TYPE, id));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
 
             storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
-
-            changedIds.add(Element.addTypeToId(Way.TYPE, id));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
 
             Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
             storage.relations().put(access, id, new Relation(id, changedRelation.tags(), members));
-
-            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
         }
+
+        //this will force the element's tile intersections and references to be re-computed
+        changedIds.add(combinedId);
     }
 
     private void modify(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
         long id = element.id();
+        long combinedId = Element.addTypeToId(element.type(), id);
+
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
             Point point = storage.points().get(access, id);
@@ -328,8 +349,6 @@ public class Update implements IMode {
             } else {
                 storage.nodes().put(access, id, new Node(id, changedNode.tags()));
             }
-
-            changedIds.add(Element.addTypeToId(Node.TYPE, id));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way way = storage.ways().get(access, id);
@@ -351,8 +370,6 @@ public class Update implements IMode {
             }
 
             storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
-
-            changedIds.add(Element.addTypeToId(Way.TYPE, id));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation relation = storage.relations().get(access, id);
@@ -376,13 +393,16 @@ public class Update implements IMode {
             }
 
             storage.relations().put(access, id, new Relation(id, changedRelation.tags(), newMembers));
-
-            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
         }
+
+        //this will force the element's tile intersections and references to be re-computed
+        changedIds.add(combinedId);
+        this.markReferentsDirty(storage, access, changedIds, combinedId);
     }
 
     private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
         long id = element.id();
+        long combinedId = Element.addTypeToId(element.type(), id);
 
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
@@ -391,21 +411,33 @@ public class Update implements IMode {
 
             storage.points().deleteAll(access, LongLists.singleton(id));
             storage.nodes().deleteAll(access, LongLists.singleton(id));
-            changedIds.add(Element.addTypeToId(Node.TYPE, id));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way way = storage.ways().get(access, id);
             checkState(way != null, "way with id %d doesn't exist", id);
 
             storage.ways().deleteAll(access, LongLists.singleton(id));
-            changedIds.add(Element.addTypeToId(Way.TYPE, id));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation relation = storage.relations().get(access, id);
             checkState(relation != null, "relation with id %d doesn't exist", id);
 
             storage.relations().deleteAll(access, LongLists.singleton(id));
-            changedIds.add(Element.addTypeToId(Relation.TYPE, id));
+        }
+
+        //this will force the element's tile intersections and references to be re-computed
+        changedIds.add(combinedId);
+        this.markReferentsDirty(storage, access, changedIds, combinedId);
+    }
+
+    private void markReferentsDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
+        LongList referents = new LongArrayList();
+        storage.references().getReferencesTo(access, 0, combinedId, referents);
+
+        for (long referent : referents) {
+            if (changedIds.add(referent)) {
+                this.markReferentsDirty(storage, access, changedIds, referent);
+            }
         }
     }
 }

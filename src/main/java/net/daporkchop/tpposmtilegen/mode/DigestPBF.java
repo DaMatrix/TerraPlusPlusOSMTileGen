@@ -91,7 +91,7 @@ public class DigestPBF implements IMode {
                         }
 
                         if (header.getReplicationSequenceNumber() != null) {
-                            storage.sequenceNumber().set(header.getReplicationSequenceNumber());
+                            storage.sequenceNumber().set(storage.db().batch(), header.getReplicationSequenceNumber());
                         }
                         if (header.getReplicationTimestamp() != null) {
                             storage.replicationTimestamp().set(header.getReplicationTimestamp());

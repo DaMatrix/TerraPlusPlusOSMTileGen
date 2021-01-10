@@ -44,6 +44,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
@@ -163,6 +164,7 @@ public final class Database implements AutoCloseable {
         public Database build(@NonNull Path path) throws Exception {
             List<ColumnFamilyHandle> columns = new ArrayList<>(this.columns.size());
             OptimisticTransactionDB db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+            checkState(columns.size() == this.columns.size());
             Database database = new Database(db, columns, this.autoFlush);
 
             for (int i = 1; i < columns.size(); i++) {

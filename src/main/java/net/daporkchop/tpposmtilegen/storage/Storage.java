@@ -31,6 +31,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.oio.StreamUtil;
+import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
@@ -51,6 +52,7 @@ import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -60,6 +62,7 @@ import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.CompressionType;
 
+import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
@@ -98,7 +101,7 @@ public final class Storage implements AutoCloseable {
 
     protected final OffHeapAtomicLong coastlineCount;
 
-    protected final OffHeapAtomicLong sequenceNumber;
+    protected DBLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
     protected String replicationBaseUrl;
 
@@ -108,7 +111,7 @@ public final class Storage implements AutoCloseable {
     protected TileDB tileContents;
     protected final OffHeapAtomicBitSet dirtyTiles;
     protected LongArrayDB intersectedTiles;
-    protected BlobDB tempJsonStorage;
+    protected BlobDB jsonStorage;
 
     protected final Database db;
 
@@ -126,7 +129,8 @@ public final class Storage implements AutoCloseable {
                 .add("references", (database, handle) -> this.references = new ReferenceDB(database, handle))
                 .add("tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.tileContents = new TileDB(database, handle))
                 .add("intersected_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
-                .add("json", CompressionType.NO_COMPRESSION, (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
+                .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle) -> this.jsonStorage = new BlobDB(database, handle))
+                .add("sequence_number", (database, handle) -> this.sequenceNumber = new DBLong(database, handle))
                 .autoFlush(true)
                 .build(root.resolve("db"));
 
@@ -137,7 +141,6 @@ public final class Storage implements AutoCloseable {
 
         this.coastlineCount = new OffHeapAtomicLong(root.resolve("coastline_count"), 0L);
 
-        this.sequenceNumber = new OffHeapAtomicLong(root.resolve("osm_sequenceNumber"), -1L);
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
         this.dirtyElements = new OffHeapAtomicBitSet(root.resolve("elements_dirty"), 1L << 40L);
@@ -290,7 +293,7 @@ public final class Storage implements AutoCloseable {
                 buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
                 if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.tempJsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.jsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 } else { //element is referenced multiple times, store it in an external file
                     String path = geometry.externalStoragePath(type, id);
                     Path file = outputRoot.resolve(path);
@@ -307,7 +310,7 @@ public final class Storage implements AutoCloseable {
                     builder = new StringBuilder();
                     builder.append("{\"type\":\"Reference\",\"location\":\"").append(path).append("\"}\n");
                     buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
-                    this.tempJsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.jsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }
             } finally {
                 buf.release();
@@ -332,7 +335,7 @@ public final class Storage implements AutoCloseable {
                     Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
                     Files.createDirectories(dir);
                     try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        channel.write(this.tempJsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
+                        channel.write(this.jsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
                     }
                 } catch (Exception e) {
                     throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
@@ -353,7 +356,7 @@ public final class Storage implements AutoCloseable {
         this.flush();
         if (temp) {
             logger.trace("Clearing temporary GeoJSON storage...");
-            this.tempJsonStorage.clear(this.db.batch());
+            this.jsonStorage.clear(this.db.batch());
         }
         if (index) {
             logger.trace("Clearing tile content index...");
@@ -379,7 +382,6 @@ public final class Storage implements AutoCloseable {
 
         this.coastlineCount.close();
 
-        this.sequenceNumber.close();
         this.replicationTimestamp.close();
 
         this.dirtyElements.close();
@@ -397,21 +399,31 @@ public final class Storage implements AutoCloseable {
     }
 
     public ChangesetState getChangesetState() throws Exception {
-        return this.getChangesetState("state.txt", false);
+        return this.getReplicationDataObject("state.txt", false, ChangesetState::new);
     }
 
-    public ChangesetState getChangesetState(int sequence) throws Exception {
-        return this.getChangesetState(PStrings.fastFormat("%03d/%03d/%03d.state.txt", sequence / 1000000, (sequence / 1000) % 1000, sequence % 1000), true);
+    public ChangesetState getChangesetState(long sequence) throws Exception {
+        return this.getReplicationDataObject(
+                PStrings.fastFormat("%03d/%03d/%03d.state.txt", sequence / 1000000L, (sequence / 1000L) % 1000L, sequence % 1000L),
+                true,
+                ChangesetState::new);
     }
 
-    private ChangesetState getChangesetState(String path, boolean cache) throws Exception {
+    public Changeset getChangeset(long sequence) throws Exception {
+        return this.getReplicationDataObject(
+                PStrings.fastFormat("%03d/%03d/%03d.osc.gz", sequence / 1000000L, (sequence / 1000L) % 1000L, sequence % 1000L),
+                true,
+                Changeset::parse);
+    }
+
+    private <T> T getReplicationDataObject(@NonNull String path, boolean cache, @NonNull IOFunction<ByteBuf, T> parser) throws IOException {
         Path file = this.root.resolve("replication").resolve(path);
         if (cache && Files.exists(file)) {
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
                 ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(toInt(channel.size()));
                 try {
                     buf.writeBytes(channel, 0, buf.writableBytes());
-                    return new ChangesetState(buf);
+                    return parser.applyThrowing(buf);
                 } finally {
                     buf.release();
                 }
@@ -430,39 +442,6 @@ public final class Storage implements AutoCloseable {
             }
         }
 
-        return new ChangesetState(Unpooled.wrappedBuffer(data));
-    }
-
-    public Changeset getChangeset(int sequence) throws Exception {
-        return this.getChangeset(PStrings.fastFormat("%03d/%03d/%03d.osc.gz", sequence / 1000000, (sequence / 1000) % 1000, sequence % 1000), true);
-    }
-
-    private Changeset getChangeset(String path, boolean cache) throws Exception {
-        Path file = this.root.resolve("replication").resolve(path);
-        if (cache && Files.exists(file)) {
-            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
-                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(toInt(channel.size()));
-                try {
-                    buf.writeBytes(channel, 0, buf.writableBytes());
-                    return Changeset.parse(buf);
-                } finally {
-                    buf.release();
-                }
-            }
-        }
-
-        byte[] data;
-        try (InputStream in = new URL(this.replicationBaseUrl + path).openStream()) {
-            data = StreamUtil.toByteArray(in);
-        }
-
-        if (cache) {
-            Files.createDirectories(file.getParent());
-            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-                channel.write(ByteBuffer.wrap(data));
-            }
-        }
-
-        return Changeset.parse(Unpooled.wrappedBuffer(data));
+        return parser.applyThrowing(Unpooled.wrappedBuffer(data));
     }
 }

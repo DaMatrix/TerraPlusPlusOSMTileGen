@@ -42,11 +42,11 @@ import static net.daporkchop.lib.logging.Logging.*;
 @EqualsAndHashCode
 public class ChangesetState {
     protected final Instant timestamp;
-    protected final int sequenceNumber;
+    protected final long sequenceNumber;
 
     public ChangesetState(@NonNull ByteBuf data) {
         String timestamp = null;
-        int sequenceNumber = -1;
+        long sequenceNumber = -1L;
 
         Matcher matcher = Pattern.compile("^(.*?)=(.+)$", Pattern.MULTILINE)
                 .matcher(data.readCharSequence(data.readableBytes(), StandardCharsets.US_ASCII));
@@ -56,7 +56,7 @@ public class ChangesetState {
                     timestamp = matcher.group(2).replace("\\:", ":");
                     break;
                 case "sequenceNumber":
-                    sequenceNumber = Integer.parseInt(matcher.group(2));
+                    sequenceNumber = Long.parseLong(matcher.group(2));
                     break;
                 case "txnMax":
                 case "txnMaxQueried":
@@ -68,7 +68,7 @@ public class ChangesetState {
         }
 
         checkState(timestamp != null, "timestamp not set!");
-        checkState(sequenceNumber >= 0, "sequenceNumber not set!");
+        checkState(sequenceNumber >= 0L, "sequenceNumber not set!");
 
         this.timestamp = Instant.parse(timestamp);
         this.sequenceNumber = sequenceNumber;

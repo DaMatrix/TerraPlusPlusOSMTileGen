@@ -108,7 +108,7 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public void flush(boolean sync) throws Exception {
-        //TODO
+        this.transaction.commit();
     }
 
     @Override

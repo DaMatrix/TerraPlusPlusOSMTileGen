@@ -76,8 +76,25 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void clearTile(@NonNull DBAccess access, int tileX, int tileY) throws Exception {
-        this.clearTile(access, xy2tilePos(tileX, tileY));
+    public void deleteElementFromTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, int elementType, long element) throws Exception {
+        int size = tilePositions.size();
+        if (size == 0) {
+            return;
+        }
+
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
+        byte[] key = recycler.get();
+        try {
+            element = Element.addTypeToId(elementType, element);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
+            for (int i = 0; i < size; i++) {
+                long id = tilePositions.getLong(i);
+                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                access.delete(this.column, key);
+            }
+        } finally {
+            recycler.release(key);
+        }
     }
 
     public void clearTile(@NonNull DBAccess access, long tilePos) throws Exception {
