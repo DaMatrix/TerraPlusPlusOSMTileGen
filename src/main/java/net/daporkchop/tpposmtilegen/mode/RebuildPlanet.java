@@ -138,13 +138,9 @@ public class RebuildPlanet implements IMode {
             logger.info("Optimization complete.");
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
-                    .slot("nodes").slot("ways").slot("relations").slot("coastlines", storage.coastlineCount().get())
+                    .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
-                CompletableFuture.allOf(
-                        CompletableFuture.runAsync(() -> notifier.setTotal(0, StreamSupport.longStream(storage.taggedNodeFlags().spliterator(), false).count())),
-                        CompletableFuture.runAsync(() -> notifier.setTotal(1, StreamSupport.longStream(storage.wayFlags().spliterator(), false).count())),
-                        CompletableFuture.runAsync(() -> notifier.setTotal(2, StreamSupport.longStream(storage.relationFlags().spliterator(), false).count()))
-                ).join();
+                Threading.forEachParallelLong(l -> notifier.incrementTotal(Element.extractType(l)), storage.unprocessedElements().spliterator());
 
                 Threading.forEachParallelLong(combinedId -> {
                     int type = Element.extractType(combinedId);
@@ -154,11 +150,14 @@ public class RebuildPlanet implements IMode {
                         throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
                     }
                     notifier.step(type);
-                }, storage.spliterateElements(false, true, true, true));
+                }, storage.unprocessedElements().spliterator());
                 storage.flush();
+
+                storage.unprocessedElements().clear();
             }
 
             storage.exportDirtyTiles(storage.db().read(), dst);
+            storage.dirtyTiles().clear(storage.db().batch());
 
             storage.purge(true, false); //erase temporary data
         }

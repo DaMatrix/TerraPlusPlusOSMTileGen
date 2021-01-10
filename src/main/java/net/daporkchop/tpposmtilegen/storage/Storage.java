@@ -51,16 +51,17 @@ import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
+import net.daporkchop.tpposmtilegen.storage.special.DirtyTracker;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
+import net.daporkchop.tpposmtilegen.util.CloseableExecutor;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapSpliteratableLongList;
 import org.rocksdb.CompressionType;
 
 import java.io.IOException;
@@ -72,12 +73,10 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Spliterator;
 import java.util.function.LongConsumer;
 import java.util.stream.LongStream;
-import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -94,24 +93,17 @@ public final class Storage implements AutoCloseable {
     protected CoastlineDB coastlines;
     protected final Int2ObjectMap<RocksDBMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
-    protected final OffHeapAtomicBitSet nodeFlags;
-    protected final OffHeapAtomicBitSet taggedNodeFlags;
-    protected final OffHeapAtomicBitSet wayFlags;
-    protected final OffHeapAtomicBitSet relationFlags;
-
-    protected final OffHeapAtomicLong coastlineCount;
+    protected final OffHeapSpliteratableLongList unprocessedElements;
 
     protected DBLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
     protected String replicationBaseUrl;
 
-    protected final OffHeapAtomicBitSet dirtyElements;
-
     protected ReferenceDB references;
     protected TileDB tileContents;
-    protected final OffHeapAtomicBitSet dirtyTiles;
+    protected DirtyTracker dirtyTiles;
     protected LongArrayDB intersectedTiles;
-    protected BlobDB jsonStorage;
+    protected BlobDB tempJsonStorage;
 
     protected final Database db;
 
@@ -122,29 +114,21 @@ public final class Storage implements AutoCloseable {
 
         this.db = new Database.Builder()
                 .add("nodes", (database, handle) -> this.nodes = new NodeDB(database, handle))
-                .add("points", CompressionType.NO_COMPRESSION, (database, handle) -> this.points = new PointDB(database, handle))
+                .add("points", (database, handle) -> this.points = new PointDB(database, handle))
                 .add("ways", (database, handle) -> this.ways = new WayDB(database, handle))
                 .add("relations", (database, handle) -> this.relations = new RelationDB(database, handle))
                 .add("coastlines", (database, handle) -> this.coastlines = new CoastlineDB(database, handle))
                 .add("references", (database, handle) -> this.references = new ReferenceDB(database, handle))
                 .add("tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.tileContents = new TileDB(database, handle))
-                .add("intersected_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
-                .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle) -> this.jsonStorage = new BlobDB(database, handle))
+                .add("intersected_tiles", (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
+                .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.dirtyTiles = new DirtyTracker(database, handle))
+                .add("json", CompressionType.NO_COMPRESSION, (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
                 .add("sequence_number", (database, handle) -> this.sequenceNumber = new DBLong(database, handle))
                 .autoFlush(true)
                 .build(root.resolve("db"));
 
-        this.nodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_nodeFlags"), 1L << 40L);
-        this.taggedNodeFlags = new OffHeapAtomicBitSet(root.resolve("osm_taggedNodeFlags"), 1L << 40L);
-        this.wayFlags = new OffHeapAtomicBitSet(root.resolve("osm_wayFlags"), 1L << 40L);
-        this.relationFlags = new OffHeapAtomicBitSet(root.resolve("osm_relationFlags"), 1L << 40L);
-
-        this.coastlineCount = new OffHeapAtomicLong(root.resolve("coastline_count"), 0L);
-
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
-
-        this.dirtyElements = new OffHeapAtomicBitSet(root.resolve("elements_dirty"), 1L << 40L);
-        this.dirtyTiles = new OffHeapAtomicBitSet(root.resolve("tiles_dirty"), 1L << 40L);
+        this.unprocessedElements = new OffHeapSpliteratableLongList(root.resolve("unprocessedElements"));
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
@@ -161,76 +145,21 @@ public final class Storage implements AutoCloseable {
 
     public void putNode(@NonNull DBAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
         this.points.put(access, node.id(), point);
-        this.nodeFlags.set(node.id());
 
         if (!node.tags().isEmpty()) {
             this.nodes.put(access, node.id(), node);
-            this.taggedNodeFlags.set(node.id());
+            this.unprocessedElements.add(Element.addTypeToId(Node.TYPE, node.id()));
         }
     }
 
     public void putWay(@NonNull DBAccess access, @NonNull Way way) throws Exception {
         this.ways.put(access, way.id(), way);
-        this.wayFlags.set(way.id());
+        this.unprocessedElements.add(Element.addTypeToId(Way.TYPE, way.id()));
     }
 
     public void putRelation(@NonNull DBAccess access, @NonNull Relation relation) throws Exception {
         this.relations.put(access, relation.id(), relation);
-        this.relationFlags.set(relation.id());
-    }
-
-    public Spliterator.OfLong[] spliterateElements(boolean taggedNodes, boolean ways, boolean relations, boolean coastlines) {
-        @RequiredArgsConstructor
-        class TypeIdAddingSpliterator implements Spliterator.OfLong {
-            protected final Spliterator.OfLong delegate;
-            protected final int type;
-
-            @Override
-            public OfLong trySplit() {
-                OfLong delegateSplit = this.delegate.trySplit();
-                return delegateSplit != null ? new TypeIdAddingSpliterator(delegateSplit, this.type) : null;
-            }
-
-            @Override
-            public boolean tryAdvance(@NonNull LongConsumer action) {
-                return this.delegate.tryAdvance((LongConsumer) id -> action.accept(Element.addTypeToId(this.type, id)));
-            }
-
-            @Override
-            public void forEachRemaining(@NonNull LongConsumer action) {
-                this.delegate.forEachRemaining((LongConsumer) id -> action.accept(Element.addTypeToId(this.type, id)));
-            }
-
-            @Override
-            public long estimateSize() {
-                return this.delegate.estimateSize();
-            }
-
-            @Override
-            public int characteristics() {
-                return this.delegate.characteristics();
-            }
-
-            @Override
-            public long getExactSizeIfKnown() {
-                return this.delegate.getExactSizeIfKnown();
-            }
-        }
-
-        List<Spliterator.OfLong> list = new ArrayList<>(3);
-        if (taggedNodes) {
-            list.add(new TypeIdAddingSpliterator(this.taggedNodeFlags.spliterator(), Node.TYPE));
-        }
-        if (ways) {
-            list.add(new TypeIdAddingSpliterator(this.wayFlags.spliterator(), Way.TYPE));
-        }
-        if (relations) {
-            list.add(new TypeIdAddingSpliterator(this.relationFlags.spliterator(), Relation.TYPE));
-        }
-        if (coastlines) {
-            list.add(new TypeIdAddingSpliterator(LongStream.range(0L, this.coastlineCount.get()).spliterator(), Coastline.TYPE));
-        }
-        return list.toArray(new Spliterator.OfLong[0]);
+        this.unprocessedElements.add(Element.addTypeToId(Relation.TYPE, relation.id()));
     }
 
     public Element getElement(@NonNull DBAccess access, long combinedId) throws Exception {
@@ -246,39 +175,19 @@ public final class Storage implements AutoCloseable {
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        Element element = this.getElement(access, combinedId);
+        Element element = this.getElement(this.db.read(), combinedId);
         checkState(element != null, "unknown %s %d", typeName, id);
 
-        Geometry geometry = element.toGeometry(this, access);
+        Geometry geometry = element.toGeometry(this, this.db.read());
         if (geometry != null) {
             long[] arr = geometry.listIntersectedTiles();
             int tileCount = arr.length;
 
             if (tileCount == 0) { //nothing to do
                 return;
-            } else if (tileCount == 1) { //mark all tiles as dirty
-                this.dirtyTiles.set(arr[0]);
-            } else { //tileCount is > 1: use a fast method that flips multiple bits at once
-                Arrays.sort(arr);
-                long rangeBegin = -1L;
-                long next = -1L;
-                for (int i = 0; i < tileCount; i++) {
-                    long v = arr[i];
-                    if (rangeBegin < 0L) {
-                        rangeBegin = v;
-                        next = v + 1L;
-                    } else if (next == v) {
-                        next = v + 1L;
-                    } else {
-                        this.dirtyTiles.set(rangeBegin, next);
-                        rangeBegin = next = -1L;
-                    }
-                }
-                if (rangeBegin >= 0L) {
-                    this.dirtyTiles.set(rangeBegin, next);
-                }
             }
 
+            this.dirtyTiles.markDirty(access, LongArrayList.wrap(arr));
             this.tileContents.addElementToTiles(access, LongArrayList.wrap(arr), combinedId); //add this element to all tiles
             this.intersectedTiles.put(access, combinedId, arr);
 
@@ -292,12 +201,12 @@ public final class Storage implements AutoCloseable {
             try {
                 if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.jsonStorage.put(access, combinedId, buffer);
+                    this.tempJsonStorage.put(access, combinedId, buffer);
                 } else { //element is referenced multiple times, store it in an external file
                     ByteBuffer reference = this.writeExternal(outputRoot, geometry, combinedId, buffer);
                     try {
                         //store reference object in geometry database
-                        this.jsonStorage.put(access, combinedId, reference);
+                        this.tempJsonStorage.put(access, combinedId, reference);
                     } finally {
                         PUnsafe.pork_releaseBuffer(reference);
                     }
@@ -329,10 +238,11 @@ public final class Storage implements AutoCloseable {
     }
 
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
-                .slot("tiles", StreamSupport.longStream(this.dirtyTiles.spliterator(), false).count())
-                .build()) {
-            Threading.forEachParallelLong(tilePos -> {
+        try (CloseableExecutor executor = new CloseableExecutor("Tile write worker");
+             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
+                     .slot("tiles", this.dirtyTiles.count(access))
+                     .build()) {
+            this.dirtyTiles.forEach(access, tilePos -> executor.execute(() -> {
                 int tileX = Tile.tileX(tilePos);
                 int tileY = Tile.tileY(tilePos);
                 try {
@@ -345,15 +255,13 @@ public final class Storage implements AutoCloseable {
                     Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
                     Files.createDirectories(dir);
                     try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        channel.write(this.jsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
+                        channel.write(this.tempJsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
                     }
                 } catch (Exception e) {
                     throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
                 }
                 notifier.step(0);
-            }, this.dirtyTiles.spliterator());
-            this.dirtyTiles.clear();
-            this.flush();
+            }));
         }
     }
 
@@ -370,36 +278,30 @@ public final class Storage implements AutoCloseable {
         this.flush();
         if (temp) {
             logger.trace("Clearing temporary GeoJSON storage...");
-            this.jsonStorage.clear(this.db.batch());
+            this.tempJsonStorage.clear(this.db.batch());
         }
         if (index) {
             logger.trace("Clearing tile content index...");
             this.tileContents.clear(this.db.batch());
             logger.trace("Clearing geometry intersection index...");
             this.intersectedTiles.clear(this.db.batch());
-            logger.trace("Clearing dirty tile flags...");
-            this.dirtyTiles.clear();
+            logger.trace("Clearing dirty tile markers...");
+            this.dirtyTiles.clear(this.db.batch());
         }
         logger.success("Cleared.");
     }
 
     public void flush() throws Exception {
         this.db.flush();
+
+        this.unprocessedElements.flush();
     }
 
     @Override
     public void close() throws Exception {
-        this.nodeFlags.close();
-        this.taggedNodeFlags.close();
-        this.wayFlags.close();
-        this.relationFlags.close();
-
-        this.coastlineCount.close();
+        this.unprocessedElements.close();
 
         this.replicationTimestamp.close();
-
-        this.dirtyElements.close();
-        this.dirtyTiles.close();
 
         this.db.close();
     }

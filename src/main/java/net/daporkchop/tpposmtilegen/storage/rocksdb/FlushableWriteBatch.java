@@ -39,6 +39,7 @@ class FlushableWriteBatch implements DBAccess {
     @NonNull
     protected final OptimisticTransactionDB db;
     protected final WriteBatch batch = new WriteBatch();
+    protected boolean dirty = false;
 
     @Override
     public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
@@ -63,26 +64,31 @@ class FlushableWriteBatch implements DBAccess {
     @Override
     public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
         this.batch.put(columnFamilyHandle, key, value);
+        this.dirty = true;
     }
 
     @Override
     public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
         this.batch.put(columnFamilyHandle, key, value);
+        this.dirty = true;
     }
 
     @Override
     public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
         this.batch.merge(columnFamilyHandle, key, value);
+        this.dirty = true;
     }
 
     @Override
     public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
         this.batch.delete(columnFamilyHandle, key);
+        this.dirty = true;
     }
 
     @Override
     public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
         this.batch.deleteRange(columnFamilyHandle, beginKey, endKey);
+        this.dirty = true;
     }
 
     @Override
@@ -92,16 +98,22 @@ class FlushableWriteBatch implements DBAccess {
 
     @Override
     public void flush(boolean sync) throws Exception {
-        try {
-            this.db.write(sync ? Database.SYNC_WRITE_OPTIONS : Database.WRITE_OPTIONS, this.batch);
-        } finally {
-            this.batch.clear();
+        if (this.dirty) {
+            try {
+                this.db.write(sync ? Database.SYNC_WRITE_OPTIONS : Database.WRITE_OPTIONS, this.batch);
+            } finally {
+                this.batch.clear();
+                this.dirty = false;
+            }
         }
     }
 
     @Override
     public void clear() throws Exception {
-        this.batch.clear();
+        if (this.dirty) {
+            this.batch.clear();
+            this.dirty = false;
+        }
     }
 
     @Override

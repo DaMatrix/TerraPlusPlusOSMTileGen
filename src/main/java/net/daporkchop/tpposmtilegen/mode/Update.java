@@ -21,23 +21,17 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import com.sun.net.httpserver.HttpServer;
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.longs.Long2IntMap;
 import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import it.unimi.dsi.fastutil.longs.LongLists;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.util.PorkUtil;
-import net.daporkchop.lib.primitive.map.LongObjMap;
-import net.daporkchop.lib.primitive.map.open.LongObjOpenHashMap;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
@@ -58,7 +52,6 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -118,7 +111,7 @@ public class Update implements IMode {
                         LongList elements = new LongArrayList();
                         storage.tileContents().getElementsInTile(storage.db().read(), tilePos, elements);
 
-                        ByteBuffer[] buffers = storage.jsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
+                        ByteBuffer[] buffers = storage.tempJsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
                         exchange.sendResponseHeaders(200, 0);
 
                         try (OutputStream out = exchange.getResponseBody()) {

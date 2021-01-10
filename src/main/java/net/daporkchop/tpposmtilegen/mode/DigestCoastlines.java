@@ -25,6 +25,7 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -90,10 +91,9 @@ public class DigestCoastlines implements IMode {
 
                 Coastline.Area area = this.toArea(mp);
                 storage.coastlines().put(access, id, new Coastline(id, area));
-                id++;
+                storage.unprocessedElements().add(Element.addTypeToId(Coastline.TYPE, id++));
                 notifier.step(0);
             }
-            storage.coastlineCount().set(id);
         }
     }
 
