@@ -26,9 +26,9 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import org.rocksdb.ColumnFamilyHandle;
 
@@ -38,7 +38,6 @@ import java.util.Collections;
 import java.util.List;
 
 import static java.lang.Math.*;
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
@@ -65,40 +64,13 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         access.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
     }
 
-    public void putAll(@NonNull DBAccess access, @NonNull LongList keys, @NonNull List<V> values) throws Exception {
-        checkArg(keys.size() == values.size(), "must have same number of keys as values!");
-        int size = keys.size();
-        if (size == 0) {
-            return;
-        }
-
-        ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
-        ByteBuf buf = WRITE_BUFFER_CACHE.get();
-
-        for (int i = 0; i < size; i++) {
-            keyBuffer.clear();
-            keyBuffer.putLong(keys.getLong(i)).flip();
-
-            this.valueToBytes(values.get(i), buf.clear());
-            access.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
-        }
-    }
-
-    public void deleteAll(@NonNull DBAccess access, @NonNull LongList keys) throws Exception {
-        int size = keys.size();
-        if (size == 0) {
-            return;
-        }
-
+    public void delete(@NonNull DBAccess access, long key) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();
         try {
-            //serialize keys to bytes
-            for (int i = 0; i < size; i++) {
-                long key = keys.getLong(i);
-                PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
-                access.delete(this.column, keyArray);
-            }
+            //serialize key to bytes
+            PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+            access.delete(this.column, keyArray);
         } finally {
             keyArrayRecycler.release(keyArray);
         }

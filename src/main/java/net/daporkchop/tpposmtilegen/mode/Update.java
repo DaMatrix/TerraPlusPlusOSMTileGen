@@ -23,6 +23,10 @@ package net.daporkchop.tpposmtilegen.mode;
 import com.sun.net.httpserver.HttpServer;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongLists;
@@ -31,6 +35,10 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.primitive.map.LongObjMap;
+import net.daporkchop.lib.primitive.map.open.LongObjOpenHashMap;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Element;
@@ -49,12 +57,16 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -205,7 +217,7 @@ public class Update implements IMode {
     }
 
     private void applyChanges(Storage storage, DBAccess access, Path tileDir, Instant now, Changeset changeset) throws Exception {
-        //phase 1: find all elements affected by this change, and write out modified elements
+        //pass 1: find all elements affected by this change, and write out modified elements
         LongSet changedIds = new LongOpenHashSet();
         for (Changeset.Entry entry : changeset.entries()) {
             entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
@@ -227,9 +239,9 @@ public class Update implements IMode {
                     break;
             }
         }
-        logger.debug("phase 1: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.debug("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //phase 2: update element references
+        //pass 2: update element references
         for (long combinedId : changedIds) {
             storage.references().deleteReferencesTo(access, 0, combinedId);
 
@@ -238,9 +250,11 @@ public class Update implements IMode {
                 element.computeReferences(access, storage);
             }
         }
-        logger.debug("phase 2: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.debug("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //phase 3: update geometry intersections
+        //pass 3: update geometry intersections
+        LongSet dirtyTiles = new LongOpenHashSet();
+        Long2IntMap intersectedTileCounts = new Long2IntOpenHashMap();
         for (long combinedId : changedIds) {
             LongSet intersectedTilesBefore;
             {
@@ -258,10 +272,10 @@ public class Update implements IMode {
 
                     intersectedTilesNext = new LongOpenHashSet(intersectedTilesNextArray);
                 } else {
-                    storage.intersectedTiles().deleteAll(access, LongLists.singleton(combinedId));
+                    storage.intersectedTiles().delete(access, combinedId);
                 }
             } else { //element was deleted
-                storage.intersectedTiles().deleteAll(access, LongLists.singleton(combinedId));
+                storage.intersectedTiles().delete(access, combinedId);
             }
 
             LongList toDeleteTiles = new LongArrayList(intersectedTilesBefore);
@@ -271,10 +285,26 @@ public class Update implements IMode {
             LongList toAddTiles = new LongArrayList(intersectedTilesNext);
             toAddTiles.removeAll(intersectedTilesBefore);
             storage.tileContents().addElementToTiles(access, toAddTiles, 0, combinedId);
-        }
-        logger.debug("phase 3: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //phase 4: actually export geometry as GeoJSON
+            dirtyTiles.addAll(intersectedTilesBefore);
+            dirtyTiles.addAll(intersectedTilesNext);
+            intersectedTileCounts.put(combinedId, intersectedTilesNext.size());
+        }
+        logger.debug("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+
+        //pass 4: find all elements intersecting the changed tiles
+        LongSet toRegenerateElements = new LongOpenHashSet();
+        for (long tilePos : dirtyTiles) {
+            LongList elements = new LongArrayList();
+            storage.tileContents().getElementsInTile(access, tilePos, elements);
+            toRegenerateElements.addAll(elements);
+        }
+        checkState(toRegenerateElements.containsAll(changedIds));
+        logger.debug("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+
+        //pass 5: convert geometry of all elements intersecting all changed tiles to GeoJSON
+        List<Path> toDeleteFiles = new ArrayList<>();
+        Long2ObjectMap<ByteBuffer> jsons = new Long2ObjectOpenHashMap<>();
         for (long combinedId : changedIds) {
             Element element = storage.getElement(access, combinedId);
             if (element != null) {
@@ -285,21 +315,61 @@ public class Update implements IMode {
                     Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
 
                     //convert json to bytes
-                    ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.heapBuffer(builder.length());
-                    try {
-                        buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
-                        storage.jsonStorage().put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
-                    } finally {
-                        buf.release();
+                    ByteBuffer json = Geometry.toBytes(builder);
+                    if (!geometry.shouldStoreExternally(intersectedTileCounts.get(combinedId), builder.length())) {
+                        //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                        jsons.put(combinedId, json);
+                        
+                        Path externalFile = storage.externalFile(tileDir, geometry, combinedId);
+                        if (Files.exists(externalFile)) {
+                            //enqueue unused json file for deletion
+                            toDeleteFiles.add(externalFile);
+                        }
+                    } else {
+                        //write external storage file and store reference in map instead
+                        jsons.put(combinedId, storage.writeExternal(tileDir, geometry, combinedId, json));
+                        PUnsafe.pork_releaseBuffer(json);
                     }
-                } else {
-                    storage.jsonStorage().deleteAll(access, LongLists.singleton(combinedId));
                 }
-            } else { //element was deleted
-                storage.jsonStorage().deleteAll(access, LongLists.singleton(combinedId));
             }
         }
-        logger.debug("phase 4: batched %.2fMiB of updates\n", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.debug("pass 5: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
+        
+        //pass 6: write updated tiles
+        for (long tilePos : dirtyTiles) {
+            LongList elements = new LongArrayList();
+            storage.tileContents().getElementsInTile(access, tilePos, elements);
+            int size = elements.size();
+
+            Path tileFile = storage.tileFile(tileDir, tilePos);
+            if (size != 0) {
+                ByteBuffer[] buffers = new ByteBuffer[size];
+                for (int i = 0; i < size; i++) {
+                    long id = elements.getLong(i);
+                    checkState((buffers[i] = jsons.get(id)) != null, "unable to find json data for %s %d!",
+                            Element.typeName(Element.extractType(id)), Element.extractId(id));
+                }
+
+                Files.createDirectories(tileFile.getParent());
+                try (FileChannel channel = FileChannel.open(tileFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    channel.write(buffers);
+                }
+
+                for (ByteBuffer buffer : buffers) {
+                    checkState(!buffer.hasRemaining(), "didn't write all data from buffer!");
+                    buffer.rewind(); //reset index to 0
+                }
+            } else { //the tile no longer has any contents, delete it
+                toDeleteFiles.add(tileFile);
+            }
+        }
+        logger.debug("pass 6: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
+
+        //pass 7: delete queued files and release buffers
+        jsons.values().forEach(PUnsafe::pork_releaseBuffer);
+        for (int i = toDeleteFiles.size() - 1; i >= 0; i--) { //iterate backwards to ensure that tiles are deleted before external files
+            Files.deleteIfExists(toDeleteFiles.get(i));
+        }
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
@@ -344,7 +414,7 @@ public class Update implements IMode {
             storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
             if (changedNode.tags().isEmpty()) {
                 if (storage.nodes().get(access, id) != null) {
-                    storage.nodes().deleteAll(access, LongLists.singleton(id));
+                    storage.nodes().delete(access, id);
                 }
             } else {
                 storage.nodes().put(access, id, new Node(id, changedNode.tags()));
@@ -409,20 +479,20 @@ public class Update implements IMode {
             Point point = storage.points().get(access, id);
             checkState(point != null, "node with id %d doesn't exist", id);
 
-            storage.points().deleteAll(access, LongLists.singleton(id));
-            storage.nodes().deleteAll(access, LongLists.singleton(id));
+            storage.points().delete(access, id);
+            storage.nodes().delete(access, id);
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way way = storage.ways().get(access, id);
             checkState(way != null, "way with id %d doesn't exist", id);
 
-            storage.ways().deleteAll(access, LongLists.singleton(id));
+            storage.ways().delete(access, id);
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation relation = storage.relations().get(access, id);
             checkState(relation != null, "relation with id %d doesn't exist", id);
 
-            storage.relations().deleteAll(access, LongLists.singleton(id));
+            storage.relations().delete(access, id);
         }
 
         //this will force the element's tile intersections and references to be re-computed

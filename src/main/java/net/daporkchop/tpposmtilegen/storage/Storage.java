@@ -33,6 +33,7 @@ import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.oio.StreamUtil;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
@@ -67,7 +68,6 @@ import java.io.InputStream;
 import java.net.URL;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -288,34 +288,44 @@ public final class Storage implements AutoCloseable {
             Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
 
             //convert json to bytes
-            ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(builder.length());
+            ByteBuffer buffer = Geometry.toBytes(builder);
             try {
-                buf.writeCharSequence(builder, StandardCharsets.US_ASCII);
-                if (!geometry.shouldStoreExternally(tileCount, buf.readableBytes())) {
+                if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.jsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
+                    this.jsonStorage.put(access, combinedId, buffer);
                 } else { //element is referenced multiple times, store it in an external file
-                    String path = geometry.externalStoragePath(type, id);
-                    Path file = outputRoot.resolve(path);
-
-                    //ensure directory exists
-                    Files.createDirectories(file.getParent());
-
-                    //write to file
-                    try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        buf.readBytes(channel, buf.readableBytes());
+                    ByteBuffer reference = this.writeExternal(outputRoot, geometry, combinedId, buffer);
+                    try {
+                        //store reference object in geometry database
+                        this.jsonStorage.put(access, combinedId, reference);
+                    } finally {
+                        PUnsafe.pork_releaseBuffer(reference);
                     }
-
-                    //create reference object and store it in db
-                    builder = new StringBuilder();
-                    builder.append("{\"type\":\"Reference\",\"location\":\"").append(path).append("\"}\n");
-                    buf.clear().writeCharSequence(builder, StandardCharsets.US_ASCII);
-                    this.jsonStorage.put(access, combinedId, buf.internalNioBuffer(0, buf.readableBytes()));
                 }
             } finally {
-                buf.release();
+                PUnsafe.pork_releaseBuffer(buffer);
             }
         }
+    }
+
+    public ByteBuffer writeExternal(@NonNull Path outputRoot, @NonNull Geometry geometry, long combinedId, @NonNull ByteBuffer fullJson) throws IOException {
+        String location = geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId));
+        Path file = outputRoot.resolve(location);
+
+        //ensure directory exists
+        Files.createDirectories(file.getParent());
+
+        //write to file
+        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+            channel.write(fullJson);
+        }
+
+        //create reference object
+        return Geometry.toBytes("{\"type\":\"Reference\",\"location\":\"" + location + "\"}\n");
+    }
+
+    public Path externalFile(@NonNull Path outputRoot, @NonNull Geometry geometry, long combinedId) {
+        return outputRoot.resolve(geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId)));
     }
 
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
@@ -345,6 +355,10 @@ public final class Storage implements AutoCloseable {
             this.dirtyTiles.clear();
             this.flush();
         }
+    }
+
+    public Path tileFile(@NonNull Path outputRoot, long tilePos) {
+        return outputRoot.resolve(PStrings.fastFormat("tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos)));
     }
 
     public void purge(boolean temp, boolean index) throws Exception {

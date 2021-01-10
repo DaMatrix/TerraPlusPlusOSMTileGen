@@ -26,6 +26,7 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
+import java.nio.ByteBuffer;
 import java.util.Map;
 
 /**
@@ -57,6 +58,17 @@ public interface Geometry extends Persistent {
         dst.append('}').append('\n');
     }
 
+    static ByteBuffer toBytes(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
+        int length = text.length();
+        ByteBuffer buffer = ByteBuffer.allocateDirect(length);
+        for (int i = 0; i < length; i++) {
+            char c = text.charAt(i);
+            buffer.put((byte) (c > 255 ? '?' : c));
+        }
+        buffer.flip();
+        return buffer;
+    }
+
     long[] listIntersectedTiles();
 
     /**
@@ -73,7 +85,7 @@ public interface Geometry extends Persistent {
                && dataSize > 2048;
     }
 
-    default String externalStoragePath(int type, long id) {
+    default String externalStorageLocation(int type, long id) {
         return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id % 1000L, (id / 1000L) % 1000L, id / 1000_000L);
     }
 

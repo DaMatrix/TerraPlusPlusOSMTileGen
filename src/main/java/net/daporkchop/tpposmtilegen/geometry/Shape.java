@@ -151,7 +151,7 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    public String externalStoragePath(int type, long id) {
+    public String externalStorageLocation(int type, long id) {
         throw new UnsupportedOperationException();
     }
 
