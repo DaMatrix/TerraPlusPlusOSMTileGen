@@ -279,7 +279,7 @@ public final class Storage implements AutoCloseable {
                 }
             }
 
-            this.tileContents.addElementToTiles(access, LongArrayList.wrap(arr), type, id); //add this element to all tiles
+            this.tileContents.addElementToTiles(access, LongArrayList.wrap(arr), combinedId); //add this element to all tiles
             this.intersectedTiles.put(access, combinedId, arr);
 
             //encode geometry to GeoJSON

@@ -95,7 +95,7 @@ public final class Way extends Element {
 
     @Override
     public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
-        storage.references().addReferences(access, Node.TYPE, LongArrayList.wrap(this.nodes), Way.TYPE, this.id);
+        storage.references().addReferences(access, Node.TYPE, LongArrayList.wrap(this.nodes), addTypeToId(TYPE, this.id));
     }
 
     @Override

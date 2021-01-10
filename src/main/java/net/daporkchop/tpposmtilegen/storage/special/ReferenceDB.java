@@ -53,10 +53,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         return 16;
     }
 
-    public void addReference(@NonNull DBAccess access, int type, long id, int referentType, long referent) throws Exception {
-        id = Element.addTypeToId(type, id);
-        referent = Element.addTypeToId(referentType, referent);
-
+    public void addReference(@NonNull DBAccess access, long id, long referent) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
@@ -68,7 +65,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void addReferences(@NonNull DBAccess access, int type, @NonNull LongList ids, int referentType, long referent) throws Exception {
+    public void addReferences(@NonNull DBAccess access, @NonNull LongList ids, long referentCombined) throws Exception {
         int size = ids.size();
         if (size == 0) {
             return;
@@ -77,8 +74,27 @@ public final class ReferenceDB extends WrappedRocksDB {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
-            referent = Element.addTypeToId(referentType, referent);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
+            for (int i = 0; i < size; i++) {
+                long id = ids.getLong(i);
+                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                access.put(this.column, key, EMPTY_BYTE_ARRAY);
+            }
+        } finally {
+            recycler.release(key);
+        }
+    }
+
+    public void addReferences(@NonNull DBAccess access, int type, @NonNull LongList ids, long referentCombined) throws Exception {
+        int size = ids.size();
+        if (size == 0) {
+            return;
+        }
+
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
+        byte[] key = recycler.get();
+        try {
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
             for (int i = 0; i < size; i++) {
                 long id = Element.addTypeToId(type, ids.getLong(i));
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
@@ -89,52 +105,26 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteReference(@NonNull DBAccess access, int type, long id, int referentType, long referent) throws Exception {
-        id = Element.addTypeToId(type, id);
-        referent = Element.addTypeToId(referentType, referent);
-
+    public void deleteReference(@NonNull DBAccess access, long combinedId, long referentCombined) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
             access.delete(this.column, key);
         } finally {
             recycler.release(key);
         }
     }
 
-    public void deleteReferences(@NonNull DBAccess access, int type, long id, int referentType, @NonNull LongList referentIds) throws Exception {
-        int size = referentIds.size();
-        if (size == 0) {
-            return;
-        }
-
-        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-        byte[] key = recycler.get();
-        try {
-            id = Element.addTypeToId(type, id);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-            for (int i = 0; i < size; i++) {
-                long referentId = Element.addTypeToId(referentType, referentIds.getLong(i));
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentId) : referentId);
-                access.delete(this.column, key);
-            }
-        } finally {
-            recycler.release(key);
-        }
-    }
-
-    public void deleteReferencesTo(@NonNull DBAccess access, int type, long id) throws Exception {
-        id = Element.addTypeToId(type, id);
-
+    public void deleteReferencesTo(@NonNull DBAccess access, long combinedId) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
         try {
-            PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id + 1L) : id + 1L);
+            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             access.deleteRange(this.column, from, to);
         } finally {
@@ -143,22 +133,21 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void getReferencesTo(@NonNull DBAccess access, int type, long id, @NonNull LongList dst) throws Exception {
-        id = Element.addTypeToId(type, id);
-
+    public void getReferencesTo(@NonNull DBAccess access, long combinedId, @NonNull LongList dst) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
         try {
-            PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id + 1L) : id + 1L);
+            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
                  RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
-                    dst.add(PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L));
+                    long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
+                    dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
                 }
             }
         } finally {

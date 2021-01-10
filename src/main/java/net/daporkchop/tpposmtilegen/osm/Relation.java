@@ -107,7 +107,7 @@ public final class Relation extends Element {
         }
 
         //first parameter (type) is 0 because the ids are already combined with their type
-        storage.references().addReferences(access, 0, ids, Relation.TYPE, this.id);
+        storage.references().addReferences(access, ids, addTypeToId(TYPE, this.id));
     }
 
     @Override

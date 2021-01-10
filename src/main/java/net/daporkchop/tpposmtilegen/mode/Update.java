@@ -66,8 +66,12 @@ import java.nio.file.StandardOpenOption;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Scanner;
+import java.util.Set;
+import java.util.function.LongPredicate;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -212,6 +216,8 @@ public class Update implements IMode {
 
                     state = nextState;
                 }
+            } catch (Throwable t) {
+                logger.alert(t);
             }
         }
     }
@@ -243,7 +249,7 @@ public class Update implements IMode {
 
         //pass 2: update element references
         for (long combinedId : changedIds) {
-            storage.references().deleteReferencesTo(access, 0, combinedId);
+            storage.references().deleteReferencesTo(access, combinedId);
 
             Element element = storage.getElement(access, combinedId);
             if (element != null) {
@@ -280,11 +286,11 @@ public class Update implements IMode {
 
             LongList toDeleteTiles = new LongArrayList(intersectedTilesBefore);
             toDeleteTiles.removeAll(intersectedTilesNext);
-            storage.tileContents().deleteElementFromTiles(access, toDeleteTiles, 0, combinedId);
+            storage.tileContents().deleteElementFromTiles(access, toDeleteTiles, combinedId);
 
             LongList toAddTiles = new LongArrayList(intersectedTilesNext);
             toAddTiles.removeAll(intersectedTilesBefore);
-            storage.tileContents().addElementToTiles(access, toAddTiles, 0, combinedId);
+            storage.tileContents().addElementToTiles(access, toAddTiles, combinedId);
 
             dirtyTiles.addAll(intersectedTilesBefore);
             dirtyTiles.addAll(intersectedTilesNext);
@@ -299,13 +305,13 @@ public class Update implements IMode {
             storage.tileContents().getElementsInTile(access, tilePos, elements);
             toRegenerateElements.addAll(elements);
         }
-        checkState(toRegenerateElements.containsAll(changedIds));
         logger.debug("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 5: convert geometry of all elements intersecting all changed tiles to GeoJSON
         List<Path> toDeleteFiles = new ArrayList<>();
-        Long2ObjectMap<ByteBuffer> jsons = new Long2ObjectOpenHashMap<>();
-        for (long combinedId : changedIds) {
+        Long2ObjectMap<ByteBuffer> jsons = new Long2ObjectOpenHashMap<>(toRegenerateElements.size());
+        Set<ByteBuffer> allBuffers = Collections.newSetFromMap(new IdentityHashMap<>());
+        for (long combinedId : toRegenerateElements) {
             Element element = storage.getElement(access, combinedId);
             if (element != null) {
                 Geometry geometry = element.toGeometry(storage, access);
@@ -316,8 +322,16 @@ public class Update implements IMode {
 
                     //convert json to bytes
                     ByteBuffer json = Geometry.toBytes(builder);
-                    if (!geometry.shouldStoreExternally(intersectedTileCounts.get(combinedId), builder.length())) {
+
+                    //figure out how many tiles this element is in
+                    int tileCount = intersectedTileCounts.getOrDefault(combinedId, -1);
+                    if (tileCount < 0) {
+                        tileCount = storage.intersectedTiles().get(access, combinedId).length;
+                    }
+
+                    if (!geometry.shouldStoreExternally(tileCount, builder.length())) {
                         //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                        checkState(allBuffers.add(json));
                         jsons.put(combinedId, json);
                         
                         Path externalFile = storage.externalFile(tileDir, geometry, combinedId);
@@ -327,8 +341,10 @@ public class Update implements IMode {
                         }
                     } else {
                         //write external storage file and store reference in map instead
-                        jsons.put(combinedId, storage.writeExternal(tileDir, geometry, combinedId, json));
+                        ByteBuffer reference = storage.writeExternal(tileDir, geometry, combinedId, json);
                         PUnsafe.pork_releaseBuffer(json);
+                        checkState(allBuffers.add(reference));
+                        jsons.put(combinedId, reference);
                     }
                 }
             }
@@ -337,22 +353,31 @@ public class Update implements IMode {
         
         //pass 6: write updated tiles
         for (long tilePos : dirtyTiles) {
-            LongList elements = new LongArrayList();
+            LongSet elements = new LongOpenHashSet(); //using a set instead of a list because the transaction iterator can cause duplicate elements to appear
             storage.tileContents().getElementsInTile(access, tilePos, elements);
             int size = elements.size();
 
             Path tileFile = storage.tileFile(tileDir, tilePos);
             if (size != 0) {
                 ByteBuffer[] buffers = new ByteBuffer[size];
-                for (int i = 0; i < size; i++) {
-                    long id = elements.getLong(i);
-                    checkState((buffers[i] = jsons.get(id)) != null, "unable to find json data for %s %d!",
+                long totalSize = 0L;
+                int i = 0;
+                for (long id : elements) {
+                    ByteBuffer buffer = jsons.get(id);
+                    checkState(buffer != null, "unable to find json data for %s %d!",
                             Element.typeName(Element.extractType(id)), Element.extractId(id));
+                    checkState(buffer.hasRemaining(), "json data for %s %d has no data remaining!",
+                            Element.typeName(Element.extractType(id)), Element.extractId(id));
+                    totalSize += buffer.remaining();
+                    buffers[i++] = buffer;
                 }
 
                 Files.createDirectories(tileFile.getParent());
                 try (FileChannel channel = FileChannel.open(tileFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                    channel.write(buffers);
+                    long written = 0L;
+                    do {
+                        written += channel.write(buffers);
+                    } while (written != totalSize);
                 }
 
                 for (ByteBuffer buffer : buffers) {
@@ -368,6 +393,7 @@ public class Update implements IMode {
         //pass 7: delete queued files and release buffers
         jsons.values().forEach(PUnsafe::pork_releaseBuffer);
         for (int i = toDeleteFiles.size() - 1; i >= 0; i--) { //iterate backwards to ensure that tiles are deleted before external files
+            logger.info("Deleting %s", toDeleteFiles.get(i));
             Files.deleteIfExists(toDeleteFiles.get(i));
         }
     }
@@ -432,11 +458,11 @@ public class Update implements IMode {
             LongSet newNodes = new LongOpenHashSet(changedWay.refs());
             for (long node : newNodes) {
                 if (!oldNodes.remove(node)) { //node was newly added to this way
-                    storage.references().addReference(access, Node.TYPE, node, Way.TYPE, id);
+                    storage.references().addReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
                 }
             }
             for (long node : oldNodes) { //all nodes that remain are no longer referenced
-                storage.references().deleteReference(access, Node.TYPE, node, Way.TYPE, id);
+                storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
             storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
@@ -455,11 +481,11 @@ public class Update implements IMode {
             LongSet newRefs = new LongOpenHashSet(Arrays.stream(newMembers).mapToLong(Relation.Member::combinedId).toArray());
             for (long ref : newRefs) {
                 if (!oldRefs.remove(ref)) { //element was newly added to this relation
-                    storage.references().addReference(access, 0, ref, Relation.TYPE, id);
+                    storage.references().addReference(access, ref, combinedId);
                 }
             }
             for (long ref : oldRefs) { //all elements that remain are no longer referenced
-                storage.references().deleteReference(access, 0, ref, Relation.TYPE, id);
+                storage.references().deleteReference(access, ref, combinedId);
             }
 
             storage.relations().put(access, id, new Relation(id, changedRelation.tags(), newMembers));
@@ -502,9 +528,12 @@ public class Update implements IMode {
 
     private void markReferentsDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
         LongList referents = new LongArrayList();
-        storage.references().getReferencesTo(access, 0, combinedId, referents);
+        storage.references().getReferencesTo(access, combinedId, referents);
 
-        for (long referent : referents) {
+        referents.removeIf((LongPredicate) l -> !changedIds.add(l));
+
+        for (int i = 0, size = referents.size(); i < size; i++) {
+            long referent = referents.getLong(i);
             if (changedIds.add(referent)) {
                 this.markReferentsDirty(storage, access, changedIds, referent);
             }

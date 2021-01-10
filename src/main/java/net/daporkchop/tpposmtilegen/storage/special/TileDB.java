@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
+import it.unimi.dsi.fastutil.longs.LongCollection;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
@@ -55,7 +56,7 @@ public final class TileDB extends WrappedRocksDB {
         return 16;
     }
 
-    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, int elementType, long element) throws Exception {
+    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
@@ -64,11 +65,10 @@ public final class TileDB extends WrappedRocksDB {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
-            element = Element.addTypeToId(elementType, element);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
             for (int i = 0; i < size; i++) {
-                long id = tilePositions.getLong(i);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                long tilePos = tilePositions.getLong(i);
+                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos) : tilePos);
                 access.put(this.column, key, EMPTY_BYTE_ARRAY);
             }
         } finally {
@@ -76,7 +76,7 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteElementFromTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, int elementType, long element) throws Exception {
+    public void deleteElementFromTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
@@ -85,8 +85,7 @@ public final class TileDB extends WrappedRocksDB {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
-            element = Element.addTypeToId(elementType, element);
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(element) : element);
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
             for (int i = 0; i < size; i++) {
                 long id = tilePositions.getLong(i);
                 PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
@@ -113,7 +112,7 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongList dst) throws Exception {
+    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongCollection dst) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
