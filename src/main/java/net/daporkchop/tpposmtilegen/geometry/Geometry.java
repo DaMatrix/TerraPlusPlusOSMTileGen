@@ -53,7 +53,10 @@ public interface Geometry extends Persistent {
         }
 
         //id
-        dst.append(",\"id\":\"").append(Element.typeName(Element.extractType(combinedId)).charAt(0)).append(Element.extractId(combinedId)).append('"');
+        dst.append(",\"id\":\"")
+                .append(Element.typeName(Element.extractType(combinedId)))
+                .append('/')
+                .append(Element.extractId(combinedId)).append('"');
 
         dst.append('}').append('\n');
     }

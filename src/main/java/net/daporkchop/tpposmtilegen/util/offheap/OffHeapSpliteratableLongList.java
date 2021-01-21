@@ -24,9 +24,7 @@ import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.io.IORunnable;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.system.PlatformInfo;
-import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.mmap.RefCountedMemoryMap;
@@ -35,12 +33,8 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.List;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ForkJoinPool;
 import java.util.function.LongConsumer;
 
 /**
@@ -74,11 +68,9 @@ public class OffHeapSpliteratableLongList implements AutoCloseable {
         CompletableFuture.runAsync((IORunnable) () -> {
             ByteBuffer buffer = tb.buffer;
             buffer.flip();
-            int total = buffer.remaining();
-            int written = 0;
-            do {
-                written += this.channel.write(buffer);
-            } while (total != written);
+            while (buffer.hasRemaining()) {
+                this.channel.write(buffer);
+            }
             buffer.clear();
         }).join();
     }

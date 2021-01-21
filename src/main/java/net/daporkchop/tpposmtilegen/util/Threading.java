@@ -42,7 +42,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @UtilityClass
 public class Threading {
     public void forEachParallelLong(@NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) throws Exception {
-        forEachParallel(PorkUtil.CPU_COUNT, s -> s.forEachRemaining(callback), spliterators);
+        forEachParallel(4, s -> s.forEachRemaining(callback), spliterators);
     }
 
     public void forEachParallelLong(int threads, @NonNull LongConsumer callback, @NonNull Spliterator.OfLong... spliterators) throws Exception {

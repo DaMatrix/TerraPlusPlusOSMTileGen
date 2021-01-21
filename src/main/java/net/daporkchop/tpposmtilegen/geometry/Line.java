@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.geometry;
 import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 
 import java.awt.geom.Line2D;
@@ -37,6 +38,7 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  * @author DaPorkchop_
  */
 @Getter
+@ToString
 public final class Line extends ComplexGeometry {
     protected static void emitLineString(Point[] points, StringBuilder dst) {
         dst.append('[');

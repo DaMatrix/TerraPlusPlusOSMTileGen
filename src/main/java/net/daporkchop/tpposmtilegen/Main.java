@@ -32,6 +32,7 @@ import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
+import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
 import java.util.Arrays;
@@ -51,6 +52,7 @@ public final class Main implements Runnable {
             new DigestCoastlines(),
             new DigestPBF(),
             new RebuildPlanet(),
+            new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));
 

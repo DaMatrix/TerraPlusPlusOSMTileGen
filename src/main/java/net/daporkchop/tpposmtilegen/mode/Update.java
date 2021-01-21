@@ -98,11 +98,11 @@ public class Update implements IMode {
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            if (false) {
+            if (true) {
                 HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
                 server.createContext("/tile/", exchange -> {
                     try {
-                        Matcher matcher = Pattern.compile("^/tile/(\\d+)/(\\d+)\\.json$").matcher(exchange.getRequestURI().getPath());
+                        Matcher matcher = Pattern.compile("^/tile/(-?\\d+)/(-?\\d+)\\.json$").matcher(exchange.getRequestURI().getPath());
                         checkArg(matcher.find());
                         int tileX = Integer.parseInt(matcher.group(1));
                         int tileY = Integer.parseInt(matcher.group(2));
@@ -120,6 +120,7 @@ public class Update implements IMode {
                             }
                         }
                     } catch (Exception e) {
+                        e.printStackTrace();
                         throw new RuntimeException(exchange.getRequestURI().getPath(), e);
                     }
                 });
@@ -142,7 +143,7 @@ public class Update implements IMode {
                 server.start();
 
                 new Scanner(System.in).nextLine();
-                server.stop(5000);
+                server.stop(0);
                 return;
             }
 

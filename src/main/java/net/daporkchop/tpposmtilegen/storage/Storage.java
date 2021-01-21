@@ -29,7 +29,6 @@ import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.binary.oio.StreamUtil;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
@@ -72,11 +71,8 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
-import java.util.ArrayList;
 import java.util.List;
-import java.util.Spliterator;
-import java.util.function.LongConsumer;
-import java.util.stream.LongStream;
+import java.util.Objects;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -226,7 +222,9 @@ public final class Storage implements AutoCloseable {
 
         //write to file
         try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-            channel.write(fullJson);
+            while (fullJson.hasRemaining()) {
+                channel.write(fullJson);
+            }
         }
 
         //create reference object
@@ -238,10 +236,10 @@ public final class Storage implements AutoCloseable {
     }
 
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
-        try (CloseableExecutor executor = new CloseableExecutor("Tile write worker");
-             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
-                     .slot("tiles", this.dirtyTiles.count(access))
-                     .build()) {
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
+                .slot("tiles", this.dirtyTiles.count(access))
+                .build();
+             CloseableExecutor executor = new CloseableExecutor("Tile write worker")) {
             this.dirtyTiles.forEach(access, tilePos -> executor.execute(() -> {
                 int tileX = Tile.tileX(tilePos);
                 int tileY = Tile.tileY(tilePos);
@@ -255,7 +253,17 @@ public final class Storage implements AutoCloseable {
                     Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
                     Files.createDirectories(dir);
                     try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        channel.write(this.tempJsonStorage.getAll(access, elements).toArray(new ByteBuffer[0]));
+                        List<ByteBuffer> list = this.tempJsonStorage.getAll(access, elements);
+                        list.removeIf(Objects::isNull);
+                        ByteBuffer[] buffers = list.toArray(new ByteBuffer[0]);
+                        int totalSize = 0;
+                        for (ByteBuffer buffer : buffers) {
+                            totalSize += buffer.remaining();
+                        }
+
+                        for (int i = 0; i < totalSize; i++) {
+                            i += channel.write(buffers);
+                        }
                     }
                 } catch (Exception e) {
                     throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
@@ -336,9 +344,12 @@ public final class Storage implements AutoCloseable {
         Path file = this.root.resolve("replication").resolve(path);
         if (cache && Files.exists(file)) {
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
-                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(toInt(channel.size()));
+                int size = toInt(channel.size());
+                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size, size);
                 try {
-                    buf.writeBytes(channel, 0, buf.writableBytes());
+                    while (buf.isWritable()) {
+                        buf.writeBytes(channel, buf.writerIndex(), buf.writableBytes());
+                    }
                     return parser.applyThrowing(buf);
                 } finally {
                     buf.release();
@@ -354,7 +365,10 @@ public final class Storage implements AutoCloseable {
         if (cache) {
             Files.createDirectories(file.getParent());
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-                channel.write(ByteBuffer.wrap(data));
+                ByteBuf buf = Unpooled.wrappedBuffer(data);
+                while (buf.isReadable()) {
+                    buf.readBytes(channel, buf.readableBytes());
+                }
             }
         }
 
