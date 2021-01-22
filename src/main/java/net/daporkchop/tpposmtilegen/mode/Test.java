@@ -84,7 +84,7 @@ public class Test implements IMode {
                     System.out.println(elements.contains(combinedId));
                 }
 
-                storage.convertToGeoJSONAndStoreInDB(access, src.toPath().resolveSibling("switzerland.tiles"), combinedId);
+                storage.convertToGeoJSONAndStoreInDB(access, combinedId, false);
 
                 storage.exportDirtyTiles(access, src.toPath().resolveSibling("switzerland.tiles"));
 

@@ -20,20 +20,12 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import com.sun.net.httpserver.HttpServer;
-import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
-import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -45,32 +37,15 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.FileNotFoundException;
-import java.io.InputStream;
-import java.io.OutputStream;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.IdentityHashMap;
-import java.util.List;
-import java.util.Scanner;
-import java.util.Set;
 import java.util.function.LongPredicate;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
-import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * @author DaPorkchop_
@@ -98,55 +73,6 @@ public class Update implements IMode {
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            if (false) {
-                HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
-                server.createContext("/tile/", exchange -> {
-                    try {
-                        Matcher matcher = Pattern.compile("^/tile/(-?\\d+)/(-?\\d+)\\.json$").matcher(exchange.getRequestURI().getPath());
-                        checkArg(matcher.find());
-                        int tileX = Integer.parseInt(matcher.group(1));
-                        int tileY = Integer.parseInt(matcher.group(2));
-                        long tilePos = xy2tilePos(tileX, tileY);
-
-                        LongList elements = new LongArrayList();
-                        storage.tileContents().getElementsInTile(storage.db().read(), tilePos, elements);
-
-                        ByteBuffer[] buffers = storage.jsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
-                        exchange.sendResponseHeaders(200, 0);
-
-                        try (OutputStream out = exchange.getResponseBody()) {
-                            for (ByteBuffer buffer : buffers) {
-                                out.write(buffer.array(), buffer.arrayOffset(), buffer.remaining());
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                        throw new RuntimeException(exchange.getRequestURI().getPath(), e);
-                    }
-                });
-                server.createContext("/", exchange -> {
-                    Path path = dst.resolve(exchange.getRequestURI().getPath().substring(1));
-                    if (Files.isRegularFile(path)) {
-                        exchange.sendResponseHeaders(200, 0);
-                        try (InputStream in = new FileInputStream(path.toFile());
-                             OutputStream out = exchange.getResponseBody()) {
-                            byte[] buf = new byte[4096];
-                            for (int i; (i = in.read(buf)) > 0; ) {
-                                out.write(buf, 0, i);
-                            }
-                        }
-                    } else {
-                        exchange.sendResponseHeaders(404, 0);
-                        exchange.getResponseBody().close();
-                    }
-                });
-                server.start();
-
-                new Scanner(System.in).nextLine();
-                server.stop(0);
-                return;
-            }
-
             ChangesetState globalState = storage.getChangesetState();
 
             long sequenceNumber = storage.sequenceNumber().get(storage.db().read());
@@ -208,6 +134,8 @@ public class Update implements IMode {
                     this.applyChanges(storage, txn, dst, now, changeset);
                     storage.sequenceNumber().set(txn, next);
 
+                    txn.flush(true);
+
                     state = nextState;
                 }
             } catch (Throwable t) {
@@ -252,152 +180,28 @@ public class Update implements IMode {
         }
         logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 3: update geometry intersections
-        LongSet dirtyTiles = new LongOpenHashSet();
-        Long2IntMap intersectedTileCounts = new Long2IntOpenHashMap();
+        //pass 3: clear geometry intersections
         for (long combinedId : changedIds) {
-            LongSet intersectedTilesBefore;
-            {
-                long[] arr = storage.intersectedTiles().get(access, combinedId);
-                intersectedTilesBefore = new LongOpenHashSet(arr != null ? arr : new long[0]);
-            }
-
-            Element element = storage.getElement(access, combinedId);
-            LongSet intersectedTilesNext = LongSets.EMPTY_SET;
-            if (element != null) {
-                Geometry geometry = element.toGeometry(storage, access);
-                if (geometry != null) {
-                    long[] intersectedTilesNextArray = geometry.listIntersectedTiles();
-                    storage.intersectedTiles().put(access, combinedId, intersectedTilesNextArray);
-
-                    intersectedTilesNext = new LongOpenHashSet(intersectedTilesNextArray);
-                } else {
-                    storage.intersectedTiles().delete(access, combinedId);
-                }
-            } else { //element was deleted
+            long[] arr = storage.intersectedTiles().get(access, combinedId);
+            if (arr != null) {
                 storage.intersectedTiles().delete(access, combinedId);
+
+                storage.tileContents().deleteElementFromTiles(access, LongArrayList.wrap(arr), combinedId);
+                storage.dirtyTiles().markDirty(access, LongArrayList.wrap(arr));
             }
-
-            LongList toDeleteTiles = new LongArrayList(intersectedTilesBefore);
-            toDeleteTiles.removeAll(intersectedTilesNext);
-            storage.tileContents().deleteElementFromTiles(access, toDeleteTiles, combinedId);
-
-            LongList toAddTiles = new LongArrayList(intersectedTilesNext);
-            toAddTiles.removeAll(intersectedTilesBefore);
-            storage.tileContents().addElementToTiles(access, toAddTiles, combinedId);
-
-            dirtyTiles.addAll(intersectedTilesBefore);
-            dirtyTiles.addAll(intersectedTilesNext);
-            intersectedTileCounts.put(combinedId, intersectedTilesNext.size());
         }
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 4: find all elements intersecting the changed tiles
-        LongSet toRegenerateElements = new LongOpenHashSet();
-        for (long tilePos : dirtyTiles) {
-            LongList elements = new LongArrayList();
-            storage.tileContents().getElementsInTile(access, tilePos, elements);
-            toRegenerateElements.addAll(elements);
+        //pass 4: convert geometry of all changed elements to GeoJSON and recompute relations
+        for (long combinedId : changedIds) {
+            storage.convertToGeoJSONAndStoreInDB(access, combinedId, true);
         }
         logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 5: convert geometry of all elements intersecting all changed tiles to GeoJSON
-        List<Path> toDeleteFiles = new ArrayList<>();
-        Long2ObjectMap<ByteBuffer> jsons = new Long2ObjectOpenHashMap<>(toRegenerateElements.size());
-        Set<ByteBuffer> allBuffers = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (long combinedId : toRegenerateElements) {
-            Element element = storage.getElement(access, combinedId);
-            if (element != null) {
-                Geometry geometry = element.toGeometry(storage, access);
-                if (geometry != null) {
-                    //encode geometry to GeoJSON
-                    StringBuilder builder = new StringBuilder();
-                    Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
-
-                    //convert json to bytes
-                    ByteBuffer json = Geometry.toBytes(builder);
-
-                    //figure out how many tiles this element is in
-                    int tileCount = intersectedTileCounts.getOrDefault(combinedId, -1);
-                    if (tileCount < 0) {
-                        tileCount = storage.intersectedTiles().get(access, combinedId).length;
-                    }
-
-                    if (!geometry.shouldStoreExternally(tileCount, builder.length())) {
-                        //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                        checkState(allBuffers.add(json));
-                        jsons.put(combinedId, json);
-
-                        if (changedIds.contains(combinedId)) {
-                            Path externalFile = storage.externalFile(tileDir, geometry, combinedId);
-                            if (Files.exists(externalFile)) {
-                                //enqueue unused json file for deletion
-                                toDeleteFiles.add(externalFile);
-                            }
-                        }
-                    } else {
-                        ByteBuffer reference;
-                        if (changedIds.contains(combinedId)) {
-                            //write external storage file and store reference in map instead
-                            reference = storage.writeExternal(tileDir, geometry, combinedId, json);
-                        } else {
-                            reference = storage.createReference(geometry, combinedId);
-                        }
-
-                        checkState(allBuffers.add(reference));
-                        jsons.put(combinedId, reference);
-                        PUnsafe.pork_releaseBuffer(json);
-                    }
-                }
-            }
-        }
-        logger.trace("pass 5: batched %.2fMiB of updates, %d files queued for deletion, %d tiles queued for regeneration", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size(), dirtyTiles.size());
-        
-        //pass 6: write updated tiles
-        for (long tilePos : dirtyTiles) {
-            LongSet elements = new LongOpenHashSet(); //using a set instead of a list because the transaction iterator can cause duplicate elements to appear
-            storage.tileContents().getElementsInTile(access, tilePos, elements);
-            int size = elements.size();
-
-            Path tileFile = storage.tileFile(tileDir, tilePos);
-            if (size != 0) {
-                ByteBuffer[] buffers = new ByteBuffer[size];
-                long totalSize = 0L;
-                int i = 0;
-                for (long id : elements) {
-                    ByteBuffer buffer = jsons.get(id);
-                    checkState(buffer != null, "unable to find json data for %s %d!",
-                            Element.typeName(Element.extractType(id)), Element.extractId(id));
-                    checkState(buffer.hasRemaining(), "json data for %s %d has no data remaining!",
-                            Element.typeName(Element.extractType(id)), Element.extractId(id));
-                    totalSize += buffer.remaining();
-                    buffers[i++] = buffer;
-                }
-
-                Files.createDirectories(tileFile.getParent());
-                try (FileChannel channel = FileChannel.open(tileFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                    long written = 0L;
-                    do {
-                        written += channel.write(buffers);
-                    } while (written != totalSize);
-                }
-
-                for (ByteBuffer buffer : buffers) {
-                    checkState(!buffer.hasRemaining(), "didn't write all data from buffer!");
-                    buffer.rewind(); //reset index to 0
-                }
-            } else { //the tile no longer has any contents, delete it
-                toDeleteFiles.add(tileFile);
-            }
-        }
-        logger.trace("pass 6: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
-
-        //pass 7: delete queued files and release buffers
-        jsons.values().forEach(PUnsafe::pork_releaseBuffer);
-        for (int i = toDeleteFiles.size() - 1; i >= 0; i--) { //iterate backwards to ensure that tiles are deleted before external files
-            logger.debug("Deleting %s", toDeleteFiles.get(i));
-            Files.deleteIfExists(toDeleteFiles.get(i));
-        }
+        //pass 5: write updated tiles
+        storage.exportExternalFiles(access, tileDir);
+        storage.exportDirtyTiles(access, tileDir);
+        logger.trace("pass 5: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {

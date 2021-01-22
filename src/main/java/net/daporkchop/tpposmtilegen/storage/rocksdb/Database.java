@@ -91,6 +91,7 @@ public final class Database implements AutoCloseable {
     private final OptimisticTransactionDB delegate;
     private final List<ColumnFamilyHandle> columns;
     private final CloseableThreadLocal<FlushableWriteBatch> batches;
+    private final CloseableThreadLocal<ReadWriteBatchAccess> batchesRW;
 
     @Getter
     private final DBAccess read;
@@ -104,11 +105,21 @@ public final class Database implements AutoCloseable {
                 return autoFlush ? new AutoFlushingWriteBatch(delegate, 64L << 20L) : new FlushableWriteBatch(delegate);
             }
         };
+        this.batchesRW = new CloseableThreadLocal<ReadWriteBatchAccess>() {
+            @Override
+            protected ReadWriteBatchAccess initialValue0() throws Exception {
+                return new ReadWriteBatchAccess(Database.this.batches.get(), delegate);
+            }
+        };
         this.read = new ReadAccess(delegate);
     }
 
     public DBAccess batch() {
         return this.batches.get();
+    }
+
+    public DBAccess readWriteBatch() {
+        return this.batchesRW.get();
     }
 
     public DBAccess newNotAutoFlushingWriteBatch() {

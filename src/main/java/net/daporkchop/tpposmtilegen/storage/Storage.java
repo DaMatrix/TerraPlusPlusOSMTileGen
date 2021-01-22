@@ -71,6 +71,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
 
@@ -163,22 +164,23 @@ public final class Storage implements AutoCloseable {
         return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, @NonNull Path outputRoot, long combinedId) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, boolean allowUnknown) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        Element element = this.getElement(this.db.read(), combinedId);
+        Element element = this.getElement(access, combinedId);
+        if (allowUnknown && element == null) {
+            this.intersectedTiles.delete(access, combinedId);
+            return;
+        }
         checkState(element != null, "unknown %s %d", typeName, id);
 
-        Geometry geometry = element.toGeometry(this, this.db.read());
+        Geometry geometry = element.toGeometry(this, access);
         if (geometry != null) {
             long[] arr = geometry.listIntersectedTiles();
+            Arrays.sort(arr);
             int tileCount = arr.length;
-
-            if (tileCount == 0) { //nothing to do
-                return;
-            }
 
             this.dirtyTiles.markDirty(access, LongArrayList.wrap(arr));
             this.tileContents.addElementToTiles(access, LongArrayList.wrap(arr), combinedId); //add this element to all tiles
@@ -191,49 +193,26 @@ public final class Storage implements AutoCloseable {
 
             //convert json to bytes
             ByteBuffer buffer = Geometry.toBytes(builder);
-            if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
-                //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                this.jsonStorage.put(access, combinedId, buffer);
-            } else { //element is referenced multiple times, store it in an external file
-                String location = geometry.externalStorageLocation(type, id);
+            try {
+                if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
+                    //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                    this.jsonStorage.put(access, combinedId, buffer);
+                } else { //element is referenced multiple times, store it in an external file
+                    String location = geometry.externalStorageLocation(type, id);
 
-                //we don't actually write to the external file immediately
-                this.externalJsonStorage.put(access, location, buffer);
+                    //we don't actually write to the external file immediately
+                    this.externalJsonStorage.put(access, location, buffer);
 
-                ByteBuffer referenceBuffer = Geometry.createReference(location);
-                this.jsonStorage.put(access, combinedId, referenceBuffer);
-                PUnsafe.pork_releaseBuffer(referenceBuffer);
+                    ByteBuffer referenceBuffer = Geometry.createReference(location);
+                    this.jsonStorage.put(access, combinedId, referenceBuffer);
+                    PUnsafe.pork_releaseBuffer(referenceBuffer);
+                }
+            } finally {
+                PUnsafe.pork_releaseBuffer(buffer);
             }
-            PUnsafe.pork_releaseBuffer(buffer);
+        } else {
+            this.intersectedTiles.delete(access, combinedId);
         }
-    }
-
-    public ByteBuffer writeExternal(@NonNull Path outputRoot, @NonNull Geometry geometry, long combinedId, @NonNull ByteBuffer fullJson) throws IOException {
-        String location = geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId));
-        Path file = outputRoot.resolve(location);
-
-        //ensure directory exists
-        Files.createDirectories(file.getParent());
-
-        //write to file
-        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-            while (fullJson.hasRemaining()) {
-                channel.write(fullJson);
-            }
-        }
-
-        //create reference object
-        return Geometry.toBytes("{\"type\":\"Reference\",\"location\":\"" + location + "\"}\n");
-    }
-
-    public ByteBuffer createReference(@NonNull Geometry geometry, long combinedId) {
-        String location = geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId));
-
-        return Geometry.toBytes("{\"type\":\"Reference\",\"location\":\"" + location + "\"}\n");
-    }
-
-    public Path externalFile(@NonNull Path outputRoot, @NonNull Geometry geometry, long combinedId) {
-        return outputRoot.resolve(geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId)));
     }
 
     public void exportExternalFiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
@@ -273,6 +252,9 @@ public final class Storage implements AutoCloseable {
                 notifier.step(0);
             });
         }
+
+        logger.trace("Clearing temporary GeoJSON storage...");
+        this.externalJsonStorage.clear(access);
     }
 
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
@@ -298,11 +280,14 @@ public final class Storage implements AutoCloseable {
                 try {
                     LongList elements = new LongArrayList();
                     this.tileContents.getElementsInTile(access, tilePos, elements);
+                    Path file = this.tileFile(outputRoot, tilePos);
+
                     if (elements.isEmpty()) { //nothing to write
+                        logger.debug("Deleting empty tile %s", file);
+                        Files.deleteIfExists(file);
                         return;
                     }
 
-                    Path file = this.tileFile(outputRoot, tilePos);
                     Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
                     try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
                         List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
@@ -327,7 +312,7 @@ public final class Storage implements AutoCloseable {
         }
 
         logger.trace("Clearing dirty tile markers...");
-        this.dirtyTiles.clear(this.db.batch());
+        this.dirtyTiles.clear(access);
     }
 
     public Path tileFile(@NonNull Path outputRoot, long tilePos) {
@@ -339,15 +324,17 @@ public final class Storage implements AutoCloseable {
         this.flush();
 
         logger.trace("Clearing temporary GeoJSON storage...");
-        this.externalJsonStorage.clear(this.db.batch());
+        this.externalJsonStorage.clear(this.db.readWriteBatch());
+        logger.trace("Clearing dirty tile markers...");
+        this.dirtyTiles.clear(this.db.readWriteBatch());
 
         if (full) {
             logger.trace("Clearing full GeoJSON storage...");
-            this.jsonStorage.clear(this.db.batch());
+            this.jsonStorage.clear(this.db.readWriteBatch());
             logger.trace("Clearing tile content index...");
-            this.tileContents.clear(this.db.batch());
+            this.tileContents.clear(this.db.readWriteBatch());
             logger.trace("Clearing geometry intersection index...");
-            this.intersectedTiles.clear(this.db.batch());
+            this.intersectedTiles.clear(this.db.readWriteBatch());
         }
 
         logger.success("Cleared.");

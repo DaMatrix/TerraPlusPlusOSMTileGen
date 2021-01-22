@@ -53,7 +53,7 @@ public final class StringToBlobDB extends WrappedRocksDB {
         byte[] lowKey;
         byte[] highKey;
 
-        try (RocksIterator itr = this.database.read().iterator(this.column)) {
+        try (RocksIterator itr = access.iterator(this.column)) {
             itr.seekToFirst();
             if (!itr.isValid()) { //db is empty
                 return;

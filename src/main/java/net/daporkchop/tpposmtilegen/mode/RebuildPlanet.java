@@ -23,19 +23,16 @@ package net.daporkchop.tpposmtilegen.mode;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.PFunctions;
 import net.daporkchop.lib.common.function.io.IOBiPredicate;
-import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.function.io.IORunnable;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.function.throwing.ESupplier;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.Threading;
-import org.rocksdb.RocksIterator;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -138,7 +135,7 @@ public class RebuildPlanet implements IMode {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), dst, Element.addTypeToId(type, id));
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), Element.addTypeToId(type, id), false);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }
@@ -153,8 +150,8 @@ public class RebuildPlanet implements IMode {
                 storage.flush();
             }
 
-            storage.exportExternalFiles(storage.db().read(), dst);
-            storage.exportDirtyTiles(storage.db().read(), dst);
+            storage.exportExternalFiles(storage.db().readWriteBatch(), dst);
+            storage.exportDirtyTiles(storage.db().readWriteBatch(), dst);
 
             storage.purge(false); //erase temporary data
         }

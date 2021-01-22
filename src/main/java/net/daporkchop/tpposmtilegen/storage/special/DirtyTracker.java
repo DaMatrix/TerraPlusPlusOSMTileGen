@@ -75,6 +75,17 @@ public final class DirtyTracker extends WrappedRocksDB {
         }
     }
 
+    public void unmarkDirty(@NonNull DBAccess access, long id) throws Exception {
+        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
+        byte[] key = recycler.get();
+        try {
+            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            access.delete(this.column, key);
+        } finally {
+            recycler.release(key);
+        }
+    }
+
     public void forEachParallel(@NonNull DBAccess access, @NonNull LongConsumer callback) throws Exception {
         Threading.iterateParallel(1024,
                 c -> {
