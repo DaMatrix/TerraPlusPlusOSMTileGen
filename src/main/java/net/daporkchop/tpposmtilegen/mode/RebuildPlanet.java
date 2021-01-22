@@ -135,7 +135,7 @@ public class RebuildPlanet implements IMode {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), Element.addTypeToId(type, id), false);
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), false);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

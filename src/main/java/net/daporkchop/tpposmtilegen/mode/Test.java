@@ -20,20 +20,15 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Way;
+import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
-import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
-import java.util.Arrays;
-import java.util.stream.Collectors;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -62,33 +57,14 @@ public class Test implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
-            try (DBAccess access = storage.db().newTransaction()) {
-                long combinedId = Element.addTypeToId(Way.TYPE, 810251999L);
+            try (DBAccess access = storage.db().read()) {
+                long id = 317213289L;
+                long combinedId = Element.addTypeToId(Relation.TYPE, id);
                 Element element = storage.getElement(access, combinedId);
-                checkState(element != null, "unable to find way!");
+                checkState(element != null, "unable to find element!");
                 Geometry geometry = element.toGeometry(storage, access);
                 checkState(geometry != null, "unable to assemble geometry!");
                 System.out.println(geometry);
-
-                long[] tiles = geometry.listIntersectedTiles();
-                System.out.println(Arrays.stream(tiles).mapToObj(l -> Tile.tileX(l) + ", " + Tile.tileY(l))
-                        .collect(Collectors.joining("], [", "[", "]")));
-
-                long[] tilesDb = storage.intersectedTiles().get(access, combinedId);
-                System.out.println(Arrays.stream(tilesDb).mapToObj(l -> Tile.tileX(l) + ", " + Tile.tileY(l))
-                        .collect(Collectors.joining("], [", "[", "]")));
-
-                for (long tile : tiles) {
-                    LongList elements = new LongArrayList();
-                    storage.tileContents().getElementsInTile(access, tile, elements);
-                    System.out.println(elements.contains(combinedId));
-                }
-
-                storage.convertToGeoJSONAndStoreInDB(access, combinedId, false);
-
-                storage.exportDirtyTiles(access, src.toPath().resolveSibling("switzerland.tiles"));
-
-                access.clear();
             }
         }
     }
