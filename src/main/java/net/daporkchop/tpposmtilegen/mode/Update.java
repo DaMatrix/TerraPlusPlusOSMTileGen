@@ -98,7 +98,7 @@ public class Update implements IMode {
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            if (true) {
+            if (false) {
                 HttpServer server = HttpServer.create(new InetSocketAddress(8080), 0);
                 server.createContext("/tile/", exchange -> {
                     try {
@@ -239,7 +239,7 @@ public class Update implements IMode {
                     break;
             }
         }
-        logger.debug("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 2: update element references
         for (long combinedId : changedIds) {
@@ -250,7 +250,7 @@ public class Update implements IMode {
                 element.computeReferences(access, storage);
             }
         }
-        logger.debug("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 3: update geometry intersections
         LongSet dirtyTiles = new LongOpenHashSet();
@@ -290,7 +290,7 @@ public class Update implements IMode {
             dirtyTiles.addAll(intersectedTilesNext);
             intersectedTileCounts.put(combinedId, intersectedTilesNext.size());
         }
-        logger.debug("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 4: find all elements intersecting the changed tiles
         LongSet toRegenerateElements = new LongOpenHashSet();
@@ -299,7 +299,7 @@ public class Update implements IMode {
             storage.tileContents().getElementsInTile(access, tilePos, elements);
             toRegenerateElements.addAll(elements);
         }
-        logger.debug("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 5: convert geometry of all elements intersecting all changed tiles to GeoJSON
         List<Path> toDeleteFiles = new ArrayList<>();
@@ -327,23 +327,31 @@ public class Update implements IMode {
                         //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                         checkState(allBuffers.add(json));
                         jsons.put(combinedId, json);
-                        
-                        Path externalFile = storage.externalFile(tileDir, geometry, combinedId);
-                        if (Files.exists(externalFile)) {
-                            //enqueue unused json file for deletion
-                            toDeleteFiles.add(externalFile);
+
+                        if (changedIds.contains(combinedId)) {
+                            Path externalFile = storage.externalFile(tileDir, geometry, combinedId);
+                            if (Files.exists(externalFile)) {
+                                //enqueue unused json file for deletion
+                                toDeleteFiles.add(externalFile);
+                            }
                         }
                     } else {
-                        //write external storage file and store reference in map instead
-                        ByteBuffer reference = storage.writeExternal(tileDir, geometry, combinedId, json);
-                        PUnsafe.pork_releaseBuffer(json);
+                        ByteBuffer reference;
+                        if (changedIds.contains(combinedId)) {
+                            //write external storage file and store reference in map instead
+                            reference = storage.writeExternal(tileDir, geometry, combinedId, json);
+                        } else {
+                            reference = storage.createReference(geometry, combinedId);
+                        }
+
                         checkState(allBuffers.add(reference));
                         jsons.put(combinedId, reference);
+                        PUnsafe.pork_releaseBuffer(json);
                     }
                 }
             }
         }
-        logger.debug("pass 5: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
+        logger.trace("pass 5: batched %.2fMiB of updates, %d files queued for deletion, %d tiles queued for regeneration", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size(), dirtyTiles.size());
         
         //pass 6: write updated tiles
         for (long tilePos : dirtyTiles) {
@@ -382,12 +390,12 @@ public class Update implements IMode {
                 toDeleteFiles.add(tileFile);
             }
         }
-        logger.debug("pass 6: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
+        logger.trace("pass 6: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 
         //pass 7: delete queued files and release buffers
         jsons.values().forEach(PUnsafe::pork_releaseBuffer);
         for (int i = toDeleteFiles.size() - 1; i >= 0; i--) { //iterate backwards to ensure that tiles are deleted before external files
-            logger.info("Deleting %s", toDeleteFiles.get(i));
+            logger.debug("Deleting %s", toDeleteFiles.get(i));
             Files.deleteIfExists(toDeleteFiles.get(i));
         }
     }
@@ -433,9 +441,7 @@ public class Update implements IMode {
 
             storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
             if (changedNode.tags().isEmpty()) {
-                if (storage.nodes().get(access, id) != null) {
-                    storage.nodes().delete(access, id);
-                }
+                storage.nodes().delete(access, id);
             } else {
                 storage.nodes().put(access, id, new Node(id, changedNode.tags()));
             }

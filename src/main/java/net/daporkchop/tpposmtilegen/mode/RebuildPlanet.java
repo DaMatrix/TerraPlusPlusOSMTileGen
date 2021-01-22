@@ -22,6 +22,9 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.PFunctions;
+import net.daporkchop.lib.common.function.io.IOBiPredicate;
+import net.daporkchop.lib.common.function.io.IOFunction;
+import net.daporkchop.lib.common.function.io.IORunnable;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.function.throwing.ESupplier;
@@ -36,13 +39,13 @@ import java.io.File;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.stream.Stream;
-import java.util.stream.StreamSupport;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -64,7 +67,6 @@ public class RebuildPlanet implements IMode {
                 return thread;
             });
 
-            _enumerateFilesRecursive(executor, notifier, dir).join();
             _deleteFilesRecursive(executor, notifier, dir).join();
 
             executor.shutdown();
@@ -72,37 +74,28 @@ public class RebuildPlanet implements IMode {
         }
     }
 
-    private static CompletableFuture<Void> _enumerateFilesRecursive(@NonNull ExecutorService executor, @NonNull ProgressNotifier notifier, @NonNull Path path) throws Exception {
-        if (Files.isDirectory(path)) {
-            notifier.incrementTotal(1);
-            try (Stream<Path> stream = Files.list(path)) {
-                return CompletableFuture.allOf(stream
-                        .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _enumerateFilesRecursive(executor, notifier, p), executor)
-                                .thenCompose(PFunctions.identity()))
-                        .toArray(CompletableFuture[]::new));
-            }
-        } else {
-            notifier.incrementTotal(0);
-            return CompletableFuture.completedFuture(null);
-        }
-    }
-
     private static CompletableFuture<Void> _deleteFilesRecursive(@NonNull ExecutorService executor, @NonNull ProgressNotifier notifier, @NonNull Path path) throws Exception {
-        if (Files.isDirectory(path)) {
-            try (Stream<Path> stream = Files.list(path)) {
-                return CompletableFuture.allOf(stream
-                        .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _deleteFilesRecursive(executor, notifier, p), executor)
-                                .thenCompose(PFunctions.identity()))
-                        .toArray(CompletableFuture[]::new))
-                        .thenRun((ERunnable) () -> {
-                            Files.delete(path);
-                            notifier.step(1);
-                        });
+        try (Stream<Path> stream = Files.find(path, 1, (IOBiPredicate<Path, BasicFileAttributes>) (p, attrs) -> {
+            if (path.equals(p)) {
+                return false;
             }
-        } else {
-            Files.delete(path);
-            notifier.step(0);
-            return CompletableFuture.completedFuture(null);
+
+            if (attrs.isDirectory()) {
+                return true;
+            } else {
+                Files.delete(p);
+                notifier.step(0);
+                return false;
+            }
+        })) {
+            return CompletableFuture.allOf(stream
+                    .map(p -> CompletableFuture.supplyAsync((ESupplier<CompletableFuture<Void>>) () -> _deleteFilesRecursive(executor, notifier, p), executor)
+                            .thenCompose(PFunctions.identity()))
+                    .toArray(CompletableFuture[]::new))
+                    .thenRun((IORunnable) () -> {
+                        Files.delete(path);
+                        notifier.step(1);
+                    });
         }
     }
 

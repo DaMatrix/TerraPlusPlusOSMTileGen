@@ -231,6 +231,12 @@ public final class Storage implements AutoCloseable {
         return Geometry.toBytes("{\"type\":\"Reference\",\"location\":\"" + location + "\"}\n");
     }
 
+    public ByteBuffer createReference(@NonNull Geometry geometry, long combinedId) {
+        String location = geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId));
+
+        return Geometry.toBytes("{\"type\":\"Reference\",\"location\":\"" + location + "\"}\n");
+    }
+
     public Path externalFile(@NonNull Path outputRoot, @NonNull Geometry geometry, long combinedId) {
         return outputRoot.resolve(geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId)));
     }
