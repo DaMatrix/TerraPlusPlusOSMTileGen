@@ -38,10 +38,13 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.function.LongPredicate;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -193,15 +196,28 @@ public class Update implements IMode {
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 4: convert geometry of all changed elements to GeoJSON and recompute relations
+        List<Path> toDeleteFiles = new ArrayList<>();
         for (long combinedId : changedIds) {
             storage.convertToGeoJSONAndStoreInDB(access, combinedId, true);
+
+            String oldLocation = storage.externalLocations().get(storage.db().read(), combinedId);
+            String newLocation = storage.externalLocations().get(access, combinedId);
+            if (newLocation == null && oldLocation != null) {
+                toDeleteFiles.add(tileDir.resolve(oldLocation));
+            }
         }
-        logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 4: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 
         //pass 5: write updated tiles
         storage.exportExternalFiles(access, tileDir);
         storage.exportDirtyTiles(access, tileDir);
-        logger.trace("pass 5: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 5: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
+
+        //delete old files
+        for (Path path : toDeleteFiles) {
+            logger.debug("Deleting %s", path);
+            Files.deleteIfExists(path);
+        }
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {

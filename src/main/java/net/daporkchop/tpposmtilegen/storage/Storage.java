@@ -49,6 +49,7 @@ import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
+import net.daporkchop.tpposmtilegen.storage.map.StringDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -101,6 +102,7 @@ public final class Storage implements AutoCloseable {
 
     protected BlobDB jsonStorage;
     protected StringToBlobDB externalJsonStorage;
+    protected StringDB externalLocations;
 
     protected final Database db;
 
@@ -121,6 +123,7 @@ public final class Storage implements AutoCloseable {
                 .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.dirtyTiles = new DirtyTracker(database, handle))
                 .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle) -> this.jsonStorage = new BlobDB(database, handle))
                 .add("external_json", CompressionType.NO_COMPRESSION, (database, handle) -> this.externalJsonStorage = new StringToBlobDB(database, handle))
+                .add("external_locations", (database, handle) -> this.externalLocations = new StringDB(database, handle))
                 .add("sequence_number", (database, handle) -> this.sequenceNumber = new DBLong(database, handle))
                 .autoFlush(true)
                 .build(root.resolve("db"));
@@ -172,6 +175,7 @@ public final class Storage implements AutoCloseable {
         Element element = this.getElement(access, combinedId);
         if (allowUnknown && element == null) {
             this.intersectedTiles.delete(access, combinedId);
+            this.externalLocations.delete(access, combinedId);
             return;
         }
         checkState(element != null, "unknown %s %d", typeName, id);
@@ -197,11 +201,13 @@ public final class Storage implements AutoCloseable {
                 if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.jsonStorage.put(access, combinedId, buffer);
+                    this.externalLocations.delete(access, combinedId);
                 } else { //element is referenced multiple times, store it in an external file
                     String location = geometry.externalStorageLocation(type, id);
 
                     //we don't actually write to the external file immediately
                     this.externalJsonStorage.put(access, location, buffer);
+                    this.externalLocations.put(access, combinedId, location);
 
                     ByteBuffer referenceBuffer = Geometry.createReference(location);
                     this.jsonStorage.put(access, combinedId, referenceBuffer);
@@ -212,6 +218,7 @@ public final class Storage implements AutoCloseable {
             }
         } else {
             this.intersectedTiles.delete(access, combinedId);
+            this.externalLocations.delete(access, combinedId);
         }
     }
 
@@ -331,6 +338,8 @@ public final class Storage implements AutoCloseable {
         if (full) {
             logger.trace("Clearing full GeoJSON storage...");
             this.jsonStorage.clear(this.db.readWriteBatch());
+            logger.trace("Clearing external storage location index...");
+            this.externalLocations.clear(this.db.readWriteBatch());
             logger.trace("Clearing tile content index...");
             this.tileContents.clear(this.db.readWriteBatch());
             logger.trace("Clearing geometry intersection index...");
