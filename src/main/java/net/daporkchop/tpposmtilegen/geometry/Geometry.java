@@ -27,12 +27,16 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.Map;
 
 /**
  * @author DaPorkchop_
  */
 public interface Geometry extends Persistent {
+    byte[] _REFERENCE_PREFIX = "{\"type\":\"Reference\",\"location\":\"".getBytes();
+    byte[] _REFERENCE_SUFFIX = "\"}\n".getBytes();
+
     static void toGeoJSON(@NonNull StringBuilder dst, @NonNull Geometry geometry, @NonNull Map<String, String> tags, long combinedId) {
         dst.append("{\"type\":\"Feature\",\"geometry\":");
 
@@ -59,6 +63,18 @@ public interface Geometry extends Persistent {
                 .append(Element.extractId(combinedId)).append('"');
 
         dst.append('}').append('\n');
+    }
+
+    static ByteBuffer createReference(@NonNull CharSequence location) {
+        int length = location.length();
+        ByteBuffer buffer = ByteBuffer.allocateDirect(_REFERENCE_PREFIX.length + length + _REFERENCE_SUFFIX.length);
+        buffer.put(_REFERENCE_PREFIX);
+        for (int i = 0; i < length; i++) {
+            char c = location.charAt(i);
+            buffer.put((byte) (c > 255 ? '?' : c));
+        }
+        buffer.put(_REFERENCE_SUFFIX).flip();
+        return buffer;
     }
 
     static ByteBuffer toBytes(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
@@ -89,7 +105,7 @@ public interface Geometry extends Persistent {
     }
 
     default String externalStorageLocation(int type, long id) {
-        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id % 1000L, (id / 1000L) % 1000L, id / 1000_000L);
+        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id / 1000_000L, (id / 1000L) % 1000L, id % 1000L);
     }
 
     void toGeoJSON(@NonNull StringBuilder dst);

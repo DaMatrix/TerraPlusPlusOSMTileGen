@@ -52,14 +52,14 @@ public class Tile {
         tileY += 90 * TILES_PER_DEGREE;
         checkArg(tileX >= 0 && tileX < 65536, "tileX: %d", tileX);
         checkArg(tileY >= 0 && tileY < 65536, "tileY: %d", tileY);
-        return (tileX << 16) | tileY;
+        return (tileY << 16) | tileX;
     }
 
     public static int tileX(long tilePos) {
-        return toInt(tilePos >>> 16L) - 180 * TILES_PER_DEGREE;
+        return toInt(tilePos & 0xFFFF) - 180 * TILES_PER_DEGREE;
     }
 
     public static int tileY(long tilePos) {
-        return toInt(tilePos & 0xFFFF) - 90 * TILES_PER_DEGREE;
+        return toInt(tilePos >>> 16L) - 90 * TILES_PER_DEGREE;
     }
 }

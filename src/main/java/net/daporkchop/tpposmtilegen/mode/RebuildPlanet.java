@@ -30,10 +30,12 @@ import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.function.throwing.ESupplier;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
+import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
+import org.rocksdb.RocksIterator;
 
 import java.io.File;
 import java.nio.file.Files;
@@ -124,7 +126,7 @@ public class RebuildPlanet implements IMode {
         }
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.purge(true, true); //clear everything
+            storage.purge(true); //clear everything
 
             logger.info("Optimizing point DB...");
             storage.points().optimize();
@@ -133,26 +135,28 @@ public class RebuildPlanet implements IMode {
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
-                Threading.forEachParallelLong(l -> notifier.incrementTotal(Element.extractType(l)), storage.unprocessedElements().spliterator());
-
-                Threading.forEachParallelLong(combinedId -> {
-                    int type = Element.extractType(combinedId);
+                LongObjConsumer<Element> func = (id, element) -> {
+                    int type = element.type();
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), dst, combinedId);
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().batch(), dst, Element.addTypeToId(type, id));
                     } catch (Exception e) {
-                        throw new RuntimeException(Element.typeName(type) + ' ' + Element.extractId(combinedId), e);
+                        throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }
                     notifier.step(type);
-                }, storage.unprocessedElements().spliterator());
-                storage.flush();
+                };
 
-                storage.unprocessedElements().clear();
+                storage.nodes().forEachParallel(storage.db().read(), func);
+                storage.ways().forEachParallel(storage.db().read(), func);
+                storage.relations().forEachParallel(storage.db().read(), func);
+                storage.coastlines().forEachParallel(storage.db().read(), func);
+
+                storage.flush();
             }
 
+            storage.exportExternalFiles(storage.db().read(), dst);
             storage.exportDirtyTiles(storage.db().read(), dst);
-            storage.dirtyTiles().clear(storage.db().batch());
 
-            storage.purge(true, false); //erase temporary data
+            storage.purge(false); //erase temporary data
         }
     }
 }

@@ -23,14 +23,18 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.longs.LongList;
+import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
+import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
+import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -128,6 +132,30 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             values.add(value != null ? this.valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
         }
         return values;
+    }
+
+    public void forEachParallel(@NonNull DBAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
+        @AllArgsConstructor
+        class ValueWithKey {
+            final byte[] key;
+            final byte[] value;
+        }
+
+        Threading.<ValueWithKey>iterateParallel(1024,
+                c -> {
+                    try (RocksIterator itr = access.iterator(this.column)) {
+                        for (itr.seekToFirst(); itr.isValid(); itr.next()) {
+                            c.accept(new ValueWithKey(itr.key(), itr.value()));
+                        }
+                    }
+                },
+                v -> {
+                    long key = PUnsafe.getLong(v.key, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
+                        key = Long.reverseBytes(key);
+                    }
+                    callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(v.value)));
+                });
     }
 
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);

@@ -23,12 +23,15 @@ package net.daporkchop.tpposmtilegen.util;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.common.function.io.IOConsumer;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.util.PorkUtil;
 
 import java.util.Arrays;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
 
@@ -53,7 +56,7 @@ public class Threading {
         try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
-                        long targetSize = Math.max(spliterator.estimateSize() / (threads << 3), 1L);
+                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 3), 1L);
                         return forEachParallel0(executor, targetSize, spliterator, callback);
                     })
                     .toArray(CompletableFuture[]::new))
@@ -71,6 +74,26 @@ public class Threading {
                     .thenComposeAsync(unused -> CompletableFuture.allOf(
                             forEachParallel0(executor, targetSize, spliterator, callback),
                             forEachParallel0(executor, targetSize, leftSplit, callback)));
+        }
+    }
+
+    public <T> void iterateParallel(int maxQueueSize, @NonNull EConsumer<EConsumer<T>> iterator, @NonNull EConsumer<T> function) throws Exception {
+        iterateParallel(PorkUtil.CPU_COUNT, maxQueueSize, iterator, function);
+    }
+
+    public <T> void iterateParallel(int threads, int maxQueueSize, @NonNull EConsumer<EConsumer<T>> iterator, @NonNull EConsumer<T> function) throws Exception {
+        try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
+            Semaphore semaphore = new Semaphore(maxQueueSize);
+            iterator.acceptThrowing(v -> {
+                semaphore.acquireUninterruptibly();
+                executor.execute(() -> {
+                    try {
+                        function.accept(v);
+                    } finally {
+                        semaphore.release();
+                    }
+                });
+            });
         }
     }
 }

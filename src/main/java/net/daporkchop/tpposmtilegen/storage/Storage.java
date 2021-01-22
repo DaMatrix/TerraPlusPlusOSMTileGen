@@ -55,12 +55,11 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.DirtyTracker;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
+import net.daporkchop.tpposmtilegen.storage.special.StringToBlobDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
-import net.daporkchop.tpposmtilegen.util.CloseableExecutor;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapSpliteratableLongList;
 import org.rocksdb.CompressionType;
 
 import java.io.IOException;
@@ -70,6 +69,7 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.Objects;
@@ -89,8 +89,6 @@ public final class Storage implements AutoCloseable {
     protected CoastlineDB coastlines;
     protected final Int2ObjectMap<RocksDBMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
-    protected final OffHeapSpliteratableLongList unprocessedElements;
-
     protected DBLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
     protected String replicationBaseUrl;
@@ -99,7 +97,9 @@ public final class Storage implements AutoCloseable {
     protected TileDB tileContents;
     protected DirtyTracker dirtyTiles;
     protected LongArrayDB intersectedTiles;
-    protected BlobDB tempJsonStorage;
+
+    protected BlobDB jsonStorage;
+    protected StringToBlobDB externalJsonStorage;
 
     protected final Database db;
 
@@ -118,13 +118,13 @@ public final class Storage implements AutoCloseable {
                 .add("tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.tileContents = new TileDB(database, handle))
                 .add("intersected_tiles", (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
                 .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.dirtyTiles = new DirtyTracker(database, handle))
-                .add("json", CompressionType.NO_COMPRESSION, (database, handle) -> this.tempJsonStorage = new BlobDB(database, handle))
+                .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle) -> this.jsonStorage = new BlobDB(database, handle))
+                .add("external_json", CompressionType.NO_COMPRESSION, (database, handle) -> this.externalJsonStorage = new StringToBlobDB(database, handle))
                 .add("sequence_number", (database, handle) -> this.sequenceNumber = new DBLong(database, handle))
                 .autoFlush(true)
                 .build(root.resolve("db"));
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
-        this.unprocessedElements = new OffHeapSpliteratableLongList(root.resolve("unprocessedElements"));
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
@@ -144,18 +144,15 @@ public final class Storage implements AutoCloseable {
 
         if (!node.tags().isEmpty()) {
             this.nodes.put(access, node.id(), node);
-            this.unprocessedElements.add(Element.addTypeToId(Node.TYPE, node.id()));
         }
     }
 
     public void putWay(@NonNull DBAccess access, @NonNull Way way) throws Exception {
         this.ways.put(access, way.id(), way);
-        this.unprocessedElements.add(Element.addTypeToId(Way.TYPE, way.id()));
     }
 
     public void putRelation(@NonNull DBAccess access, @NonNull Relation relation) throws Exception {
         this.relations.put(access, relation.id(), relation);
-        this.unprocessedElements.add(Element.addTypeToId(Relation.TYPE, relation.id()));
     }
 
     public Element getElement(@NonNull DBAccess access, long combinedId) throws Exception {
@@ -194,22 +191,20 @@ public final class Storage implements AutoCloseable {
 
             //convert json to bytes
             ByteBuffer buffer = Geometry.toBytes(builder);
-            try {
-                if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
-                    //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.tempJsonStorage.put(access, combinedId, buffer);
-                } else { //element is referenced multiple times, store it in an external file
-                    ByteBuffer reference = this.writeExternal(outputRoot, geometry, combinedId, buffer);
-                    try {
-                        //store reference object in geometry database
-                        this.tempJsonStorage.put(access, combinedId, reference);
-                    } finally {
-                        PUnsafe.pork_releaseBuffer(reference);
-                    }
-                }
-            } finally {
-                PUnsafe.pork_releaseBuffer(buffer);
+            if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
+                //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
+                this.jsonStorage.put(access, combinedId, buffer);
+            } else { //element is referenced multiple times, store it in an external file
+                String location = geometry.externalStorageLocation(type, id);
+
+                //we don't actually write to the external file immediately
+                this.externalJsonStorage.put(access, location, buffer);
+
+                ByteBuffer referenceBuffer = Geometry.createReference(location);
+                this.jsonStorage.put(access, combinedId, referenceBuffer);
+                PUnsafe.pork_releaseBuffer(referenceBuffer);
             }
+            PUnsafe.pork_releaseBuffer(buffer);
         }
     }
 
@@ -241,14 +236,65 @@ public final class Storage implements AutoCloseable {
         return outputRoot.resolve(geometry.externalStorageLocation(Element.extractType(combinedId), Element.extractId(combinedId)));
     }
 
+    public void exportExternalFiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
+        logger.info("Creating output directories...");
+        long count = this.externalJsonStorage.count(access);
+
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Create external object directories")
+                .slot("objects", count)
+                .build()) {
+            this.externalJsonStorage.forEachParallel(access, (location, data) -> {
+                try {
+                    Files.createDirectories(outputRoot.resolve(location).getParent());
+                } catch (IOException e) {
+                    throw new RuntimeException(location, e);
+                }
+                notifier.step(0);
+            });
+        }
+
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write external objects")
+                .slot("objects", count)
+                .build()) {
+            this.externalJsonStorage.forEachParallel(access, (location, data) -> {
+                try {
+                    Path file = outputRoot.resolve(location);
+                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
+                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                        while (data.hasRemaining()) {
+                            channel.write(data);
+                        }
+                    }
+
+                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                } catch (Exception e) {
+                    throw new RuntimeException(location, e);
+                }
+                notifier.step(0);
+            });
+        }
+    }
+
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
+        long count = this.dirtyTiles.count(access);
+
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Create tile directories")
+                .slot("tiles", count)
+                .build()) {
+            this.dirtyTiles.forEachParallel(access, tilePos -> {
+                try {
+                    Files.createDirectories(this.tileFile(outputRoot, tilePos).getParent());
+                } catch (IOException e) {
+                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
+                }
+                notifier.step(0);
+            });
+        }
+
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
-                .slot("tiles", this.dirtyTiles.count(access))
-                .build();
-             CloseableExecutor executor = new CloseableExecutor("Tile write worker")) {
-            this.dirtyTiles.forEach(access, tilePos -> executor.execute(() -> {
-                int tileX = Tile.tileX(tilePos);
-                int tileY = Tile.tileY(tilePos);
+                .slot("tiles", count)
+                .build()) {
+            this.dirtyTiles.forEachParallel(access, tilePos -> {
                 try {
                     LongList elements = new LongArrayList();
                     this.tileContents.getElementsInTile(access, tilePos, elements);
@@ -256,10 +302,10 @@ public final class Storage implements AutoCloseable {
                         return;
                     }
 
-                    Path dir = outputRoot.resolve("tile").resolve(String.valueOf(tileX));
-                    Files.createDirectories(dir);
-                    try (FileChannel channel = FileChannel.open(dir.resolve(tileY + ".json"), StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        List<ByteBuffer> list = this.tempJsonStorage.getAll(access, elements);
+                    Path file = this.tileFile(outputRoot, tilePos);
+                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
+                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                        List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
                         list.removeIf(Objects::isNull);
                         ByteBuffer[] buffers = list.toArray(new ByteBuffer[0]);
                         int totalSize = 0;
@@ -271,50 +317,48 @@ public final class Storage implements AutoCloseable {
                             i += channel.write(buffers);
                         }
                     }
+
+                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
                 } catch (Exception e) {
-                    throw new RuntimeException("tile " + tileX + ' ' + tileY, e);
+                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
                 }
                 notifier.step(0);
-            }));
+            });
         }
+
+        logger.trace("Clearing dirty tile markers...");
+        this.dirtyTiles.clear(this.db.batch());
     }
 
     public Path tileFile(@NonNull Path outputRoot, long tilePos) {
         return outputRoot.resolve(PStrings.fastFormat("tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos)));
     }
 
-    public void purge(boolean temp, boolean index) throws Exception {
-        if (!temp && !index) { //do nothing?!?
-            return;
-        }
-
+    public void purge(boolean full) throws Exception {
         logger.info("Cleaning up... (this might take a while)");
         this.flush();
-        if (temp) {
-            logger.trace("Clearing temporary GeoJSON storage...");
-            this.tempJsonStorage.clear(this.db.batch());
-        }
-        if (index) {
+
+        logger.trace("Clearing temporary GeoJSON storage...");
+        this.externalJsonStorage.clear(this.db.batch());
+
+        if (full) {
+            logger.trace("Clearing full GeoJSON storage...");
+            this.jsonStorage.clear(this.db.batch());
             logger.trace("Clearing tile content index...");
             this.tileContents.clear(this.db.batch());
             logger.trace("Clearing geometry intersection index...");
             this.intersectedTiles.clear(this.db.batch());
-            logger.trace("Clearing dirty tile markers...");
-            this.dirtyTiles.clear(this.db.batch());
         }
+
         logger.success("Cleared.");
     }
 
     public void flush() throws Exception {
         this.db.flush();
-
-        this.unprocessedElements.flush();
     }
 
     @Override
     public void close() throws Exception {
-        this.unprocessedElements.close();
-
         this.replicationTimestamp.close();
 
         this.db.close();

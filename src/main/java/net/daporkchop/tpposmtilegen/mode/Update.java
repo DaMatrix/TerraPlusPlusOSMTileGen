@@ -111,7 +111,7 @@ public class Update implements IMode {
                         LongList elements = new LongArrayList();
                         storage.tileContents().getElementsInTile(storage.db().read(), tilePos, elements);
 
-                        ByteBuffer[] buffers = storage.tempJsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
+                        ByteBuffer[] buffers = storage.jsonStorage().getAll(storage.db().read(), elements).toArray(new ByteBuffer[0]);
                         exchange.sendResponseHeaders(200, 0);
 
                         try (OutputStream out = exchange.getResponseBody()) {

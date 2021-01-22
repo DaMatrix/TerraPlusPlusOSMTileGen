@@ -80,8 +80,8 @@ public final class ProgressNotifier implements AutoCloseable {
         this.thread = new Thread(() -> {
             try {
                 while (true) {
-                    Thread.sleep(interval);
                     this.print();
+                    Thread.sleep(interval);
                 }
             } catch (InterruptedException e) {
                 //ignore

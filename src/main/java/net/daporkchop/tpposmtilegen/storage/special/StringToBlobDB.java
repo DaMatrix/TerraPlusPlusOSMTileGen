@@ -20,10 +20,9 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
-import it.unimi.dsi.fastutil.longs.LongList;
+import io.netty.buffer.ByteBuf;
+import lombok.AllArgsConstructor;
 import lombok.NonNull;
-import net.daporkchop.lib.common.system.PlatformInfo;
-import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
@@ -31,66 +30,76 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
 
-import java.util.function.LongConsumer;
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
+import java.util.Arrays;
+import java.util.function.BiConsumer;
 
 /**
  * @author DaPorkchop_
  */
-public final class DirtyTracker extends WrappedRocksDB {
-    public DirtyTracker(Database database, ColumnFamilyHandle column) {
+public final class StringToBlobDB extends WrappedRocksDB {
+    public StringToBlobDB(Database database, ColumnFamilyHandle column) {
         super(database, column);
     }
 
     @Override
     protected int keySize() {
-        return 8;
+        throw new UnsupportedOperationException();
     }
 
-    public void markDirty(@NonNull DBAccess access, long id) throws Exception {
-        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
-        byte[] key = recycler.get();
-        try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-            access.put(this.column, key, EMPTY_BYTE_ARRAY);
-        } finally {
-            recycler.release(key);
-        }
-    }
+    @Override
+    public void clear(@NonNull DBAccess access) throws Exception {
+        byte[] lowKey;
+        byte[] highKey;
 
-    public void markDirty(@NonNull DBAccess access, @NonNull LongList ids) throws Exception {
-        if (ids.isEmpty()) { //nothing to do
-            return;
-        }
-
-        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
-        byte[] key = recycler.get();
-        try {
-            for (int i = 0, size = ids.size(); i < size; i++) {
-                long id = ids.getLong(i);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-                access.put(this.column, key, EMPTY_BYTE_ARRAY);
+        try (RocksIterator itr = this.database.read().iterator(this.column)) {
+            itr.seekToFirst();
+            if (!itr.isValid()) { //db is empty
+                return;
             }
-        } finally {
-            recycler.release(key);
+            lowKey = itr.key();
+
+            itr.seekToLast();
+            highKey = itr.key();
         }
+
+        if (!Arrays.equals(lowKey, highKey)) {
+            access.deleteRange(this.column, lowKey, highKey);
+        }
+        access.delete(this.column, highKey); //deleteRange's upper bound is exclusive
+
+        access.flush(true);
+        this.optimize();
     }
 
-    public void forEachParallel(@NonNull DBAccess access, @NonNull LongConsumer callback) throws Exception {
-        Threading.iterateParallel(1024,
+    public void put(@NonNull DBAccess access, @NonNull String key, @NonNull ByteBuffer value) throws Exception {
+        ByteBuf buf = WRITE_BUFFER_CACHE.get().clear();
+        buf.writeCharSequence(key, StandardCharsets.US_ASCII);
+
+        access.put(this.column, buf.internalNioBuffer(0, buf.readableBytes()), value);
+    }
+
+    public void delete(@NonNull DBAccess access, @NonNull String key) throws Exception {
+        access.delete(this.column, key.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public void forEachParallel(@NonNull DBAccess access, @NonNull BiConsumer<String, ByteBuffer> callback) throws Exception {
+        @AllArgsConstructor
+        class ValueWithKey {
+            final byte[] key;
+            final byte[] value;
+        }
+
+        Threading.<ValueWithKey>iterateParallel(1024,
                 c -> {
                     try (RocksIterator itr = access.iterator(this.column)) {
                         for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                            c.accept(itr.key());
+                            c.accept(new ValueWithKey(itr.key(), itr.value()));
                         }
                     }
                 },
-                k -> {
-                    long pos = PUnsafe.getLong(k, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                        pos = Long.reverseBytes(pos);
-                    }
-                    callback.accept(pos);
-                });
+                v -> callback.accept(new String(v.key, StandardCharsets.US_ASCII), ByteBuffer.wrap(v.value)));
     }
 
     public long count(@NonNull DBAccess access) throws Exception {
