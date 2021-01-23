@@ -27,6 +27,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.Threading;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
 
@@ -39,38 +40,8 @@ import java.util.function.BiConsumer;
  * @author DaPorkchop_
  */
 public final class StringToBlobDB extends WrappedRocksDB {
-    public StringToBlobDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void clear(@NonNull DBAccess access) throws Exception {
-        byte[] lowKey;
-        byte[] highKey;
-
-        try (RocksIterator itr = access.iterator(this.column)) {
-            itr.seekToFirst();
-            if (!itr.isValid()) { //db is empty
-                return;
-            }
-            lowKey = itr.key();
-
-            itr.seekToLast();
-            highKey = itr.key();
-        }
-
-        if (!Arrays.equals(lowKey, highKey)) {
-            access.deleteRange(this.column, lowKey, highKey);
-        }
-        access.delete(this.column, highKey); //deleteRange's upper bound is exclusive
-
-        access.flush(true);
-        this.optimize();
+    public StringToBlobDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void put(@NonNull DBAccess access, @NonNull String key, @NonNull ByteBuffer value) throws Exception {

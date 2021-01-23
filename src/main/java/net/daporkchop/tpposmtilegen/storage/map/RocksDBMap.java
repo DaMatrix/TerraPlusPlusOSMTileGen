@@ -33,6 +33,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
 
@@ -48,13 +49,8 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  * @author DaPorkchop_
  */
 public abstract class RocksDBMap<V> extends WrappedRocksDB {
-    public RocksDBMap(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        return 8;
+    public RocksDBMap(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void put(@NonNull DBAccess access, long key, @NonNull V value) throws Exception {

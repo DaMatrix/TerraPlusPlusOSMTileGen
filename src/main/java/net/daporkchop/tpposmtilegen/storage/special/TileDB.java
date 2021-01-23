@@ -29,6 +29,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
@@ -47,13 +48,8 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  * @author DaPorkchop_
  */
 public final class TileDB extends WrappedRocksDB {
-    public TileDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        return 16;
+    public TileDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {

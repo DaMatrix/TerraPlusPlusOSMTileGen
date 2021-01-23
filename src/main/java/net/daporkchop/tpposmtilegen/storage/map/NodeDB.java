@@ -24,14 +24,15 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 /**
  * @author DaPorkchop_
  */
 public final class NodeDB extends RocksDBMap<Node> {
-    public NodeDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
+    public NodeDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     @Override

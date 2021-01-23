@@ -125,10 +125,6 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true); //clear everything
 
-            logger.info("Optimizing point DB...");
-            storage.points().optimize();
-            logger.info("Optimization complete.");
-
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
@@ -142,7 +138,7 @@ public class RebuildPlanet implements IMode {
                     notifier.step(type);
                 };
 
-                storage.nodes().forEachParallel(storage.db().read(), func);
+                //storage.nodes().forEachParallel(storage.db().read(), func);
                 storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);
@@ -152,6 +148,9 @@ public class RebuildPlanet implements IMode {
 
             storage.exportExternalFiles(storage.db().readWriteBatch(), dst);
             storage.exportDirtyTiles(storage.db().readWriteBatch(), dst);
+
+            storage.externalJsonStorage().clear();
+            storage.dirtyTiles().clear();
 
             storage.purge(false); //erase temporary data
         }

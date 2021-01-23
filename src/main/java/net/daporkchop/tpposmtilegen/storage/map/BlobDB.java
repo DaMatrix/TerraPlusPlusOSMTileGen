@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
@@ -31,8 +32,8 @@ import java.nio.ByteBuffer;
  * @author DaPorkchop_
  */
 public final class BlobDB extends RocksDBMap<ByteBuffer> {
-    public BlobDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
+    public BlobDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     @Override

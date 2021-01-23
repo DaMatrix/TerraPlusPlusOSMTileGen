@@ -27,6 +27,7 @@ import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
@@ -46,22 +47,15 @@ public abstract class WrappedRocksDB {
     @NonNull
     protected final Database database;
     @NonNull
-    protected final ColumnFamilyHandle column;
+    protected ColumnFamilyHandle column;
+    @NonNull
+    protected final ColumnFamilyDescriptor desc;
 
-    protected abstract int keySize();
-
-    public void clear(@NonNull DBAccess access) throws Exception {
-        int keySize = this.keySize();
-        byte[] lowKey = new byte[keySize];
-        Arrays.fill(lowKey, (byte) 0);
-        byte[] highKey = new byte[keySize];
-        Arrays.fill(highKey, (byte) 0xFF);
-
-        access.deleteRange(this.column, lowKey, highKey);
-        access.delete(this.column, highKey); //deleteRange's upper bound is exclusive
-
-        access.flush(true);
-        this.optimize();
+    public void clear() throws Exception {
+        this.database.flush();
+        this.database.delegate().dropColumnFamily(this.column);
+        this.column.close();
+        this.column = this.database.delegate().createColumnFamily(this.desc);
     }
 
     public void optimize() throws Exception {

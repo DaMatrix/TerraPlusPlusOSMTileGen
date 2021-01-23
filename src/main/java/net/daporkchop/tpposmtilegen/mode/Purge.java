@@ -18,30 +18,42 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.map;
+package net.daporkchop.tpposmtilegen.mode;
 
-import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.geometry.Point;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import org.rocksdb.ColumnFamilyDescriptor;
-import org.rocksdb.ColumnFamilyHandle;
+import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.storage.Storage;
+
+import java.io.File;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public final class PointDB extends RocksDBMap<Point> {
-    public PointDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
-        super(database, column, desc);
+public class Purge implements IMode {
+    @Override
+    public String name() {
+        return "purge";
     }
 
     @Override
-    protected void valueToBytes(@NonNull Point value, @NonNull ByteBuf dst) {
-        value.toBytes(dst);
+    public String synopsis() {
+        return "<index_dir>";
     }
 
     @Override
-    protected Point valueFromBytes(long key, @NonNull ByteBuf valueBytes) {
-        return new Point(valueBytes);
+    public String help() {
+        return "Deletes all indices.";
+    }
+
+    @Override
+    public void run(@NonNull String... args) throws Exception {
+        checkArg(args.length == 1, "Usage: purge <index_dir>");
+        File src = PFiles.assertDirectoryExists(new File(args[0]));
+
+        try (Storage storage = new Storage(src.toPath())) {
+            storage.purge(true); //clear everything
+        }
     }
 }

@@ -23,14 +23,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 /**
  * @author DaPorkchop_
  */
 public final class LongArrayDB extends RocksDBMap<long[]> {
-    public LongArrayDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
+    public LongArrayDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     @Override

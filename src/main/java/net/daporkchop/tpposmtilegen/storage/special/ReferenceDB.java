@@ -28,6 +28,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
@@ -44,13 +45,8 @@ import org.rocksdb.Slice;
  * @author DaPorkchop_
  */
 public final class ReferenceDB extends WrappedRocksDB {
-    public ReferenceDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        return 16;
+    public ReferenceDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void addReference(@NonNull DBAccess access, long id, long referent) throws Exception {

@@ -70,9 +70,10 @@ public final class Database implements AutoCloseable {
                 .setIncreaseParallelism(CPU_COUNT)
                 .setMaxSubcompactions(CPU_COUNT)
                 .setKeepLogFileNum(2L)
-                .setMaxOpenFiles(1024)
+                .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
-                .setAllowMmapWrites(true);
+                .setAllowMmapWrites(true)
+                .setAdviseRandomOnOpen(true);
 
         COLUMN_OPTIONS = new ColumnFamilyOptions()
                 .setArenaBlockSize(1L << 20)
@@ -144,7 +145,7 @@ public final class Database implements AutoCloseable {
     @Setter
     public static final class Builder {
         private final List<ColumnFamilyDescriptor> columns = new ArrayList<>();
-        private final List<EBiConsumer<Database, ColumnFamilyHandle>> factories = new ArrayList<>();
+        private final List<Factory> factories = new ArrayList<>();
         private boolean autoFlush;
 
         public Builder() {
@@ -152,11 +153,11 @@ public final class Database implements AutoCloseable {
             this.factories.add(null);
         }
 
-        public Builder add(@NonNull String name, @NonNull EBiConsumer<Database, ColumnFamilyHandle> factory) {
+        public Builder add(@NonNull String name, @NonNull Factory factory) {
             return this.add(name, COLUMN_OPTIONS, factory);
         }
 
-        public Builder add(@NonNull String name, @NonNull CompressionType compression, @NonNull EBiConsumer<Database, ColumnFamilyHandle> factory) {
+        public Builder add(@NonNull String name, @NonNull CompressionType compression, @NonNull Factory factory) {
             ColumnFamilyOptions options;
             if (compression == COLUMN_OPTIONS.compressionType()) {
                 options = COLUMN_OPTIONS;
@@ -166,7 +167,7 @@ public final class Database implements AutoCloseable {
             return this.add(name, options, factory);
         }
 
-        public Builder add(@NonNull String name, @NonNull ColumnFamilyOptions descriptor, @NonNull EBiConsumer<Database, ColumnFamilyHandle> factory) {
+        public Builder add(@NonNull String name, @NonNull ColumnFamilyOptions descriptor, @NonNull Factory factory) {
             this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), descriptor));
             this.factories.add(factory);
             return this;
@@ -179,10 +180,15 @@ public final class Database implements AutoCloseable {
             Database database = new Database(db, columns, this.autoFlush);
 
             for (int i = 1; i < columns.size(); i++) {
-                this.factories.get(i).acceptThrowing(database, columns.get(i));
+                this.factories.get(i).accept(database, columns.get(i), this.columns.get(i));
             }
 
             return database;
         }
+    }
+
+    @FunctionalInterface
+    public interface Factory {
+        void accept(@NonNull Database database, @NonNull ColumnFamilyHandle handle, @NonNull ColumnFamilyDescriptor descriptor);
     }
 }

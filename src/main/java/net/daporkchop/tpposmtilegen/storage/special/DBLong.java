@@ -26,19 +26,15 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 /**
  * @author DaPorkchop_
  */
 public final class DBLong extends WrappedRocksDB {
-    public DBLong(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        throw new UnsupportedOperationException();
+    public DBLong(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void set(@NonNull DBAccess access, long value) throws Exception {
@@ -56,11 +52,5 @@ public final class DBLong extends WrappedRocksDB {
         byte[] arr = access.get(this.column, EMPTY_BYTE_ARRAY);
         long value = arr != null ? PUnsafe.getLong(arr, PUnsafe.ARRAY_BYTE_BASE_OFFSET) : -1L;
         return PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(value) : value;
-    }
-
-    @Override
-    public void clear(@NonNull DBAccess access) throws Exception {
-        access.delete(this.column, EMPTY_BYTE_ARRAY);
-        access.flush(true);
     }
 }

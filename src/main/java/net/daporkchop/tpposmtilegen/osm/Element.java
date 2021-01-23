@@ -57,7 +57,7 @@ public abstract class Element implements Persistent {
     }
 
     public static long addTypeToId(int type, long id) {
-        return (id << 62L) | type;
+        return ((long) type << 62L) | id;
     }
 
     public static long extractId(long combined) {

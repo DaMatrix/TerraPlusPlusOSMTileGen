@@ -127,17 +127,20 @@ public class Update implements IMode {
 
             logger.info("updating...");
             ChangesetState state = storage.getChangesetState(sequenceNumber);
-            try (DBAccess txn = storage.db().newTransaction()) {
-                for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber = storage.sequenceNumber().get(txn)) {
+            try {
+                for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber = storage.sequenceNumber().get(storage.db().read())) {
                     long next = sequenceNumber + 1L;
                     ChangesetState nextState = storage.getChangesetState(next);
                     logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
                     Changeset changeset = storage.getChangeset(next);
-                    this.applyChanges(storage, txn, dst, now, changeset);
-                    storage.sequenceNumber().set(txn, next);
+                    try (DBAccess txn = storage.db().newTransaction()) {
+                        this.applyChanges(storage, txn, dst, now, changeset);
+                        storage.sequenceNumber().set(txn, next);
+                    }
 
-                    txn.flush(true);
+                    storage.externalJsonStorage().clear();
+                    storage.dirtyTiles().clear();
 
                     state = nextState;
                 }

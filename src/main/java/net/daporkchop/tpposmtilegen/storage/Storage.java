@@ -112,19 +112,19 @@ public final class Storage implements AutoCloseable {
         this.root = root;
 
         this.db = new Database.Builder()
-                .add("nodes", (database, handle) -> this.nodes = new NodeDB(database, handle))
-                .add("points", (database, handle) -> this.points = new PointDB(database, handle))
-                .add("ways", (database, handle) -> this.ways = new WayDB(database, handle))
-                .add("relations", (database, handle) -> this.relations = new RelationDB(database, handle))
-                .add("coastlines", (database, handle) -> this.coastlines = new CoastlineDB(database, handle))
-                .add("references", (database, handle) -> this.references = new ReferenceDB(database, handle))
-                .add("tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.tileContents = new TileDB(database, handle))
-                .add("intersected_tiles", (database, handle) -> this.intersectedTiles = new LongArrayDB(database, handle))
-                .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle) -> this.dirtyTiles = new DirtyTracker(database, handle))
-                .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle) -> this.jsonStorage = new BlobDB(database, handle))
-                .add("external_json", CompressionType.NO_COMPRESSION, (database, handle) -> this.externalJsonStorage = new StringToBlobDB(database, handle))
-                .add("external_locations", (database, handle) -> this.externalLocations = new StringDB(database, handle))
-                .add("sequence_number", (database, handle) -> this.sequenceNumber = new DBLong(database, handle))
+                .add("nodes", (database, handle, descriptor) -> this.nodes = new NodeDB(database, handle, descriptor))
+                .add("points", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
+                .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
+                .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
+                .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
+                .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor))
+                .add("tiles", (database, handle, descriptor) -> this.tileContents = new TileDB(database, handle, descriptor))
+                .add("intersected_tiles", (database, handle, descriptor) -> this.intersectedTiles = new LongArrayDB(database, handle, descriptor))
+                .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.dirtyTiles = new DirtyTracker(database, handle, descriptor))
+                .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.jsonStorage = new BlobDB(database, handle, descriptor))
+                .add("external_json", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.externalJsonStorage = new StringToBlobDB(database, handle, descriptor))
+                .add("external_locations", (database, handle, descriptor) -> this.externalLocations = new StringDB(database, handle, descriptor))
+                .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor))
                 .autoFlush(true)
                 .build(root.resolve("db"));
 
@@ -259,9 +259,6 @@ public final class Storage implements AutoCloseable {
                 notifier.step(0);
             });
         }
-
-        logger.trace("Clearing temporary GeoJSON storage...");
-        this.externalJsonStorage.clear(access);
     }
 
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
@@ -317,9 +314,6 @@ public final class Storage implements AutoCloseable {
                 notifier.step(0);
             });
         }
-
-        logger.trace("Clearing dirty tile markers...");
-        this.dirtyTiles.clear(access);
     }
 
     public Path tileFile(@NonNull Path outputRoot, long tilePos) {
@@ -331,19 +325,19 @@ public final class Storage implements AutoCloseable {
         this.flush();
 
         logger.trace("Clearing temporary GeoJSON storage...");
-        this.externalJsonStorage.clear(this.db.readWriteBatch());
+        this.externalJsonStorage.clear();
         logger.trace("Clearing dirty tile markers...");
-        this.dirtyTiles.clear(this.db.readWriteBatch());
+        this.dirtyTiles.clear();
 
         if (full) {
             logger.trace("Clearing full GeoJSON storage...");
-            this.jsonStorage.clear(this.db.readWriteBatch());
+            this.jsonStorage.clear();
             logger.trace("Clearing external storage location index...");
-            this.externalLocations.clear(this.db.readWriteBatch());
+            this.externalLocations.clear();
             logger.trace("Clearing tile content index...");
-            this.tileContents.clear(this.db.readWriteBatch());
+            this.tileContents.clear();
             logger.trace("Clearing geometry intersection index...");
-            this.intersectedTiles.clear(this.db.readWriteBatch());
+            this.intersectedTiles.clear();
         }
 
         logger.success("Cleared.");

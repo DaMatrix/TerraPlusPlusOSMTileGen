@@ -117,7 +117,6 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public void close() throws Exception {
-        this.transaction.rollback(); //TODO: remove this
         this.flush(true);
 
         this.transaction.close();

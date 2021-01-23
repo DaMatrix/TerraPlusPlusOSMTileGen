@@ -37,6 +37,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntConsumer;
 
 import static net.daporkchop.lib.logging.Logging.*;
 
@@ -48,6 +49,20 @@ import static net.daporkchop.lib.logging.Logging.*;
 @ToString(callSuper = true)
 public final class Way extends Element {
     public static final int TYPE = 1;
+
+    private static final IntConsumer DEBUG_CALLBACK = new IntConsumer() {
+        long sum;
+        long count;
+
+        @Override
+        public synchronized void accept(int value) {
+            this.sum += value;
+            if (++this.count == 1000) {
+                logger.info("average count: %.3f", (double) this.sum / this.count);
+                this.sum = this.count = 0L;
+            }
+        }
+    };
 
     @NonNull
     protected long[] nodes;
@@ -85,6 +100,7 @@ public final class Way extends Element {
     @Override
     public void fromBytes(@NonNull ByteBuf src) {
         int count = src.readInt();
+        DEBUG_CALLBACK.accept(count);
         this.nodes = new long[count];
         for (int i = 0; i < count; i++) {
             this.nodes[i] = src.readLong();

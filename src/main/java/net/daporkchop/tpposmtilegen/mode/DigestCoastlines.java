@@ -74,7 +74,7 @@ public class DigestCoastlines implements IMode {
                 .build();
              Storage storage = new Storage(dst.toPath())) {
             DBAccess access = storage.db().batch();
-            storage.coastlines().clear(access);
+            storage.coastlines().clear();
 
             FileDataStore store = FileDataStoreFinder.getDataStore(src);
             SimpleFeatureSource featureSource = store.getFeatureSource();

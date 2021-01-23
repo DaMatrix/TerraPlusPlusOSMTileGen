@@ -24,14 +24,15 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 /**
  * @author DaPorkchop_
  */
 public final class WayDB extends RocksDBMap<Way> {
-    public WayDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
+    public WayDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     @Override

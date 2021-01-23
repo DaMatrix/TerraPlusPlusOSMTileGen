@@ -31,7 +31,9 @@ import net.daporkchop.tpposmtilegen.mode.Compact;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.IMode;
+import net.daporkchop.tpposmtilegen.mode.Purge;
 import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
+import net.daporkchop.tpposmtilegen.mode.RedoPoints;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
@@ -51,7 +53,9 @@ public final class Main implements Runnable {
             new Compact(),
             new DigestCoastlines(),
             new DigestPBF(),
+            new Purge(),
             new RebuildPlanet(),
+            new RedoPoints(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));

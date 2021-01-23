@@ -28,6 +28,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.Threading;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
 
@@ -37,13 +38,8 @@ import java.util.function.LongConsumer;
  * @author DaPorkchop_
  */
 public final class DirtyTracker extends WrappedRocksDB {
-    public DirtyTracker(Database database, ColumnFamilyHandle column) {
-        super(database, column);
-    }
-
-    @Override
-    protected int keySize() {
-        return 8;
+    public DirtyTracker(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     public void markDirty(@NonNull DBAccess access, long id) throws Exception {

@@ -24,14 +24,15 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 /**
  * @author DaPorkchop_
  */
 public final class RelationDB extends RocksDBMap<Relation> {
-    public RelationDB(Database database, ColumnFamilyHandle column) {
-        super(database, column);
+    public RelationDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
+        super(database, column, desc);
     }
 
     @Override
