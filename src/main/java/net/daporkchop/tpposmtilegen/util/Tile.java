@@ -35,6 +35,9 @@ public class Tile {
     public static final int TILES_PER_DEGREE = 64;
     public static final int TILE_SIZE_POINT_SCALE = Point.PRECISION / TILES_PER_DEGREE;
 
+    public static final int TX_OFFSET = 180 * TILES_PER_DEGREE;
+    public static final int TY_OFFSET = 90 * TILES_PER_DEGREE;
+
     public static int point2tile(int pointCoordinate) {
         return Math.floorDiv(pointCoordinate, TILE_SIZE_POINT_SCALE);
     }
@@ -48,18 +51,18 @@ public class Tile {
     }
 
     public static long xy2tilePos(int tileX, int tileY) {
-        tileX += 180 * TILES_PER_DEGREE;
-        tileY += 90 * TILES_PER_DEGREE;
+        tileX += TX_OFFSET;
+        tileY += TY_OFFSET;
         checkArg(tileX >= 0 && tileX < 65536, "tileX: %d", tileX);
         checkArg(tileY >= 0 && tileY < 65536, "tileY: %d", tileY);
-        return (tileY << 16) | tileX;
+        return ((Short.reverseBytes((short) tileY) & 0xFFFFL) << 48L) | ((Short.reverseBytes((short) tileX) & 0xFFFFL) << 32L);
     }
 
     public static int tileX(long tilePos) {
-        return toInt(tilePos & 0xFFFF) - 180 * TILES_PER_DEGREE;
+        return toInt(Short.reverseBytes((short) (tilePos >>> 32L)) & 0xFFFF) - TX_OFFSET;
     }
 
     public static int tileY(long tilePos) {
-        return toInt(tilePos >>> 16L) - 90 * TILES_PER_DEGREE;
+        return toInt(Short.reverseBytes((short) (tilePos >>> 48L)) & 0xFFFF) - TY_OFFSET;
     }
 }
