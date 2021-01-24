@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -41,7 +41,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @UtilityClass
-public class Prefetcher {
+public class MemoryHelper {
     private final MappedByteBuffer MAPPED_BUFFER = PUnsafe.allocateInstance(PorkUtil.classForName("java.nio.DirectByteBuffer"));
 
     private final Lambda load0;
@@ -50,10 +50,10 @@ public class Prefetcher {
         try {
             //load Lambda class from system classloader
             byte[] lambdaClass;
-            try (InputStream in = Prefetcher.class.getResourceAsStream("/net/daporkchop/tpposmtilegen/util/Prefetcher$Lambda.class")) {
+            try (InputStream in = MemoryHelper.class.getResourceAsStream("/net/daporkchop/tpposmtilegen/util/MemoryHelper$Lambda.class")) {
                 lambdaClass = StreamUtil.toByteArray(in);
             }
-            PUnsafe.defineClass("net/daporkchop/tpposmtilegen/util/Prefetcher$Lambda", lambdaClass, 0, lambdaClass.length,
+            PUnsafe.defineClass("net/daporkchop/tpposmtilegen/util/MemoryHelper$Lambda", lambdaClass, 0, lambdaClass.length,
                     MappedByteBuffer.class.getClassLoader(), null);
 
             PUnsafe.ensureClassInitialized(Lambda.class);

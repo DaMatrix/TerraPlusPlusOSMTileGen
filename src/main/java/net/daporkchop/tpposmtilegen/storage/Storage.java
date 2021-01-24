@@ -61,6 +61,7 @@ import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import net.daporkchop.tpposmtilegen.util.offheap.OffHeapPointIndex;
 import org.rocksdb.CompressionType;
 
 import java.io.IOException;
@@ -104,6 +105,8 @@ public final class Storage implements AutoCloseable {
     protected StringToBlobDB externalJsonStorage;
     protected StringDB externalLocations;
 
+    protected OffHeapPointIndex pointIndex;
+
     protected final Database db;
 
     protected final Path root;
@@ -113,7 +116,7 @@ public final class Storage implements AutoCloseable {
 
         this.db = new Database.Builder()
                 .add("nodes", (database, handle, descriptor) -> this.nodes = new NodeDB(database, handle, descriptor))
-                .add("points", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
+                .add("points", (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
                 .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
@@ -165,6 +168,36 @@ public final class Storage implements AutoCloseable {
         RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
         checkArg(map != null, "unknown element type %d (id %d)", type, id);
         return map.get(access, id);
+    }
+
+    public synchronized void openPointIndex() throws Exception {
+        this.db.delegate().pauseBackgroundWork();
+
+        logger.info("Opening point index...");
+
+        checkState(this.pointIndex == null, "already opened?!?");
+        Long highestId = this.points.highestId(this.db.read());
+        checkState(highestId != null, "points db is empty?!?");
+        try {
+            Path path = this.root.resolve("point_index");
+            boolean exists = Files.exists(path);
+            this.pointIndex = new OffHeapPointIndex(path, highestId + 1L);
+
+            if (!exists) {
+                logger.info("Populating point index...");
+                try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Populate point index")
+                        .slot("nodes").build()) {
+                    this.points.forEach(this.db.read(), (id, point) -> {
+                        this.pointIndex.set(id, point);
+                        notifier.step(0);
+                    });
+                }
+            }
+
+            logger.success("Opened point index...");
+        } finally {
+            this.db.delegate().continueBackgroundWork();
+        }
     }
 
     public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, boolean allowUnknown) throws Exception {
@@ -350,6 +383,10 @@ public final class Storage implements AutoCloseable {
     @Override
     public void close() throws Exception {
         this.replicationTimestamp.close();
+
+        if (this.pointIndex != null) {
+            this.pointIndex.close();
+        }
 
         this.db.close();
     }

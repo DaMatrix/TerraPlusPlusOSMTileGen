@@ -125,6 +125,8 @@ public class RebuildPlanet implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true); //clear everything
 
+            storage.openPointIndex();
+
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
@@ -138,7 +140,7 @@ public class RebuildPlanet implements IMode {
                     notifier.step(type);
                 };
 
-                //storage.nodes().forEachParallel(storage.db().read(), func);
+                storage.nodes().forEachParallel(storage.db().read(), func);
                 storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);

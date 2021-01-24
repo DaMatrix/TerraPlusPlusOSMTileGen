@@ -33,10 +33,11 @@ import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.Purge;
 import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
-import net.daporkchop.tpposmtilegen.mode.RedoPoints;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
+import java.io.File;
+import java.time.Instant;
 import java.util.Arrays;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -55,7 +56,6 @@ public final class Main implements Runnable {
             new DigestPBF(),
             new Purge(),
             new RebuildPlanet(),
-            new RedoPoints(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));
@@ -66,7 +66,9 @@ public final class Main implements Runnable {
             System.exit(1);
         });
 
-        logger.redirectStdOut().enableANSI().setLogAmount(LogAmount.DEBUG);
+        logger.redirectStdOut().enableANSI()
+                .addFile(new File("logs/" + Instant.now() + ".log"), LogAmount.DEBUG)
+                .setLogAmount(LogAmount.DEBUG);
 
         logger.info(""
                     + "terra++ OpenStreetMap tile generator\n"

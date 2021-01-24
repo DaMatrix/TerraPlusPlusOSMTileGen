@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -23,7 +23,7 @@ package net.daporkchop.tpposmtilegen.util.offheap;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.util.Prefetcher;
+import net.daporkchop.tpposmtilegen.util.MemoryHelper;
 import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.AbstractSparseAllocator;
 
 import java.io.IOException;
@@ -181,7 +181,7 @@ public class OffHeapAtomicBitSet extends AbstractSparseAllocator {
     }
 
     public Spliterator.OfLong spliterator() {
-        Prefetcher.prefetch(this.addr, this.actualSize0());
+        MemoryHelper.prefetch(this.addr, this.actualSize0());
 
         @AllArgsConstructor
         class BitSetSpliterator implements java.util.Spliterator.OfLong {
