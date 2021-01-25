@@ -30,6 +30,7 @@ import net.daporkchop.lib.logging.format.FormatParser;
 import net.daporkchop.tpposmtilegen.mode.Compact;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
+import net.daporkchop.tpposmtilegen.mode.Export;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.Purge;
 import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
@@ -54,6 +55,7 @@ public final class Main implements Runnable {
             new Compact(),
             new DigestCoastlines(),
             new DigestPBF(),
+            new Export(),
             new Purge(),
             new RebuildPlanet(),
             new Test(),

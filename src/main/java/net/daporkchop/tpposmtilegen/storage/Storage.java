@@ -105,8 +105,6 @@ public final class Storage implements AutoCloseable {
     protected StringToBlobDB externalJsonStorage;
     protected StringDB externalLocations;
 
-    protected OffHeapPointIndex pointIndex;
-
     protected final Database db;
 
     protected final Path root;
@@ -168,36 +166,6 @@ public final class Storage implements AutoCloseable {
         RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
         checkArg(map != null, "unknown element type %d (id %d)", type, id);
         return map.get(access, id);
-    }
-
-    public synchronized void openPointIndex() throws Exception {
-        this.db.delegate().pauseBackgroundWork();
-
-        logger.info("Opening point index...");
-
-        checkState(this.pointIndex == null, "already opened?!?");
-        Long highestId = this.points.highestId(this.db.read());
-        checkState(highestId != null, "points db is empty?!?");
-        try {
-            Path path = this.root.resolve("point_index");
-            boolean exists = Files.exists(path);
-            this.pointIndex = new OffHeapPointIndex(path, highestId + 1L);
-
-            if (!exists) {
-                logger.info("Populating point index...");
-                try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Populate point index")
-                        .slot("nodes").build()) {
-                    this.points.forEach(this.db.read(), (id, point) -> {
-                        this.pointIndex.set(id, point);
-                        notifier.step(0);
-                    });
-                }
-            }
-
-            logger.success("Opened point index...");
-        } finally {
-            this.db.delegate().continueBackgroundWork();
-        }
     }
 
     public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, boolean allowUnknown) throws Exception {
@@ -383,10 +351,6 @@ public final class Storage implements AutoCloseable {
     @Override
     public void close() throws Exception {
         this.replicationTimestamp.close();
-
-        if (this.pointIndex != null) {
-            this.pointIndex.close();
-        }
 
         this.db.close();
     }

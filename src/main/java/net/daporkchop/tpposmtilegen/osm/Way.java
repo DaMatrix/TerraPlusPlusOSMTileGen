@@ -111,7 +111,7 @@ public final class Way extends Element {
         }
 
         //get points by their IDs
-        List<Point> points = storage.pointIndex().multiGet(LongArrayList.wrap(this.nodes));
+        List<Point> points = storage.points().getAll(access, LongArrayList.wrap(this.nodes));
 
         for (int i = 0; i < count; i++) {
             if (points.get(i) == null) {

@@ -65,6 +65,6 @@ public final class Node extends Element {
 
     @Override
     public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
-        return storage.pointIndex().get(this.id);
+        return storage.points().get(access, this.id);
     }
 }

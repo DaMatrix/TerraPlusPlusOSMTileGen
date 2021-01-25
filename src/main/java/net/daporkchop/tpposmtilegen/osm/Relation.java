@@ -172,7 +172,7 @@ public final class Relation extends Element {
         }
 
         //load points from db
-        List<Point> points = storage.pointIndex().multiGet(LongArrayList.wrap(pointIds));
+        List<Point> points = storage.points().getAll(access, LongArrayList.wrap(pointIds));
 
         //copy points into direct memory so that they can be passed along to JNI
         long[] coordAddrs = Arrays.stream(coordCounts).mapToLong(i -> i * PolygonAssembler.POINT_SIZE).map(PUnsafe::allocateMemory).toArray();
