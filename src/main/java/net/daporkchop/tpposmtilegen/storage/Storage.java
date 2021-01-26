@@ -102,7 +102,6 @@ public final class Storage implements AutoCloseable {
     protected LongArrayDB intersectedTiles;
 
     protected BlobDB jsonStorage;
-    protected StringToBlobDB externalJsonStorage;
     protected StringDB externalLocations;
 
     protected final Database db;
@@ -123,7 +122,6 @@ public final class Storage implements AutoCloseable {
                 .add("intersected_tiles", (database, handle, descriptor) -> this.intersectedTiles = new LongArrayDB(database, handle, descriptor))
                 .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.dirtyTiles = new DirtyTracker(database, handle, descriptor))
                 .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.jsonStorage = new BlobDB(database, handle, descriptor))
-                .add("external_json", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.externalJsonStorage = new StringToBlobDB(database, handle, descriptor))
                 .add("external_locations", (database, handle, descriptor) -> this.externalLocations = new StringDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor))
                 .autoFlush(true)
@@ -168,7 +166,7 @@ public final class Storage implements AutoCloseable {
         return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, boolean allowUnknown) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, @NonNull Path outDir, long combinedId, boolean allowUnknown) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
@@ -207,7 +205,16 @@ public final class Storage implements AutoCloseable {
                     String location = geometry.externalStorageLocation(type, id);
 
                     //we don't actually write to the external file immediately
-                    this.externalJsonStorage.put(access, location, buffer);
+                    Path file = outDir.resolve(location);
+                    Files.createDirectories(file.getParent());
+                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
+                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
+                        while (buffer.hasRemaining()) {
+                            channel.write(buffer);
+                        }
+                    }
+                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+
                     this.externalLocations.put(access, combinedId, location);
 
                     ByteBuffer referenceBuffer = Geometry.createReference(location);
@@ -220,45 +227,6 @@ public final class Storage implements AutoCloseable {
         } else {
             this.intersectedTiles.delete(access, combinedId);
             this.externalLocations.delete(access, combinedId);
-        }
-    }
-
-    public void exportExternalFiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
-        logger.info("Creating output directories...");
-        long count = this.externalJsonStorage.count(access);
-
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Create external object directories")
-                .slot("objects", count)
-                .build()) {
-            this.externalJsonStorage.forEachParallel(access, (location, data) -> {
-                try {
-                    Files.createDirectories(outputRoot.resolve(location).getParent());
-                } catch (IOException e) {
-                    throw new RuntimeException(location, e);
-                }
-                notifier.step(0);
-            });
-        }
-
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write external objects")
-                .slot("objects", count)
-                .build()) {
-            this.externalJsonStorage.forEachParallel(access, (location, data) -> {
-                try {
-                    Path file = outputRoot.resolve(location);
-                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
-                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-                        while (data.hasRemaining()) {
-                            channel.write(data);
-                        }
-                    }
-
-                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                } catch (Exception e) {
-                    throw new RuntimeException(location, e);
-                }
-                notifier.step(0);
-            });
         }
     }
 
@@ -325,8 +293,6 @@ public final class Storage implements AutoCloseable {
         logger.info("Cleaning up... (this might take a while)");
         this.flush();
 
-        logger.trace("Clearing temporary GeoJSON storage...");
-        this.externalJsonStorage.clear();
         logger.trace("Clearing dirty tile markers...");
         this.dirtyTiles.clear();
 

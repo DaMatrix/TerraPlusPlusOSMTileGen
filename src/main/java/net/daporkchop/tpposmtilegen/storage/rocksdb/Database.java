@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
-import net.daporkchop.lib.common.function.throwing.EBiConsumer;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -37,15 +36,19 @@ import org.rocksdb.Env;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
+import org.rocksdb.RocksDBException;
 import org.rocksdb.WriteOptions;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -68,12 +71,12 @@ public final class Database implements AutoCloseable {
                 .setCompactionReadaheadSize(16L << 20L)
                 .setAllowConcurrentMemtableWrite(true)
                 .setIncreaseParallelism(CPU_COUNT)
-                .setMaxSubcompactions(CPU_COUNT)
                 .setKeepLogFileNum(2L)
                 .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true)
-                .setAdviseRandomOnOpen(true);
+                .setAdviseRandomOnOpen(true)
+                .setEnablePipelinedWrite(true);
 
         COLUMN_OPTIONS = new ColumnFamilyOptions()
                 .setArenaBlockSize(1L << 20)
@@ -142,6 +145,11 @@ public final class Database implements AutoCloseable {
         this.delegate.close();
     }
 
+    @FunctionalInterface
+    public interface Factory {
+        void accept(@NonNull Database database, @NonNull ColumnFamilyHandle handle, @NonNull ColumnFamilyDescriptor descriptor);
+    }
+
     @Setter
     public static final class Builder {
         private final List<ColumnFamilyDescriptor> columns = new ArrayList<>();
@@ -175,20 +183,38 @@ public final class Database implements AutoCloseable {
 
         public Database build(@NonNull Path path) throws Exception {
             List<ColumnFamilyHandle> columns = new ArrayList<>(this.columns.size());
-            OptimisticTransactionDB db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+
+            OptimisticTransactionDB db;
+            OPEN_DB:
+            try {
+                db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+            } catch (RocksDBException e) {
+                String s = e.getMessage().replace("You have to open all column families. Column families not opened: ", "");
+                if (s.length() != e.getMessage().length()) {
+                    for (String name : s.split(", ")) {
+                        logger.warn("Deleting column family: %s", name);
+                        this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), COLUMN_OPTIONS));
+                    }
+                    db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+                    while (columns.size() > this.factories.size()) {
+                        ColumnFamilyHandle handle = columns.remove(this.factories.size());
+                        ColumnFamilyDescriptor descriptor = this.columns.remove(this.factories.size());
+                        db.dropColumnFamily(handle);
+                        handle.close();
+                    }
+                    break OPEN_DB;
+                }
+                throw e;
+            }
+
             checkState(columns.size() == this.columns.size());
             Database database = new Database(db, columns, this.autoFlush);
 
-            for (int i = 1; i < columns.size(); i++) {
+            for (int i = 1; i < this.factories.size(); i++) {
                 this.factories.get(i).accept(database, columns.get(i), this.columns.get(i));
             }
 
             return database;
         }
-    }
-
-    @FunctionalInterface
-    public interface Factory {
-        void accept(@NonNull Database database, @NonNull ColumnFamilyHandle handle, @NonNull ColumnFamilyDescriptor descriptor);
     }
 }

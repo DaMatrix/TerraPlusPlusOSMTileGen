@@ -36,6 +36,7 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.Snapshot;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -164,21 +165,6 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     }
                     callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(v.value)));
                 });
-    }
-
-    public Long highestId(@NonNull DBAccess access) throws Exception {
-        try (RocksIterator itr = access.iterator(this.column)) {
-            itr.seekToLast();
-            if (itr.isValid()) {
-                long key = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                    key = Long.reverseBytes(key);
-                }
-                return key;
-            } else {
-                return null;
-            }
-        }
     }
 
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);

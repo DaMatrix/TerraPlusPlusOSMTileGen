@@ -139,7 +139,6 @@ public class Update implements IMode {
                         storage.sequenceNumber().set(txn, next);
                     }
 
-                    storage.externalJsonStorage().clear();
                     storage.dirtyTiles().clear();
 
                     state = nextState;
@@ -201,7 +200,7 @@ public class Update implements IMode {
         //pass 4: convert geometry of all changed elements to GeoJSON and recompute relations
         List<Path> toDeleteFiles = new ArrayList<>();
         for (long combinedId : changedIds) {
-            storage.convertToGeoJSONAndStoreInDB(access, combinedId, true);
+            storage.convertToGeoJSONAndStoreInDB(access, tileDir, combinedId, true);
 
             String oldLocation = storage.externalLocations().get(storage.db().read(), combinedId);
             String newLocation = storage.externalLocations().get(access, combinedId);
@@ -212,7 +211,6 @@ public class Update implements IMode {
         logger.trace("pass 4: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 
         //pass 5: write updated tiles
-        storage.exportExternalFiles(access, tileDir);
         storage.exportDirtyTiles(access, tileDir);
         logger.trace("pass 5: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 

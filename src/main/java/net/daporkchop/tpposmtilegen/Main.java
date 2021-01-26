@@ -27,13 +27,13 @@ import net.daporkchop.lib.common.function.PFunctions;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.logging.format.FormatParser;
+import net.daporkchop.tpposmtilegen.mode.Assemble;
 import net.daporkchop.tpposmtilegen.mode.Compact;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.Export;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.Purge;
-import net.daporkchop.tpposmtilegen.mode.RebuildPlanet;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
@@ -52,12 +52,12 @@ import static net.daporkchop.lib.logging.Logging.*;
 @RequiredArgsConstructor
 public final class Main implements Runnable {
     protected static final Map<String, IMode> MODES = Stream.of(
+            new Assemble(),
             new Compact(),
             new DigestCoastlines(),
             new DigestPBF(),
             new Export(),
             new Purge(),
-            new RebuildPlanet(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));
