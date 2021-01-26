@@ -36,30 +36,29 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class Assemble implements IMode {
+public class RecomputeReferences implements IMode {
     @Override
     public String name() {
-        return "assemble";
+        return "recompute_references";
     }
 
     @Override
     public String synopsis() {
-        return "<index_dir> <tile_dir>";
+        return "<index_dir>";
     }
 
     @Override
     public String help() {
-        return "Assembles and indexes all elements.";
+        return "Recomputes references between all elements.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: assemble <index_dir> <tile_dir>");
+        checkArg(args.length == 1, "Usage: recompute_references <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
-        Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.purge(true); //clear everything
+            storage.references().clear();
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
@@ -67,7 +66,7 @@ public class Assemble implements IMode {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), dst, Element.addTypeToId(type, id), false);
+                        element.computeReferences(storage.db().batch(), storage);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

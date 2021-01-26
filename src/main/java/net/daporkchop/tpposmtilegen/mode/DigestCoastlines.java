@@ -91,6 +91,7 @@ public class DigestCoastlines implements IMode {
 
                 Coastline.Area area = this.toArea(mp);
                 storage.coastlines().put(access, id, new Coastline(id, area));
+                id++;
                 notifier.step(0);
             }
         }

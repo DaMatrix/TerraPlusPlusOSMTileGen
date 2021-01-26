@@ -34,6 +34,7 @@ import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.Export;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.Purge;
+import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
@@ -58,6 +59,7 @@ public final class Main implements Runnable {
             new DigestPBF(),
             new Export(),
             new Purge(),
+            new RecomputeReferences(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));
