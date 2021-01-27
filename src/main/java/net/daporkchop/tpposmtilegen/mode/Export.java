@@ -73,8 +73,7 @@ public class Export implements IMode {
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.exportDirtyTiles(storage.db().readWriteBatch(), dst);
-            storage.dirtyTiles().clear();
+            storage.exportAllTiles(storage.db().read(), dst);
 
             storage.purge(false); //erase temporary data
         }

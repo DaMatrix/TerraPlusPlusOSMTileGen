@@ -56,12 +56,11 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.DirtyTracker;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
-import net.daporkchop.tpposmtilegen.storage.special.StringToBlobDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapPointIndex;
 import org.rocksdb.CompressionType;
 
 import java.io.IOException;
@@ -76,6 +75,7 @@ import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
+import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -233,56 +233,72 @@ public final class Storage implements AutoCloseable {
     public void exportDirtyTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
         long count = this.dirtyTiles.count(access);
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Create tile directories")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
                 .slot("tiles", count)
                 .build()) {
-            this.dirtyTiles.forEachParallel(access, tilePos -> {
-                try {
-                    Files.createDirectories(this.tileFile(outputRoot, tilePos).getParent());
-                } catch (IOException e) {
-                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
-                }
-                notifier.step(0);
-            });
+            this.dirtyTiles.forEachParallel(access, this.exportTile(access, outputRoot, notifier, true));
         }
+    }
+
+    public void exportAllTiles(@NonNull DBAccess access, @NonNull Path outputRoot) throws Exception {
+        int minX = Tile.point2tile(-180 * Point.PRECISION);
+        int minY = Tile.point2tile(-90 * Point.PRECISION);
+        int maxX = Tile.point2tile(180 * Point.PRECISION);
+        int maxY = Tile.point2tile(90 * Point.PRECISION);
+        long count = (maxX - minX + 1L) * (maxY - minY + 1L); // 230'536'926
 
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
                 .slot("tiles", count)
                 .build()) {
-            this.dirtyTiles.forEachParallel(access, tilePos -> {
-                try {
-                    LongList elements = new LongArrayList();
-                    this.tileContents.getElementsInTile(access, tilePos, elements);
-                    Path file = this.tileFile(outputRoot, tilePos);
-
-                    if (elements.isEmpty()) { //nothing to write
-                        logger.debug("Deleting empty tile %s", file);
-                        Files.deleteIfExists(file);
-                        return;
-                    }
-
-                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
-                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
-                        List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
-                        list.removeIf(Objects::isNull);
-                        ByteBuffer[] buffers = list.toArray(new ByteBuffer[0]);
-                        int totalSize = 0;
-                        for (ByteBuffer buffer : buffers) {
-                            totalSize += buffer.remaining();
+            Threading.iterateParallel(1024,
+                    callback -> {
+                        for (int x = minX; x <= maxX; x++) {
+                            for (int y = minY; y <= maxY; y++) {
+                                callback.accept(Tile.xy2tilePos(x, y));
+                            }
                         }
-
-                        for (int i = 0; i < totalSize; i++) {
-                            i += channel.write(buffers);
-                        }
-                    }
-
-                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-                } catch (Exception e) {
-                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
-                }
-                notifier.step(0);
-            });
+                    },
+                    this.exportTile(access, outputRoot, notifier, false)::accept);
         }
+    }
+
+    public LongConsumer exportTile(@NonNull DBAccess access, @NonNull Path outputRoot, @NonNull ProgressNotifier notifier, boolean atomic) {
+        return tilePos -> {
+            try {
+                LongList elements = new LongArrayList();
+                this.tileContents.getElementsInTile(access, tilePos, elements);
+                Path file = this.tileFile(outputRoot, tilePos);
+
+                if (elements.isEmpty()) { //nothing to write
+                    //logger.debug("Deleting empty tile %s", file);
+                    Files.deleteIfExists(file);
+                    return;
+                }
+
+                Files.createDirectories(file.getParent());
+                Path tempFile = atomic ? file.resolveSibling(Thread.currentThread().getId() + ".tmp") : null;
+                try (FileChannel channel = FileChannel.open(atomic ? tempFile : file, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING)) {
+                    List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
+                    list.removeIf(Objects::isNull);
+                    ByteBuffer[] buffers = list.toArray(new ByteBuffer[0]);
+                    int totalSize = 0;
+                    for (ByteBuffer buffer : buffers) {
+                        totalSize += buffer.remaining();
+                    }
+
+                    for (int i = 0; i < totalSize; i++) {
+                        i += channel.write(buffers);
+                    }
+                }
+
+                if (atomic) {
+                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
+                }
+            } catch (Exception e) {
+                throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
+            }
+            notifier.step(0);
+        };
     }
 
     public Path tileFile(@NonNull Path outputRoot, long tilePos) {
