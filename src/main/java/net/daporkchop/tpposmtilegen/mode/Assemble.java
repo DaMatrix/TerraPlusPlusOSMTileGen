@@ -44,7 +44,7 @@ public class Assemble implements IMode {
 
     @Override
     public String synopsis() {
-        return "<index_dir> <tile_dir>";
+        return "<index_dir>";
     }
 
     @Override
@@ -54,20 +54,19 @@ public class Assemble implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: assemble <index_dir> <tile_dir>");
+        checkArg(args.length == 1, "Usage: assemble <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
-        Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true); //clear everything
 
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), dst, Element.addTypeToId(type, id), false);
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), false);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

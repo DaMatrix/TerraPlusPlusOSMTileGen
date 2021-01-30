@@ -51,6 +51,10 @@ public abstract class WrappedRocksDB {
     @NonNull
     protected final ColumnFamilyDescriptor desc;
 
+    { //maybe possibly do something?
+        Compiler.compileClass(this.getClass());
+    }
+
     public void clear() throws Exception {
         this.database.flush();
         this.database.delegate().dropColumnFamily(this.column);

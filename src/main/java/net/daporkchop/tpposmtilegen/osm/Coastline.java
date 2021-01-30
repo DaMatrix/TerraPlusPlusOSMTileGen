@@ -95,10 +95,5 @@ public final class Coastline extends Element {
         public boolean shouldStoreExternally(int tiles, int dataSize) {
             return true;
         }
-
-        @Override
-        public String externalStorageLocation(int type, long id) {
-            return PStrings.fastFormat("%s/%03d/%d.json", Element.typeName(type), id / 1000L, id % 1000L);
-        }
     }
 }

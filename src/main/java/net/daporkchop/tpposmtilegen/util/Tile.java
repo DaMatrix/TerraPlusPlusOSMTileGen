@@ -55,14 +55,14 @@ public class Tile {
         tileY += TY_OFFSET;
         checkArg(tileX >= 0 && tileX < 65536, "tileX: %d", tileX);
         checkArg(tileY >= 0 && tileY < 65536, "tileY: %d", tileY);
-        return ((Short.reverseBytes((short) tileY) & 0xFFFFL) << 48L) | ((Short.reverseBytes((short) tileX) & 0xFFFFL) << 32L);
+        return ((tileX & 0xFFFFL) << 16L) | (tileY & 0xFFFFL);
     }
 
     public static int tileX(long tilePos) {
-        return toInt(Short.reverseBytes((short) (tilePos >>> 32L)) & 0xFFFF) - TX_OFFSET;
+        return toInt((tilePos >>> 16L) & 0xFFFF) - TX_OFFSET;
     }
 
     public static int tileY(long tilePos) {
-        return toInt(Short.reverseBytes((short) (tilePos >>> 48L)) & 0xFFFF) - TY_OFFSET;
+        return toInt(tilePos & 0xFFFF) - TY_OFFSET;
     }
 }

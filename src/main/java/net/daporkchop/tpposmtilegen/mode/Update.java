@@ -200,13 +200,13 @@ public class Update implements IMode {
         //pass 4: convert geometry of all changed elements to GeoJSON and recompute relations
         List<Path> toDeleteFiles = new ArrayList<>();
         for (long combinedId : changedIds) {
-            storage.convertToGeoJSONAndStoreInDB(access, tileDir, combinedId, true);
+            storage.convertToGeoJSONAndStoreInDB(access, combinedId, true);
 
-            String oldLocation = storage.externalLocations().get(storage.db().read(), combinedId);
+            /*String oldLocation = storage.externalLocations().get(storage.db().read(), combinedId);
             String newLocation = storage.externalLocations().get(access, combinedId);
             if (newLocation == null && oldLocation != null) {
                 toDeleteFiles.add(tileDir.resolve(oldLocation));
-            }
+            }*/
         }
         logger.trace("pass 4: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 

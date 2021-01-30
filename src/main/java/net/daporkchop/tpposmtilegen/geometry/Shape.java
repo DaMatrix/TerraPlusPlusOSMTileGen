@@ -151,11 +151,6 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    public String externalStorageLocation(int type, long id) {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void toBytes(@NonNull ByteBuf dst) {
         this.loopToBytes(dst, this.outerLoop);
         dst.writeIntLE(this.innerLoops.length);

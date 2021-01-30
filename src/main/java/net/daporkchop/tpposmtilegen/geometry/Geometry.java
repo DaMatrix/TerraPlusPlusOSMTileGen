@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.geometry;
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
@@ -88,6 +89,14 @@ public interface Geometry extends Persistent {
         return buffer;
     }
 
+    static String externalStorageLocation(int type, long id) {
+        if (type == Coastline.TYPE) {
+            return PStrings.fastFormat("%s/%03d/%d.json", Element.typeName(type), id / 1000L, id % 1000L);
+        } else {
+            return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id / 1000_000L, (id / 1000L) % 1000L, id % 1000L);
+        }
+    }
+
     long[] listIntersectedTiles();
 
     /**
@@ -102,10 +111,6 @@ public interface Geometry extends Persistent {
     default boolean shouldStoreExternally(int tiles, int dataSize) {
         return tiles > 1 //if the object is only present in a single tile, there's obviously no reason to store this object as a
                && dataSize > 2048;
-    }
-
-    default String externalStorageLocation(int type, long id) {
-        return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id / 1000_000L, (id / 1000L) % 1000L, id % 1000L);
     }
 
     void toGeoJSON(@NonNull StringBuilder dst);

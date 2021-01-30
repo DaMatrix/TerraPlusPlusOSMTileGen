@@ -32,6 +32,8 @@ import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.common.pool.handle.Handle;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
@@ -56,6 +58,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.DirtyTracker;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
+import net.daporkchop.tpposmtilegen.storage.special.StringToBlobDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
@@ -102,7 +105,7 @@ public final class Storage implements AutoCloseable {
     protected LongArrayDB intersectedTiles;
 
     protected BlobDB jsonStorage;
-    protected StringDB externalLocations;
+    protected StringToBlobDB files;
 
     protected final Database db;
 
@@ -122,7 +125,7 @@ public final class Storage implements AutoCloseable {
                 .add("intersected_tiles", (database, handle, descriptor) -> this.intersectedTiles = new LongArrayDB(database, handle, descriptor))
                 .add("dirty_tiles", CompressionType.NO_COMPRESSION, (database, handle, descriptor) -> this.dirtyTiles = new DirtyTracker(database, handle, descriptor))
                 .add("json", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.jsonStorage = new BlobDB(database, handle, descriptor))
-                .add("external_locations", (database, handle, descriptor) -> this.externalLocations = new StringDB(database, handle, descriptor))
+                .add("files", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.files = new StringToBlobDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor))
                 .autoFlush(true)
                 .build(root.resolve("db"));
@@ -166,21 +169,21 @@ public final class Storage implements AutoCloseable {
         return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, @NonNull Path outDir, long combinedId, boolean allowUnknown) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, boolean allowUnknown) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        Element element = this.getElement(access, combinedId);
-        if (allowUnknown && element == null) {
-            this.intersectedTiles.delete(access, combinedId);
-            this.externalLocations.delete(access, combinedId);
-            return;
-        }
-        checkState(element != null, "unknown %s %d", typeName, id);
+        String location = Geometry.externalStorageLocation(type, id);
+        long[] oldIntersected = this.intersectedTiles.get(access, combinedId);
 
-        Geometry geometry = element.toGeometry(this, access);
-        if (geometry != null) {
+        Element element = this.getElement(access, combinedId);
+        if (element == null && !allowUnknown) {
+            throw new IllegalStateException(PStrings.fastFormat( "unknown %s %d", typeName, id));
+        }
+
+        Geometry geometry;
+        if (element != null && (geometry = element.toGeometry(this, access)) != null) {
             long[] arr = geometry.listIntersectedTiles();
             Arrays.sort(arr);
             int tileCount = arr.length;
@@ -190,32 +193,24 @@ public final class Storage implements AutoCloseable {
             this.intersectedTiles.put(access, combinedId, arr);
 
             //encode geometry to GeoJSON
-            StringBuilder builder = new StringBuilder();
+            ByteBuffer buffer;
+            try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
+                StringBuilder builder = handle.get();
+                builder.setLength(0);
 
-            Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
+                Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
 
-            //convert json to bytes
-            ByteBuffer buffer = Geometry.toBytes(builder);
+                //convert json to bytes
+                buffer = Geometry.toBytes(builder);
+            }
+
             try {
                 if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.jsonStorage.put(access, combinedId, buffer);
-                    this.externalLocations.delete(access, combinedId);
+                    this.files.delete(access, location);
                 } else { //element is referenced multiple times, store it in an external file
-                    String location = geometry.externalStorageLocation(type, id);
-
-                    //we don't actually write to the external file immediately
-                    Path file = outDir.resolve(location);
-                    Files.createDirectories(file.getParent());
-                    Path tempFile = file.resolveSibling(Thread.currentThread().getId() + ".tmp");
-                    try (FileChannel channel = FileChannel.open(tempFile, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-                        while (buffer.hasRemaining()) {
-                            channel.write(buffer);
-                        }
-                    }
-                    Files.move(tempFile, file, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-
-                    this.externalLocations.put(access, combinedId, location);
+                    this.files.put(access, location, buffer);
 
                     ByteBuffer referenceBuffer = Geometry.createReference(location);
                     this.jsonStorage.put(access, combinedId, referenceBuffer);
@@ -225,8 +220,12 @@ public final class Storage implements AutoCloseable {
                 PUnsafe.pork_releaseBuffer(buffer);
             }
         } else {
-            this.intersectedTiles.delete(access, combinedId);
-            this.externalLocations.delete(access, combinedId);
+            //delete element from everything
+            if (oldIntersected != null) {
+                this.intersectedTiles.delete(access, combinedId);
+                this.tileContents.deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+            }
+            this.files.delete(access, location);
         }
     }
 
@@ -315,8 +314,8 @@ public final class Storage implements AutoCloseable {
         if (full) {
             logger.trace("Clearing full GeoJSON storage...");
             this.jsonStorage.clear();
-            logger.trace("Clearing external storage location index...");
-            this.externalLocations.clear();
+            logger.trace("Clearing squashfs assembly file storage...");
+            this.files.clear();
             logger.trace("Clearing tile content index...");
             this.tileContents.clear();
             logger.trace("Clearing geometry intersection index...");
