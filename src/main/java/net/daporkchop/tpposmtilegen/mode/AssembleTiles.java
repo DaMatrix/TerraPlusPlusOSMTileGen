@@ -21,39 +21,23 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.PFunctions;
-import net.daporkchop.lib.common.function.io.IOBiPredicate;
-import net.daporkchop.lib.common.function.io.IORunnable;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.lib.common.function.throwing.ESupplier;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.attribute.BasicFileAttributes;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public class Export implements IMode {
+public class AssembleTiles implements IMode {
     @Override
     public String name() {
-        return "export";
+        return "assemble_tiles";
     }
 
     @Override
@@ -63,17 +47,18 @@ public class Export implements IMode {
 
     @Override
     public String help() {
-        return "Exports all changed files.";
+        return "Assembles all tiles.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: export <index_dir> <tile_dir>");
+        checkArg(args.length == 1, "Usage: assemble_tiles <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
-        Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath())) {
-            throw new UnsupportedOperationException();
+            storage.exportDirtyTiles(storage.db().readWriteBatch(), true);
+
+            storage.purge(false); //erase temporary data
         }
     }
 }

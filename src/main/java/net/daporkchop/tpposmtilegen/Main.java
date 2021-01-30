@@ -27,7 +27,8 @@ import net.daporkchop.lib.common.function.PFunctions;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.logging.format.FormatParser;
-import net.daporkchop.tpposmtilegen.mode.Assemble;
+import net.daporkchop.tpposmtilegen.mode.AssembleGeometry;
+import net.daporkchop.tpposmtilegen.mode.AssembleTiles;
 import net.daporkchop.tpposmtilegen.mode.Compact;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
@@ -53,7 +54,8 @@ import static net.daporkchop.lib.logging.Logging.*;
 @RequiredArgsConstructor
 public final class Main implements Runnable {
     protected static final Map<String, IMode> MODES = Stream.of(
-            new Assemble(),
+            new AssembleGeometry(),
+            new AssembleTiles(),
             new Compact(),
             new DigestCoastlines(),
             new DigestPBF(),

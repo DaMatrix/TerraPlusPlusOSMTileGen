@@ -94,8 +94,8 @@ public final class Database implements AutoCloseable {
     @Getter
     private final OptimisticTransactionDB delegate;
     private final List<ColumnFamilyHandle> columns;
-    private final CloseableThreadLocal<FlushableWriteBatch> batches;
-    private final CloseableThreadLocal<ReadWriteBatchAccess> batchesRW;
+    private final DBAccess batch;
+    private final DBAccess readWriteBatch;
 
     @Getter
     private final DBAccess read;
@@ -103,27 +103,22 @@ public final class Database implements AutoCloseable {
     private Database(@NonNull OptimisticTransactionDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
         this.delegate = delegate;
         this.columns = columns;
-        this.batches = new CloseableThreadLocal<FlushableWriteBatch>() {
+        this.batch = new ThreadLocalDBAccess(new CloseableThreadLocal<DBAccess>() {
             @Override
-            protected FlushableWriteBatch initialValue0() throws Exception {
+            protected DBAccess initialValue0() throws Exception {
                 return autoFlush ? new AutoFlushingWriteBatch(delegate, 64L << 20L) : new FlushableWriteBatch(delegate);
             }
-        };
-        this.batchesRW = new CloseableThreadLocal<ReadWriteBatchAccess>() {
-            @Override
-            protected ReadWriteBatchAccess initialValue0() throws Exception {
-                return new ReadWriteBatchAccess(Database.this.batches.get(), delegate);
-            }
-        };
+        });
+        this.readWriteBatch = new ReadWriteBatchAccess(this.batch, delegate);
         this.read = new ReadAccess(delegate);
     }
 
     public DBAccess batch() {
-        return this.batches.get();
+        return this.batch;
     }
 
     public DBAccess readWriteBatch() {
-        return this.batchesRW.get();
+        return this.readWriteBatch;
     }
 
     public DBAccess newNotAutoFlushingWriteBatch() {
@@ -135,12 +130,12 @@ public final class Database implements AutoCloseable {
     }
 
     public void flush() throws Exception {
-        this.batches.forEach((EConsumer<FlushableWriteBatch>) b -> b.flush(true));
+        this.batch.flush(true);
     }
 
     @Override
     public void close() throws Exception {
-        this.batches.close();
+        this.batch.close();
         this.columns.forEach(ColumnFamilyHandle::close);
         this.delegate.close();
     }

@@ -211,7 +211,7 @@ public class Update implements IMode {
         logger.trace("pass 4: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 
         //pass 5: write updated tiles
-        storage.exportDirtyTiles(access, tileDir);
+        storage.exportDirtyTiles(access, false);
         logger.trace("pass 5: batched %.2fMiB of updates, %d files queued for deletion", access.getDataSize() / (1024.0d * 1024.0d), toDeleteFiles.size());
 
         //delete old files

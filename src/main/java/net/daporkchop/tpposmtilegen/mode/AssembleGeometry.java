@@ -36,10 +36,10 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class Assemble implements IMode {
+public class AssembleGeometry implements IMode {
     @Override
     public String name() {
-        return "assemble";
+        return "assemble_geometry";
     }
 
     @Override
@@ -49,18 +49,18 @@ public class Assemble implements IMode {
 
     @Override
     public String help() {
-        return "Assembles and indexes all elements.";
+        return "Assembles and indexes all geometry elements.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: assemble <index_dir>");
+        checkArg(args.length == 1, "Usage: assemble_geometry <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
             storage.purge(true); //clear everything
 
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble")
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
                 LongObjConsumer<Element> func = (id, element) -> {
