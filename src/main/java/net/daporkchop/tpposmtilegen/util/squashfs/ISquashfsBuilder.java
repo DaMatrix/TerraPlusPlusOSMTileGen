@@ -21,52 +21,18 @@
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.file.Path;
 
 /**
  * @author DaPorkchop_
  */
-final class InodeTableBuilder implements ISquashfsBuilder {
-    protected final SquashfsBuilder parent;
-    protected final MetablockWriter writer;
+interface ISquashfsBuilder extends AutoCloseable {
+    void finish() throws IOException;
 
-    protected int inodes = 1; //the total number of inodes created so far
-
-    public InodeTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        this.parent = parent;
-        this.writer = new MetablockWriter(compression, root);
-    }
-
-    public <C extends Inode, B extends Inode.InodeBuilder<C, ?>> C append(@NonNull B builder) throws IOException {
-        C inode = builder.inode_number(this.inodes++)
-                .inodeBlockStart(this.writer.bytesWritten())
-                .inodeBlockOffset(this.writer.buffer().readableBytes())
-                .build();
-
-        //encode inode
-        inode.write(this.writer.buffer());
-        this.writer.flush();
-
-        return inode;
-    }
+    void transferTo(@NonNull FileChannel channel) throws IOException;
 
     @Override
-    public void finish() throws IOException {
-        this.writer.finish();
-    }
-
-    @Override
-    public void transferTo(@NonNull FileChannel channel) throws IOException {
-        this.writer.transferTo(channel);
-    }
-
-    @Override
-    public void close() throws IOException {
-        this.writer.close();
-    }
+    void close() throws IOException;
 }

@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
+import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.PFunctions;
 import net.daporkchop.lib.common.function.io.IOBiPredicate;
@@ -32,8 +33,11 @@ import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -58,7 +62,7 @@ public class Export implements IMode {
 
     @Override
     public String synopsis() {
-        return "<index_dir>";
+        return "<index_dir> <squashfs>";
     }
 
     @Override
@@ -68,12 +72,19 @@ public class Export implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: export <index_dir> <tile_dir>");
+        checkArg(args.length == 2, "Usage: export <index_dir> <squashfs>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         Path dst = Paths.get(args[1]);
+        Files.deleteIfExists(dst);
 
-        try (Storage storage = new Storage(src.toPath())) {
-            throw new UnsupportedOperationException();
+        try (SquashfsBuilder builder = new SquashfsBuilder(NoCompression.INSTANCE, dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
+            builder.putFile("asdf.txt", Unpooled.wrappedBuffer("12345".getBytes(StandardCharsets.UTF_8)));
+
+            builder.finish(dst);
         }
+
+        /*try (Storage storage = new Storage(src.toPath())) {
+            throw new UnsupportedOperationException();
+        }*/
     }
 }

@@ -35,6 +35,10 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @UtilityClass
 public class SquashfsConstants {
     public final int SQUASHFS_MAGIC = 0x73717368;
+    public final char SQUASHFS_VERSION_MAJOR = 4;
+    public final char SQUASHFS_VERSION_MINOR = 0;
+
+    public final int SUPERBLOCK_BYTES = 96;
 
     public final int UNCOMPRESSED_INODES = 0x0001;
     public final int UNCOMPRESSED_DATA = 0x0002;
@@ -55,6 +59,10 @@ public class SquashfsConstants {
     public final char METABLOCK_HEADER_UNCOMPRESSED_FLAG = 0x8000;
     public final char METABLOCK_HEADER_DATA_SIZE_MASK = 0x7FFF;
     public final char METABLOCK_MAX_SIZE = 0x2000;
+
+    public final int DIRECTORY_ENTRY_MAX_SIZE = 256;
+
+    public final int DATA_BLOCK_UNCOMPRESSED_FLAG = 1 << 24;
 
     public long buildInodeReference(int metablockStart, int offset) {
         return ((long) metablockStart << 16L) | offset;

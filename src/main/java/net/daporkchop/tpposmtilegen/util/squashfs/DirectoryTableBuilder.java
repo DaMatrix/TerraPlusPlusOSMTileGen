@@ -20,13 +20,19 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
+import net.daporkchop.tpposmtilegen.util.squashfs.inode.BasicDirectoryInode;
+import net.daporkchop.tpposmtilegen.util.squashfs.inode.BasicFileInode;
 import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayDeque;
@@ -34,30 +40,113 @@ import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Utils.*;
+import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+
 /**
  * @author DaPorkchop_
  */
-final class DirectoryTableBuilder implements AutoCloseable {
+final class DirectoryTableBuilder implements ISquashfsBuilder {
     protected final SquashfsBuilder parent;
     protected final Path workingDir;
     protected final MetablockWriter writer;
 
     protected final Deque<Directory> stack = new ArrayDeque<>();
 
+    protected Inode root;
+
     public DirectoryTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
         this.workingDir = Files.createDirectories(root);
 
         this.writer = new MetablockWriter(compression, root.resolve("metablocks"));
+
+        this.stack.push(new Directory(""));
     }
 
     public void startDirectory(@NonNull String name) throws IOException {
+        this.stack.push(new Directory(name));
     }
 
     public void endDirectory() throws IOException {
-        try (Directory directory = this.stack.pop()) {
-            this.stack.getFirst().appendDirectory(directory);
+        Directory directory = this.stack.pop();
+        this.stack.getFirst().appendDirectory(directory);
+    }
+
+    public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
+        long blocksStart = this.parent.blockTable.writtenBytes + 4096;
+
+        Inode inode = this.parent.inodeTable.append(BasicFileInode.builder()
+                .blocks_start(toInt(blocksStart))
+                .fragment_block_index(-1)
+                .block_offset(0)
+                .file_size(contents.readableBytes())
+                .block_sizes(this.parent.blockTable.write(contents)));
+        this.stack.getFirst().entries.add(new AbsoluteDirectoryEntry(inode, name));
+    }
+
+    protected AbsoluteDirectoryEntry toEntry(@NonNull Directory directory) throws IOException {
+        Inode directoryInode;
+
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf dst = recycler.get();
+        try {
+            for (int i = 0, size = directory.entries.size(); i < size; ) {
+                int startIndex = dst.writerIndex();
+
+                AbsoluteDirectoryEntry startEntry = directory.entries.get(i);
+                int inodeBlockStart = startEntry.inode.inodeBlockStart();
+                int inodeNumber = startEntry.inode.inode_number();
+                dst.writeIntLE(-1)
+                        .writeIntLE(inodeBlockStart)
+                        .writeIntLE(inodeNumber);
+
+                int j = 0;
+                for (; j < DIRECTORY_ENTRY_MAX_SIZE && i + j < size; j++) {
+                    AbsoluteDirectoryEntry entry = directory.entries.get(i + j);
+                    if (entry.inode.inodeBlockStart() != inodeBlockStart || inodeNumber - entry.inode.inode_number() > Short.MAX_VALUE) {
+                        break;
+                    }
+
+                    dst.writeShortLE(entry.inode.inodeBlockOffset())
+                            .writeShortLE(inodeNumber - entry.inode.inode_number())
+                            .writeShortLE(entry.inode.basicType());
+
+                    int nameSizeIndex = dst.writerIndex();
+                    int nameSize = dst.writeShortLE(-1).writeCharSequence(entry.name, StandardCharsets.UTF_8);
+                    dst.setShortLE(nameSizeIndex, nameSize);
+                }
+                dst.setIntLE(startIndex, j - 1);
+                i += j;
+            }
+
+            directoryInode = this.parent.inodeTable.append(BasicDirectoryInode.builder()
+                    .block_idx(this.writer.blocksWritten)
+                    .block_offset(tochar(this.writer.buffer.readableBytes()))
+                    .hard_link_count(1)
+                    .file_size(tochar(dst.readableBytes()))
+                    .parent_inode_number(1)); //TODO: this is wrong, parent inode should only be 1 on root directory
+
+            this.writer.write(dst);
+        } finally {
+            recycler.release(dst);
         }
+
+        return new AbsoluteDirectoryEntry(directoryInode, directory.name);
+    }
+
+    @Override
+    public void finish() throws IOException {
+        this.root = this.toEntry(this.stack.pop()).inode;
+        checkState(this.stack.isEmpty());
+
+        this.writer.finish();
+    }
+
+    @Override
+    public void transferTo(@NonNull FileChannel channel) throws IOException {
+        this.writer.transferTo(channel);
     }
 
     @Override
@@ -68,27 +157,22 @@ final class DirectoryTableBuilder implements AutoCloseable {
     }
 
     @RequiredArgsConstructor
-    protected class Directory implements AutoCloseable {
-        @NonNull
-        protected final String name;
-        protected final List<AbsoluteDirectoryEntry> entries = new ArrayList<>();
-
-        public void appendDirectory(@NonNull Directory directory) throws IOException {
-        }
-
-        public AbsoluteDirectoryEntry toEntry
-
-        @Override
-        public void close() throws IOException {
-        }
-    }
-
-    @RequiredArgsConstructor
     @ToString
     protected static class AbsoluteDirectoryEntry {
         @NonNull
         public final Inode inode;
         @NonNull
         public final String name;
+    }
+
+    @RequiredArgsConstructor
+    protected class Directory {
+        @NonNull
+        protected final String name;
+        protected final List<AbsoluteDirectoryEntry> entries = new ArrayList<>();
+
+        public void appendDirectory(@NonNull Directory directory) throws IOException {
+            this.entries.add(DirectoryTableBuilder.this.toEntry(directory));
+        }
     }
 }

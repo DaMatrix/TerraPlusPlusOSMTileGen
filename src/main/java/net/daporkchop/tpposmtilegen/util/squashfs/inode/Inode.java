@@ -26,13 +26,16 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.experimental.SuperBuilder;
 
+import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+
 /**
  * @author DaPorkchop_
  */
 @Getter
 @SuperBuilder
 public abstract class Inode {
-    protected final long reference; //not a real property, but stores the 64-bit reference to this inode
+    protected final int inodeBlockStart; //the first byte of the compressed inode block
+    protected final int inodeBlockOffset;
 
     @Builder.Default
     protected final char permissions = (char) 0644;
@@ -44,6 +47,10 @@ public abstract class Inode {
     public abstract int type();
 
     public abstract int basicType();
+
+    public long reference() {
+        return buildInodeReference(this.inodeBlockStart, this.inodeBlockOffset);
+    }
 
     /**
      * Writes this inode to the given {@link ByteBuf}.

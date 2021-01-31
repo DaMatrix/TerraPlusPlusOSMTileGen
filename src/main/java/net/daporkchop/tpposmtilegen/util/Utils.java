@@ -30,6 +30,8 @@ import net.daporkchop.lib.common.ref.ThreadRef;
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
+
 /**
  * @author DaPorkchop_
  */
@@ -61,6 +63,13 @@ public class Utils {
     public void readFully(@NonNull FileChannel src, @NonNull ByteBuf dst, int count) throws IOException {
         dst.ensureWritable(count);
         for (int i = 0; i < count; i += dst.writeBytes(src, count - i)) {
+        }
+    }
+
+    public void padTo4k(@NonNull FileChannel channel) throws IOException {
+        long capacity = channel.position();
+        if ((capacity & 0xFFFL) != 0L) {
+            writeFully(channel, Unpooled.wrappedBuffer(new byte[toInt(4096L - (capacity & 0xFFFL))]));
         }
     }
 }

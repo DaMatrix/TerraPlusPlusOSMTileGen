@@ -34,6 +34,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
+import static java.lang.Math.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
@@ -41,7 +43,7 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
  * @author DaPorkchop_
  */
 @Getter
-final class MetablockWriter implements AutoCloseable {
+class MetablockWriter implements ISquashfsBuilder {
     @Getter(AccessLevel.NONE)
     protected final Path file;
     @Getter(AccessLevel.NONE)
@@ -70,7 +72,10 @@ final class MetablockWriter implements AutoCloseable {
             ByteBuf dst = recycler.get();
             try {
                 do {
+                    int startWriterIndex = dst.writerIndex();
+                    int offset = this.bytesWritten + dst.readableBytes();
                     writeCompressedMetablock(this.compression, this.buffer.readSlice(METABLOCK_MAX_SIZE), dst);
+                    this.writeBlockCallback(offset, METABLOCK_MAX_SIZE, dst.writerIndex() - startWriterIndex);
                 } while (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE);
                 this.buffer.discardSomeReadBytes();
 
@@ -82,14 +87,19 @@ final class MetablockWriter implements AutoCloseable {
         }
     }
 
+    @Override
     public void finish() throws IOException {
         if (this.buffer.isReadable()) {
             SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
             ByteBuf dst = recycler.get();
             try {
                 do {
-                    writeCompressedMetablock(this.compression, this.buffer.readSlice(METABLOCK_MAX_SIZE), dst);
-                } while (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE);
+                    int blockSize = min(this.buffer.readableBytes(), METABLOCK_MAX_SIZE);
+                    int startWriterIndex = dst.writerIndex();
+                    int offset = this.bytesWritten + dst.readableBytes();
+                    writeCompressedMetablock(this.compression, this.buffer.readSlice(blockSize), dst);
+                    this.writeBlockCallback(offset, blockSize, dst.writerIndex() - startWriterIndex);
+                } while (this.buffer.isReadable());
 
                 this.bytesWritten += dst.readableBytes();
                 writeFully(this.channel, dst);
@@ -100,10 +110,20 @@ final class MetablockWriter implements AutoCloseable {
         this.buffer.release();
     }
 
+    protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
+    }
+
+    @Override
+    public void transferTo(@NonNull FileChannel channel) throws IOException {
+        checkState(this.buffer.refCnt() == 0, "not finished!");
+
+        long size = this.channel.size();
+        for (long pos = 0L; pos < size; pos += this.channel.transferTo(pos, size - pos, channel)) {
+        }
+    }
+
     @Override
     public void close() throws IOException {
-        this.buffer.release();
-
         this.channel.close();
         Files.delete(this.file);
     }
