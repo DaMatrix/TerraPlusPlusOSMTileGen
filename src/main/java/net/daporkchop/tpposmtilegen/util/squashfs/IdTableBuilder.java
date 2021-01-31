@@ -24,7 +24,6 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
@@ -51,9 +50,7 @@ final class IdTableBuilder extends MultilevelSquashfsBuilder {
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        superblock.id_table_start(channel.position());
-
-        super.transferTo(channel, superblock);
+    protected void applyStartOffset(@NonNull Superblock superblock, long startOffset) {
+        superblock.id_table_start(startOffset);
     }
 }

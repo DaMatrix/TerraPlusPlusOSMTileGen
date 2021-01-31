@@ -22,32 +22,31 @@ package net.daporkchop.tpposmtilegen.util.squashfs.compression;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.compression.context.PDeflater;
+import net.daporkchop.lib.compression.zlib.Zlib;
+import net.daporkchop.lib.compression.zlib.ZlibMode;
+import net.daporkchop.lib.compression.zlib.options.ZlibDeflaterOptions;
 
 import java.io.IOException;
 
+import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+
 /**
- * A compression mode used by a squashfs.
- *
  * @author DaPorkchop_
  */
-public interface Compression {
-    /**
-     * @return whether or not this instance does no compression
-     */
-    default boolean uncompressed() {
-        return false;
+public final class GzipCompression implements Compression {
+    protected final ZlibDeflaterOptions options = Zlib.PROVIDER.deflateOptions().withMode(ZlibMode.GZIP);
+    protected final Ref<PDeflater> deflaterCache = ThreadRef.soft(() -> Zlib.PROVIDER.deflater(this.options));
+
+    @Override
+    public int id() {
+        return COMPRESSION_ID_GZIP;
     }
 
-    /**
-     * @return the ID of this compression type
-     */
-    int id();
-
-    /**
-     * Compresses the contents of the source buffer into the given destination buffer.
-     *
-     * @param src the uncompressed data
-     * @param dst the buffer to write compressed data to
-     */
-    void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException;
+    @Override
+    public void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException {
+        this.deflaterCache.get().compressGrowing(src, dst);
+    }
 }

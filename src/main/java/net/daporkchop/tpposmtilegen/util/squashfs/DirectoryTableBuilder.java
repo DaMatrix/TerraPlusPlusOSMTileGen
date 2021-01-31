@@ -115,7 +115,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
 
                     int nameSizeIndex = dst.writerIndex();
                     int nameSize = dst.writeShortLE(-1).writeCharSequence(entry.name, StandardCharsets.UTF_8);
-                    dst.setShortLE(nameSizeIndex, nameSize);
+                    dst.setShortLE(nameSizeIndex, nameSize - 1);
                 }
                 dst.setIntLE(startIndex, j - 1);
                 i += j;

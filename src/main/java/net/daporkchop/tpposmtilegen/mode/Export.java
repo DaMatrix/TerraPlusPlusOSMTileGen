@@ -34,7 +34,9 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.GzipCompression;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
 
 import java.io.File;
 import java.nio.charset.StandardCharsets;
@@ -77,7 +79,7 @@ public class Export implements IMode {
         Path dst = Paths.get(args[1]);
         Files.deleteIfExists(dst);
 
-        try (SquashfsBuilder builder = new SquashfsBuilder(NoCompression.INSTANCE, dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
+        try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
             builder.putFile("asdf.txt", Unpooled.wrappedBuffer("12345".getBytes(StandardCharsets.UTF_8)));
 
             builder.finish(dst);

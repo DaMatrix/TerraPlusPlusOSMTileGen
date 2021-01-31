@@ -74,6 +74,9 @@ public final class SquashfsBuilder implements AutoCloseable {
     }
 
     public void putFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
+        this.directoryTable.startDirectory("aaaa");
+        this.directoryTable.endDirectory();
+
         this.directoryTable.addFile(name, contents);
     }
 
@@ -95,21 +98,14 @@ public final class SquashfsBuilder implements AutoCloseable {
             this.idTable.finish(superblock);
 
             this.blockTable.transferTo(channel, superblock);
-
-            this.idTable.transferTo(channel, superblock);
-
             superblock.xattr_id_table_start(0xFFFFFFFFL); //xattr table?
-
             this.inodeTable.transferTo(channel, superblock);
-
             this.directoryTable.transferTo(channel,superblock );
-
             this.fragmentTable.transferTo(channel, superblock);
-
             superblock.export_table_start(0xFFFFFFFFL); //export table?
+            this.idTable.transferTo(channel, superblock); //apparently the id table needs to be at the end
 
             superblock.bytes_used(channel.position());
-            padTo4k(channel);
 
             channel.position(0L);
 

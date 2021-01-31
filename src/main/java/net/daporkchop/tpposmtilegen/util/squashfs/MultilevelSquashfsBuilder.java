@@ -62,10 +62,15 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        long baseOffset = channel.position();
+
+        this.writer.transferTo(channel, superblock);
+
+        this.applyStartOffset(superblock, channel.position());
+
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
-            long baseOffset = channel.position() + (this.count << 3L);
             for (long offset : this.offsets) {
                 dst.writeLongLE(baseOffset + offset);
             }
@@ -74,9 +79,9 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
         } finally {
             recycler.release(dst);
         }
-
-        this.writer.transferTo(channel, superblock);
     }
+
+    protected abstract void applyStartOffset(@NonNull Superblock superblock, long startOffset);
 
     @Override
     public void close() throws IOException {
