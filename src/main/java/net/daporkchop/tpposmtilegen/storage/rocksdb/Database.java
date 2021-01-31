@@ -176,13 +176,13 @@ public final class Database implements AutoCloseable {
             return this;
         }
 
-        public Database build(@NonNull Path path) throws Exception {
+        public Database build(@NonNull Path path, @NonNull DBOptions options) throws Exception {
             List<ColumnFamilyHandle> columns = new ArrayList<>(this.columns.size());
 
             OptimisticTransactionDB db;
             OPEN_DB:
             try {
-                db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+                db = OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
             } catch (RocksDBException e) {
                 String s = e.getMessage().replace("You have to open all column families. Column families not opened: ", "");
                 if (s.length() != e.getMessage().length()) {
@@ -190,10 +190,10 @@ public final class Database implements AutoCloseable {
                         logger.warn("Deleting column family: %s", name);
                         this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), COLUMN_OPTIONS));
                     }
-                    db = OptimisticTransactionDB.open(DB_OPTIONS, path.toString(), this.columns, columns);
+                    db = OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
                     while (columns.size() > this.factories.size()) {
                         ColumnFamilyHandle handle = columns.remove(this.factories.size());
-                        ColumnFamilyDescriptor descriptor = this.columns.remove(this.factories.size());
+                        this.columns.remove(this.factories.size());
                         db.dropColumnFamily(handle);
                         handle.close();
                     }

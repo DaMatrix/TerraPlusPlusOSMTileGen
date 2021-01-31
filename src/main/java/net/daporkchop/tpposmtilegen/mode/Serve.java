@@ -21,53 +21,69 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http.HttpMethod;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
+import net.daporkchop.tpposmtilegen.http.HttpServer;
+import net.daporkchop.tpposmtilegen.http.exception.HttpException;
+import net.daporkchop.tpposmtilegen.http.handle.HttpHandler;
+import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.DBOptions;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.nio.file.Paths;
+import java.net.InetSocketAddress;
+import java.nio.ByteBuffer;
+import java.util.Scanner;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public class Export implements IMode {
+public class Serve implements IMode {
     @Override
     public String name() {
-        return "export";
+        return "serve";
     }
 
     @Override
     public String synopsis() {
-        return "<index_dir> <squashfs>";
+        return "<index_dir> <port>";
     }
 
     @Override
     public String help() {
-        return "Exports all changed files.";
+        return "Launches a web server which serves the tiles locally.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: export <index_dir> <squashfs>");
+        checkArg(args.length == 2, "Usage: serve <index_dir> <port>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
-        Path dst = Paths.get(args[1]);
-        Files.deleteIfExists(dst);
 
-        try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
-            builder.putFile("asdf.txt", Unpooled.wrappedBuffer("12345".getBytes(StandardCharsets.UTF_8)));
+        try (DBOptions options = new DBOptions(Database.DB_OPTIONS)
+                .setMaxOpenFiles(64)
+                .setMaxFileOpeningThreads(1);
+             Storage storage = new Storage(src.toPath(), options)) {
 
-            builder.finish(dst);
+            HttpHandler handler = request -> {
+                if (request.method() != HttpMethod.GET) {
+                    throw new HttpException(HttpResponseStatus.METHOD_NOT_ALLOWED);
+                }
+
+                ByteBuffer buffer = storage.files().get(storage.db().read(), request.uri().substring(1));
+                if (buffer == null) {
+                    throw new HttpException(HttpResponseStatus.NOT_FOUND);
+                }
+
+                return Unpooled.wrappedBuffer(buffer);
+            };
+
+            try (HttpServer server = new HttpServer(new InetSocketAddress(Integer.parseUnsignedInt(args[1])), handler)) {
+                new Scanner(System.in).nextLine();
+            }
         }
-
-        /*try (Storage storage = new Storage(src.toPath())) {
-            throw new UnsupportedOperationException();
-        }*/
     }
 }

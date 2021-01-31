@@ -18,43 +18,30 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
+package net.daporkchop.tpposmtilegen.http;
 
+import io.netty.channel.Channel;
+import io.netty.channel.ChannelInitializer;
+import io.netty.handler.codec.http.HttpObjectAggregator;
+import io.netty.handler.codec.http.HttpRequestDecoder;
+import io.netty.handler.codec.http.HttpResponseEncoder;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.osm.Updater;
-import net.daporkchop.tpposmtilegen.storage.Storage;
-
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import lombok.RequiredArgsConstructor;
 
 /**
  * @author DaPorkchop_
  */
-public class Update implements IMode {
-    @Override
-    public String name() {
-        return "update";
-    }
+@RequiredArgsConstructor
+class HttpInitializer extends ChannelInitializer<Channel> {
+    @NonNull
+    protected final HttpServer server;
 
     @Override
-    public String synopsis() {
-        return "<index_dir>";
-    }
-
-    @Override
-    public String help() {
-        return "Updates the index and tiles by applying the latest changesets from the OpenStreetMap database.";
-    }
-
-    @Override
-    public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
-
-        try (Storage storage = new Storage(src.toPath())) {
-            Updater.update(storage);
-        }
+    protected void initChannel(Channel ch) throws Exception {
+        ch.pipeline()
+                .addLast(new HttpRequestDecoder())
+                .addLast(new HttpResponseEncoder())
+                .addLast(new HttpObjectAggregator(1024, true))
+                .addLast(this.server.netHandler);
     }
 }

@@ -18,43 +18,15 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
+package net.daporkchop.tpposmtilegen.http.handle;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.FullHttpRequest;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.osm.Updater;
-import net.daporkchop.tpposmtilegen.storage.Storage;
-
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public class Update implements IMode {
-    @Override
-    public String name() {
-        return "update";
-    }
-
-    @Override
-    public String synopsis() {
-        return "<index_dir>";
-    }
-
-    @Override
-    public String help() {
-        return "Updates the index and tiles by applying the latest changesets from the OpenStreetMap database.";
-    }
-
-    @Override
-    public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
-
-        try (Storage storage = new Storage(src.toPath())) {
-            Updater.update(storage);
-        }
-    }
+public interface HttpHandler {
+    ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception;
 }

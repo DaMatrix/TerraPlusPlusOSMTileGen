@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.json.JsonMapper;
-import com.google.common.collect.ImmutableSet;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 
@@ -97,8 +96,8 @@ public class AreaKeys {
                                 ? entry.getKey().substring(entry.getKey().indexOf('#') + 1)
                                 : entry.getKey()).intern();
                         if (entry.getValue().isArray()) {
-                            Set<String> values = ImmutableSet.copyOf(StreamSupport.stream(entry.getValue().spliterator(), false)
-                                    .map(JsonNode::asText).map(String::intern).collect(Collectors.toList()));
+                            Set<String> values = StreamSupport.stream(entry.getValue().spliterator(), false)
+                                    .map(JsonNode::asText).map(String::intern).collect(Collectors.toSet());
                             return tags -> {
                                 String v = tags.get(key);
                                 return v != null && values.contains(v);

@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
+import lombok.Data;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
@@ -65,6 +66,7 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.CompressionType;
+import org.rocksdb.DBOptions;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -112,6 +114,10 @@ public final class Storage implements AutoCloseable {
     protected final Path root;
 
     public Storage(@NonNull Path root) throws Exception {
+        this(root, Database.DB_OPTIONS);
+    }
+
+    public Storage(@NonNull Path root, @NonNull DBOptions options) throws Exception {
         this.root = root;
 
         this.db = new Database.Builder()
@@ -128,7 +134,7 @@ public final class Storage implements AutoCloseable {
                 .add("files", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.files = new StringToBlobDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor))
                 .autoFlush(true)
-                .build(root.resolve("db"));
+                .build(root.resolve("db"), options);
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
@@ -174,7 +180,7 @@ public final class Storage implements AutoCloseable {
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        String location = Geometry.externalStorageLocation(type, id);
+        String location = "0/" + Geometry.externalStorageLocation(type, id);
         long[] oldIntersected = this.intersectedTiles.get(access, combinedId);
 
         Element element = this.getElement(access, combinedId);
@@ -243,34 +249,12 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportAllTiles(@NonNull DBAccess access) throws Exception {
-        int minX = Tile.point2tile(-180 * Point.PRECISION);
-        int minY = Tile.point2tile(-90 * Point.PRECISION);
-        int maxX = Tile.point2tile(180 * Point.PRECISION);
-        int maxY = Tile.point2tile(90 * Point.PRECISION);
-        long count = (maxX - minX + 1L) * (maxY - minY + 1L); // 230'536'926
-
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
-                .slot("tiles", count)
-                .build()) {
-            Threading.iterateParallel(1024,
-                    callback -> {
-                        for (int x = minX; x <= maxX; x++) {
-                            for (int y = minY; y <= maxY; y++) {
-                                callback.accept(Tile.xy2tilePos(x, y));
-                            }
-                        }
-                    },
-                    this.exportTile(access, notifier)::accept);
-        }
-    }
-
     public LongConsumer exportTile(@NonNull DBAccess access, @NonNull ProgressNotifier notifier) {
         return tilePos -> {
             try {
                 LongList elements = new LongArrayList();
                 this.tileContents.getElementsInTile(access, tilePos, elements);
-                String file = PStrings.fastFormat("tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos));
+                String file = PStrings.fastFormat("0/tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos));
 
                 if (elements.isEmpty()) { //nothing to write
                     this.files.delete(access, file);

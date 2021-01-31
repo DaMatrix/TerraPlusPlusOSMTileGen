@@ -33,7 +33,6 @@ import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.util.Arrays;
 import java.util.function.BiConsumer;
 
 /**
@@ -53,6 +52,11 @@ public final class StringToBlobDB extends WrappedRocksDB {
 
     public void delete(@NonNull DBAccess access, @NonNull String key) throws Exception {
         access.delete(this.column, key.getBytes(StandardCharsets.US_ASCII));
+    }
+
+    public ByteBuffer get(@NonNull DBAccess access, @NonNull String key) throws Exception {
+        byte[] arr = access.get(this.column, key.getBytes(StandardCharsets.US_ASCII));
+        return arr != null ? ByteBuffer.wrap(arr) : null;
     }
 
     public void forEachParallel(@NonNull DBAccess access, @NonNull BiConsumer<String, ByteBuffer> callback) throws Exception {

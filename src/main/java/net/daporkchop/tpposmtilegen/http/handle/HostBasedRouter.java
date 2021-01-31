@@ -18,43 +18,37 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
+package net.daporkchop.tpposmtilegen.http.handle;
 
+import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.osm.Updater;
-import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 
-import java.io.File;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
+import java.util.HashMap;
+import java.util.Map;
 
 /**
+ * Routes requests to delegate handlers based on the {@code Host} header.
+ *
  * @author DaPorkchop_
  */
-public class Update implements IMode {
-    @Override
-    public String name() {
-        return "update";
+public class HostBasedRouter implements HttpHandler {
+    protected final Map<String, HttpHandler> delegates = new HashMap<>();
+
+    public HostBasedRouter put(@NonNull String host, @NonNull HttpHandler handler) {
+        this.delegates.put(host, handler);
+        return this;
     }
 
     @Override
-    public String synopsis() {
-        return "<index_dir>";
-    }
-
-    @Override
-    public String help() {
-        return "Updates the index and tiles by applying the latest changesets from the OpenStreetMap database.";
-    }
-
-    @Override
-    public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
-
-        try (Storage storage = new Storage(src.toPath())) {
-            Updater.update(storage);
+    public ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception {
+        String host = request.headers().get("Host");
+        HttpHandler handler = this.delegates.get(host);
+        if (handler == null) {
+            throw new HttpException(HttpResponseStatus.BAD_REQUEST);
         }
+        return handler.handleRequest(request);
     }
 }

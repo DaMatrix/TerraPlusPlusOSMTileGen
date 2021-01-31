@@ -32,10 +32,10 @@ ext {
     //dependency things
     fastutilVersion = "8.4.4"
     geotoolsVersion = "24.1"
-    guavaVersion = "21.0"
     jacksonVersion = "2.11.2"
     junitVersion = "4.12"
     lombokVersion = "1.18.18"
+    nettyVersion = "4.1.36.Final"
     parallelpbfVersion = "d7793f3a0a1ed69464a60f450bf301a0b901098e"
     porklibVersion = "0.5.5-SNAPSHOT"
     rocksdbVersion = "6.13.3"
@@ -74,12 +74,12 @@ configurations {
 
 dependencies {
     shade "net.daporkchop.lib:binary:$porklibVersion"
-    shade "net.daporkchop.lib:compression-zlib:$porklibVersion"
     shade "net.daporkchop.lib:compression-zstd:$porklibVersion"
     shade "net.daporkchop.lib:encoding:$porklibVersion"
     shade "net.daporkchop.lib:logging:$porklibVersion"
-    shade "net.daporkchop.lib:primitive:$porklibVersion"
     shade "net.daporkchop.lib:natives:$porklibVersion"
+    shade "net.daporkchop.lib:netty:$porklibVersion"
+    shade "net.daporkchop.lib:primitive:$porklibVersion"
 
     shade "com.fasterxml.jackson.core:jackson-databind:$jacksonVersion"
     shade "com.fasterxml.jackson.dataformat:jackson-dataformat-xml:$jacksonVersion"
@@ -89,7 +89,8 @@ dependencies {
 
     shade "org.rocksdb:rocksdbjni:$rocksdbVersion"
 
-    shade "com.google.guava:guava:$guavaVersion"
+    shade "io.netty:netty-codec-http:$nettyVersion"
+
     shade "it.unimi.dsi:fastutil:$fastutilVersion"
 
     testCompile "junit:junit:$junitVersion"

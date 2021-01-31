@@ -18,35 +18,38 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.squashfs.compression;
+package net.daporkchop.tpposmtilegen.http.handle;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpResponseStatus;
 import lombok.NonNull;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
-import net.daporkchop.lib.compression.context.PDeflater;
-import net.daporkchop.lib.compression.zlib.Zlib;
-import net.daporkchop.lib.compression.zlib.ZlibMode;
-import net.daporkchop.lib.compression.zlib.options.ZlibDeflaterOptions;
+import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 
-import java.io.IOException;
-
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+import java.util.Comparator;
+import java.util.Map;
+import java.util.NavigableMap;
+import java.util.TreeMap;
 
 /**
  * @author DaPorkchop_
  */
-public final class GzipCompression implements Compression {
-    protected final ZlibDeflaterOptions options = Zlib.PROVIDER.deflateOptions().withMode(ZlibMode.GZIP);
-    protected final Ref<PDeflater> deflaterCache = ThreadRef.soft(() -> Zlib.PROVIDER.deflater(this.options));
+public class PathBasedRouter implements HttpHandler {
+    protected final NavigableMap<String, HttpHandler> routes = new TreeMap<>(Comparator.reverseOrder());
 
-    @Override
-    public int id() {
-        return COMPRESSION_ID_GZIP;
+    public PathBasedRouter put(@NonNull String prefix, @NonNull HttpHandler handler) {
+        this.routes.put(prefix, handler);
+        return this;
     }
 
     @Override
-    public void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException {
-        this.deflaterCache.get().compressGrowing(src, dst);
+    public ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception {
+        String uri = request.uri();
+        Map.Entry<String, HttpHandler> entry = this.routes.floorEntry(uri);
+        if (entry == null || !uri.startsWith(entry.getKey())) {
+            throw new HttpException(HttpResponseStatus.NOT_FOUND);
+        }
+        request.setUri(uri.substring(entry.getKey().length())); //strip path
+        return entry.getValue().handleRequest(request);
     }
 }
