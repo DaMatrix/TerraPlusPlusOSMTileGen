@@ -88,7 +88,7 @@ class MetablockWriter implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish() throws IOException {
+    public void finish(@NonNull Superblock superblock) throws IOException {
         if (this.buffer.isReadable()) {
             SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
             ByteBuf dst = recycler.get();
@@ -114,7 +114,7 @@ class MetablockWriter implements ISquashfsBuilder {
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel) throws IOException {
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         checkState(this.buffer.refCnt() == 0, "not finished!");
 
         long size = this.channel.size();

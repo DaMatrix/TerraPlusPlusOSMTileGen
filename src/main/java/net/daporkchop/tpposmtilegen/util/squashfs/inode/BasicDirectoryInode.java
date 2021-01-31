@@ -21,7 +21,9 @@
 package net.daporkchop.tpposmtilegen.util.squashfs.inode;
 
 import io.netty.buffer.ByteBuf;
+import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
@@ -30,6 +32,8 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
  * @author DaPorkchop_
  */
 @SuperBuilder
+@Getter
+@ToString(callSuper = true)
 public final class BasicDirectoryInode extends Inode {
     protected final int block_idx;
     protected final int hard_link_count;

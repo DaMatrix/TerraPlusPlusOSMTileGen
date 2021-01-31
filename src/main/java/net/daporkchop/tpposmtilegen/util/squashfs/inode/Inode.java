@@ -24,6 +24,7 @@ import io.netty.buffer.ByteBuf;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
@@ -31,14 +32,15 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 /**
  * @author DaPorkchop_
  */
-@Getter
 @SuperBuilder
+@Getter
+@ToString
 public abstract class Inode {
     protected final int inodeBlockStart; //the first byte of the compressed inode block
     protected final int inodeBlockOffset;
 
     @Builder.Default
-    protected final char permissions = (char) 0644;
+    protected final char permissions = (char) 0773;
     protected final char uid_idx;
     protected final char gid_idx;
     protected final int modified_time;

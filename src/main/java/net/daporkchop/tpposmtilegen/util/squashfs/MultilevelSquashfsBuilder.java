@@ -20,9 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import lombok.Getter;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -33,40 +37,43 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
 /**
  * @author DaPorkchop_
  */
-final class InodeTableBuilder implements ISquashfsBuilder {
+public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
     protected final SquashfsBuilder parent;
     protected final MetablockWriter writer;
 
-    protected long inodes = 0L; //the total number of inodes created so far
+    protected final LongList offsets = new LongArrayList();
+    @Getter
+    protected long count = 0L;
 
-    public InodeTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+    public MultilevelSquashfsBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
-        this.writer = new MetablockWriter(compression, root);
-    }
-
-    public <C extends Inode, B extends Inode.InodeBuilder<C, ?>> C append(@NonNull B builder) throws IOException {
-        C inode = builder.inode_number(u32(++this.inodes))
-                .inodeBlockStart(this.writer.bytesWritten())
-                .inodeBlockOffset(this.writer.buffer().readableBytes())
-                .build();
-
-        //encode inode
-        inode.write(this.writer.buffer());
-        this.writer.flush();
-
-        return inode;
+        this.writer = new MetablockWriter(compression, root) {
+            @Override
+            protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
+                MultilevelSquashfsBuilder.this.offsets.add(offset);
+            }
+        };
     }
 
     @Override
     public void finish(@NonNull Superblock superblock) throws IOException {
         this.writer.finish(superblock);
-
-        superblock.inode_count(this.inodes);
     }
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        superblock.inode_table_start(channel.position());
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf dst = recycler.get();
+        try {
+            long baseOffset = channel.position() + (this.count << 3L);
+            for (long offset : this.offsets) {
+                dst.writeLongLE(baseOffset + offset);
+            }
+
+            writeFully(channel, dst);
+        } finally {
+            recycler.release(dst);
+        }
 
         this.writer.transferTo(channel, superblock);
     }

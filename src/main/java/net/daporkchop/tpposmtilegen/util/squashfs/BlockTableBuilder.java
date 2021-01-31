@@ -27,17 +27,14 @@ import it.unimi.dsi.fastutil.ints.IntList;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.BasicDirectoryInode;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 
 import static java.lang.Math.*;
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
@@ -53,11 +50,9 @@ final class BlockTableBuilder implements ISquashfsBuilder {
     protected final Compression compression;
     protected final ByteBuf buffer;
 
-    protected final int blockSize;
-
     protected long writtenBytes = 0L;
 
-    public BlockTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent, int blockSize) throws IOException {
+    public BlockTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
 
         this.file = root;
@@ -65,7 +60,6 @@ final class BlockTableBuilder implements ISquashfsBuilder {
 
         this.compression = compression;
         this.buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
-        this.blockSize = blockSize;
     }
 
     public int[] write(@NonNull ByteBuf data) throws IOException {
@@ -75,7 +69,7 @@ final class BlockTableBuilder implements ISquashfsBuilder {
         ByteBuf dst = recycler.get();
         try {
             while (data.isReadable()) {
-                int blockSize = min(data.readableBytes(), this.blockSize);
+                int blockSize = min(data.readableBytes(), 1 << this.parent.blockLog);
                 ByteBuf block = data.readSlice(blockSize);
                 this.compression.compress(block, dst);
 
@@ -96,11 +90,11 @@ final class BlockTableBuilder implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish() throws IOException {
+    public void finish(@NonNull Superblock superblock) throws IOException {
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel) throws IOException {
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         long size = this.channel.size();
         for (long pos = 0L; pos < size; pos += this.channel.transferTo(pos, size - pos, channel)) {
         }

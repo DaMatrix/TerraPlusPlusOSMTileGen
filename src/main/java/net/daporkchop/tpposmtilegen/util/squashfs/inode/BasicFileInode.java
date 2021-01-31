@@ -22,7 +22,9 @@ package net.daporkchop.tpposmtilegen.util.squashfs.inode;
 
 import io.netty.buffer.ByteBuf;
 import lombok.Builder;
+import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
 import lombok.experimental.SuperBuilder;
 
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
@@ -31,6 +33,8 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
  * @author DaPorkchop_
  */
 @SuperBuilder
+@Getter
+@ToString(callSuper = true)
 public final class BasicFileInode extends Inode {
     protected final int blocks_start;
     @Builder.Default
@@ -56,7 +60,7 @@ public final class BasicFileInode extends Inode {
         dst.writeIntLE(this.blocks_start)
                 .writeIntLE(this.fragment_block_index)
                 .writeIntLE(this.block_offset)
-                .writeInt(this.file_size);
+                .writeIntLE(this.file_size);
         for (int block_size : this.block_sizes) {
             dst.writeIntLE(block_size);
         }

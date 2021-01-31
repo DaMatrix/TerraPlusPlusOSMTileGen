@@ -18,36 +18,17 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.squashfs.compression;
+package net.daporkchop.tpposmtilegen.util.squashfs;
 
-import io.netty.buffer.ByteBuf;
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
-import lombok.NonNull;
-
-import java.io.IOException;
-
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * @author DaPorkchop_
  */
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
-public final class NoCompression implements Compression {
-    public static final NoCompression INSTANCE = new NoCompression();
-
-    @Override
-    public boolean uncompressed() {
-        return true;
-    }
-
-    @Override
-    public int id() {
-        return COMPRESSION_ID_GZIP; //there's no option to actually disable compression
-    }
-
-    @Override
-    public void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException {
-        dst.writeBytes(src);
-    }
+@RequiredArgsConstructor
+@ToString
+final class FragmentBlockEntry {
+    protected final long start;
+    protected final int size;
 }

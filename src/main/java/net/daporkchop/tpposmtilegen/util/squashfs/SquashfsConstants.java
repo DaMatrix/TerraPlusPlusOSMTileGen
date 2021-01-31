@@ -40,6 +40,13 @@ public class SquashfsConstants {
 
     public final int SUPERBLOCK_BYTES = 96;
 
+    public final int COMPRESSION_ID_GZIP = 1;
+    public final int COMPRESSION_ID_LZMA = 2;
+    public final int COMPRESSION_ID_LZO = 3;
+    public final int COMPRESSION_ID_XZ = 4;
+    public final int COMPRESSION_ID_LZ4 = 5;
+    public final int COMPRESSION_ID_ZSTD = 6;
+
     public final int UNCOMPRESSED_INODES = 0x0001;
     public final int UNCOMPRESSED_DATA = 0x0002;
     public final int CHECK = 0x0004;

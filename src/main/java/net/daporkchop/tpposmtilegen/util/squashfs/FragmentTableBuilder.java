@@ -18,36 +18,42 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.squashfs.compression;
+package net.daporkchop.tpposmtilegen.util.squashfs;
 
-import io.netty.buffer.ByteBuf;
-import lombok.AccessLevel;
-import lombok.NoArgsConstructor;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
-
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+import java.nio.channels.FileChannel;
+import java.nio.file.Path;
 
 /**
  * @author DaPorkchop_
  */
-@NoArgsConstructor(access = AccessLevel.PRIVATE)
-public final class NoCompression implements Compression {
-    public static final NoCompression INSTANCE = new NoCompression();
+final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
+    public FragmentTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+        super(compression, root, parent);
+    }
 
-    @Override
-    public boolean uncompressed() {
-        return true;
+    public void append(@NonNull FragmentBlockEntry entry) throws IOException {
+        this.count++;
+        this.writer.buffer.writeLongLE(entry.start)
+                .writeIntLE(entry.size)
+                .writeIntLE(0);
+        this.writer.flush();
     }
 
     @Override
-    public int id() {
-        return COMPRESSION_ID_GZIP; //there's no option to actually disable compression
+    public void finish(@NonNull Superblock superblock) throws IOException {
+        super.finish(superblock);
+
+        superblock.fragment_entry_count(this.count);
     }
 
     @Override
-    public void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException {
-        dst.writeBytes(src);
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        superblock.fragment_table_start(channel.position());
+
+        super.transferTo(channel, superblock);
     }
 }

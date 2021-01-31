@@ -37,6 +37,11 @@ public interface Compression {
     boolean uncompressed();
 
     /**
+     * @return the ID of this compression type
+     */
+    int id();
+
+    /**
      * Compresses the contents of the source buffer into the given destination buffer.
      *
      * @param src the uncompressed data

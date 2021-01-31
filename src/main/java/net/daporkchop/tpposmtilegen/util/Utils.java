@@ -72,4 +72,24 @@ public class Utils {
             writeFully(channel, Unpooled.wrappedBuffer(new byte[toInt(4096L - (capacity & 0xFFFL))]));
         }
     }
+
+    public int u16(int val) {
+        checkArg((val & 0xFFFF) == val);
+        return val;
+    }
+
+    public int u16(long val) {
+        checkArg((val & 0xFFFFL) == val);
+        return (int) val;
+    }
+
+    public int u32(long val) {
+        checkArg((val & 0xFFFFFFFFL) == val);
+        return (int) val;
+    }
+
+    public long u64(long val) {
+        checkArg(val >= 0L);
+        return val;
+    }
 }

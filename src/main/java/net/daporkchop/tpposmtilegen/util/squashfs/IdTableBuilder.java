@@ -20,41 +20,21 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
-import io.netty.buffer.ByteBuf;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
-import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
-import static java.lang.Math.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
-final class IdTableBuilder implements ISquashfsBuilder {
-    protected final SquashfsBuilder parent;
-    protected final MetablockWriter writer;
-
-    protected final LongList offsets = new LongArrayList();
-    @Getter
-    protected int count = 0;
-
+final class IdTableBuilder extends MultilevelSquashfsBuilder {
     public IdTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        this.parent = parent;
-        this.writer = new MetablockWriter(compression, root) {
-            @Override
-            protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
-                IdTableBuilder.this.offsets.add(offset);
-            }
-        };
+        super(compression, root, parent);
     }
 
     public void putId(int id) throws IOException {
@@ -64,30 +44,16 @@ final class IdTableBuilder implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish() throws IOException {
-        this.writer.finish();
+    public void finish(@NonNull Superblock superblock) throws IOException {
+        super.finish(superblock);
+
+        superblock.id_count(u16(this.count));
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel) throws IOException {
-        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
-        ByteBuf dst = recycler.get();
-        try {
-            long baseOffset = channel.position() + ((long) this.offsets.size() << 3L);
-            for (long offset : this.offsets) {
-                dst.writeLongLE(baseOffset + offset);
-            }
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        superblock.id_table_start(channel.position());
 
-            writeFully(channel, dst);
-        } finally {
-            recycler.release(dst);
-        }
-
-        this.writer.transferTo(channel);
-    }
-
-    @Override
-    public void close() throws IOException {
-        this.writer.close();
+        super.transferTo(channel, superblock);
     }
 }

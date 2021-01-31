@@ -75,7 +75,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        long blocksStart = this.parent.blockTable.writtenBytes + 4096;
+        long blocksStart = this.parent.blockTable.writtenBytes + SUPERBLOCK_BYTES;
 
         Inode inode = this.parent.inodeTable.append(BasicFileInode.builder()
                 .blocks_start(toInt(blocksStart))
@@ -137,16 +137,20 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish() throws IOException {
-        this.root = this.toEntry(this.stack.pop()).inode;
+    public void finish(@NonNull Superblock superblock) throws IOException {
+        AbsoluteDirectoryEntry entry = this.toEntry(this.stack.pop());
         checkState(this.stack.isEmpty());
 
-        this.writer.finish();
+        this.writer.finish(superblock);
+
+        superblock.root_inode(entry.inode);
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel) throws IOException {
-        this.writer.transferTo(channel);
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        superblock.directory_table_start(channel.position());
+
+        this.writer.transferTo(channel, superblock);
     }
 
     @Override
