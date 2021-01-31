@@ -66,6 +66,12 @@ public class Utils {
         }
     }
 
+    public void readFully(@NonNull FileChannel src, long pos, @NonNull ByteBuf dst, int count) throws IOException {
+        dst.ensureWritable(count);
+        for (int i = 0; i < count; i += dst.writeBytes(src, pos + i, count - i)) {
+        }
+    }
+
     public void padTo4k(@NonNull FileChannel channel) throws IOException {
         long capacity = channel.position();
         if ((capacity & 0xFFFL) != 0L) {

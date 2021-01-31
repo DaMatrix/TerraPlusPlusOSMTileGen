@@ -18,39 +18,60 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.squashfs;
+package net.daporkchop.tpposmtilegen.util.squashfs.inode;
 
+import io.netty.buffer.ByteBuf;
+import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;
+import lombok.ToString;
+import lombok.experimental.SuperBuilder;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
+@SuperBuilder
 @Getter
-public class Metablock {
-    protected final char header;
-    protected final byte[] data;
+@ToString(callSuper = true)
+public final class ExtendedFileInode extends Inode {
+    protected final long blocks_start;
+    protected final long file_size;
+    protected final long sparse;
+    @Builder.Default
+    protected final int hard_link_count = 1;
+    @Builder.Default
+    protected final int fragment_block_index = -1;
+    protected final int block_offset;
+    @Builder.Default
+    protected final int xattr_idx = -1;
+    @NonNull
+    protected final int[] block_sizes;
 
-    public Metablock(boolean uncompressed, @NonNull byte[] data) {
-        checkArg(data.length <= METABLOCK_MAX_SIZE, "metadata block too large: %d (must be at most %d)", data.length, METABLOCK_MAX_SIZE);
-        this.header = tochar(uncompressed ? (data.length | METABLOCK_HEADER_UNCOMPRESSED_FLAG) : data.length);
-        this.data = data;
+    @Override
+    public int type() {
+        return INODE_EXTENDED_FILE;
     }
 
-    /**
-     * @return whether or not this metadata block is uncompressed
-     */
-    public boolean uncompressed() {
-        return (this.header & METABLOCK_HEADER_UNCOMPRESSED_FLAG) != 0;
+    @Override
+    public int basicType() {
+        return INODE_BASIC_FILE;
     }
 
-    /**
-     * @return the size of this metadata block on disk (possibly compressed)
-     */
-    public int data_size() {
-        return this.header & METABLOCK_HEADER_DATA_SIZE_MASK;
+    @Override
+    public void write(@NonNull ByteBuf dst) {
+        super.write(dst);
+
+        dst.writeLongLE(this.blocks_start)
+                .writeLongLE(this.file_size)
+                .writeLongLE(this.sparse)
+                .writeIntLE(this.hard_link_count)
+                .writeIntLE(this.fragment_block_index)
+                .writeIntLE(this.block_offset)
+                .writeIntLE(this.xattr_idx);
+        for (int block_size : this.block_sizes) {
+            dst.writeIntLE(block_size);
+        }
     }
 }

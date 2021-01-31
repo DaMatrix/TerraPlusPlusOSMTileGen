@@ -124,7 +124,6 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
             directoryInode = this.parent.inodeTable.append(BasicDirectoryInode.builder()
                     .block_idx(this.writer.blocksWritten)
                     .block_offset(tochar(this.writer.buffer.readableBytes()))
-                    .hard_link_count(1)
                     .file_size(tochar(dst.readableBytes()))
                     .parent_inode_number(1)); //TODO: this is wrong, parent inode should only be 1 on root directory
 

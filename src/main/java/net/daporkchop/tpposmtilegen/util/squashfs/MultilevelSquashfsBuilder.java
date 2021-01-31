@@ -21,6 +21,8 @@
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
@@ -30,6 +32,7 @@ import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
 
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
@@ -38,16 +41,21 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
  * @author DaPorkchop_
  */
 public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
+    protected final Path root;
+
     protected final SquashfsBuilder parent;
     protected final MetablockWriter writer;
 
-    protected final LongList offsets = new LongArrayList();
+    protected final IntList offsets = new IntArrayList();
     @Getter
     protected long count = 0L;
 
     public MultilevelSquashfsBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
-        this.writer = new MetablockWriter(compression, root) {
+
+        this.root = Files.createDirectories(root);
+
+        this.writer = new MetablockWriter(compression, root.resolve("metablocks")) {
             @Override
             protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
                 MultilevelSquashfsBuilder.this.offsets.add(offset);
@@ -71,7 +79,7 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
-            for (long offset : this.offsets) {
+            for (int offset : this.offsets) {
                 dst.writeLongLE(baseOffset + offset);
             }
 
@@ -86,5 +94,7 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
     @Override
     public void close() throws IOException {
         this.writer.close();
+
+        Files.delete(this.root);
     }
 }

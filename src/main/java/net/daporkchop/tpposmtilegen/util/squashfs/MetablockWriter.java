@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
-import lombok.AccessLevel;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
@@ -42,22 +41,22 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 /**
  * @author DaPorkchop_
  */
-@Getter
 class MetablockWriter implements ISquashfsBuilder {
-    @Getter(AccessLevel.NONE)
-    protected final Path file;
-    @Getter(AccessLevel.NONE)
+    protected final Path root;
     protected final FileChannel channel;
 
     protected final Compression compression;
+    @Getter
     protected final ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer(METABLOCK_MAX_SIZE << 1);
 
+    @Getter
     protected int bytesWritten = 0;
+    @Getter
     protected int blocksWritten = 0;
 
-    public MetablockWriter(@NonNull Compression compression, @NonNull Path file) throws IOException {
+    public MetablockWriter(@NonNull Compression compression, @NonNull Path root) throws IOException {
         this.compression = compression;
-        this.channel = FileChannel.open(this.file = file, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        this.channel = FileChannel.open(this.root = root, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
     }
 
     public void write(@NonNull ByteBuf buffer) throws IOException {
@@ -125,6 +124,7 @@ class MetablockWriter implements ISquashfsBuilder {
     @Override
     public void close() throws IOException {
         this.channel.close();
-        Files.delete(this.file);
+
+        Files.delete(this.root);
     }
 }

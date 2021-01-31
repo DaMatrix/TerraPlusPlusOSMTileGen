@@ -62,6 +62,8 @@ public class SquashfsConstants {
 
     public final int INODE_BASIC_DIRECTORY = 1;
     public final int INODE_BASIC_FILE = 2;
+    public final int INODE_EXTENDED_DIRECTORY = 8;
+    public final int INODE_EXTENDED_FILE = 9;
 
     public final char METABLOCK_HEADER_UNCOMPRESSED_FLAG = 0x8000;
     public final char METABLOCK_HEADER_DATA_SIZE_MASK = 0x7FFF;

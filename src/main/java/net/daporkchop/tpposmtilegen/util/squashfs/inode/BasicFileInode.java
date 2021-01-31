@@ -41,6 +41,7 @@ public final class BasicFileInode extends Inode {
     protected final int fragment_block_index = -1;
     protected final int block_offset;
     protected final int file_size;
+    @NonNull
     protected final int[] block_sizes;
 
     @Override

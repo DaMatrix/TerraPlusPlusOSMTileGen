@@ -20,8 +20,12 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
+import net.daporkchop.tpposmtilegen.util.squashfs.inode.ExtendedFileInode;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -34,8 +38,18 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         super(compression, root, parent);
     }
 
+    public void writeFileContents(@NonNull ByteBuf data, @NonNull ExtendedFileInode.ExtendedFileInodeBuilder builder) throws IOException {
+        IntList block_sizes = new IntArrayList();
+
+        int blockSize = 1 << this.parent.blockLog;
+        if (data.readableBytes() < blockSize) {
+            builder.block_sizes(new int[0]);
+        }
+
+        builder.block_sizes(block_sizes.toIntArray());
+    }
+
     public void append(@NonNull FragmentBlockEntry entry) throws IOException {
-        this.count++;
         this.writer.buffer.writeLongLE(entry.start)
                 .writeIntLE(entry.size)
                 .writeIntLE(0);
