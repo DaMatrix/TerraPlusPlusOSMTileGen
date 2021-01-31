@@ -55,6 +55,11 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         this.indexChannel = FileChannel.open(this.indexFile = root.resolve("index"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
     }
 
+    @Override
+    protected String name() {
+        return "fragment table";
+    }
+
     public long appendFragmentData(@NonNull ByteBuf data) throws IOException {
         int readableBytes = this.dataBuffer.readableBytes();
         int blockSize = 1 << this.parent.blockLog;
@@ -64,13 +69,13 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         if (this.dataBuffer.readableBytes() >= blockSize) {
             this.flushData(this.dataBuffer.readableBytes() == blockSize ? blockSize : readableBytes);
         }
+
+        return -1L; //TODO
     }
 
     private void flushData(int count) throws IOException {
         long blockIndex = this.data.putBlock(this.dataBuffer.readSlice(count));
         this.dataBuffer.discardSomeReadBytes();
-
-
     }
 
     public void writeFileContents(@NonNull ByteBuf data, @NonNull ExtendedFileInode.ExtendedFileInodeBuilder builder) throws IOException {
@@ -82,13 +87,6 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         }
 
         builder.block_sizes(block_sizes.toIntArray());
-    }
-
-    public void append(@NonNull FragmentBlockEntry entry) throws IOException {
-        this.writer.buffer.writeLongLE(entry.start)
-                .writeIntLE(entry.size)
-                .writeIntLE(0);
-        this.writer.flush();
     }
 
     @Override

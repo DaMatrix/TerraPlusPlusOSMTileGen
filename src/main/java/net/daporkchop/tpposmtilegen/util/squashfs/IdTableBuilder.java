@@ -20,7 +20,9 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
@@ -37,10 +39,21 @@ final class IdTableBuilder extends MultilevelSquashfsBuilder {
         super(compression, root, parent);
     }
 
+    @Override
+    protected String name() {
+        return "id table";
+    }
+
     public void putId(int id) throws IOException {
         this.count++;
-        this.writer.buffer().writeIntLE(id);
-        this.writer.flush();
+
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf buf = recycler.get();
+        try {
+            this.writer.write(buf.writeIntLE(id));
+        } finally {
+            recycler.release(buf);
+        }
     }
 
     @Override

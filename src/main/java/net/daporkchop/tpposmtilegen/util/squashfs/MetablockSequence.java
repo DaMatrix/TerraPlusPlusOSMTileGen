@@ -24,91 +24,74 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardOpenOption;
 
 import static java.lang.Math.*;
-import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
 class MetablockSequence extends CompressedBlockSequence {
-    @Getter
     protected final ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
 
-    public MetablockSequence(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+    @Getter
+    protected final String name;
+
+    public MetablockSequence(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent, @NonNull String name) throws IOException {
         super(compression, root, parent);
+
+        this.name = name;
+    }
+
+    @Override
+    protected int blockSize0() {
+        return METABLOCK_MAX_SIZE;
+    }
+
+    @Override
+    protected boolean compress(ByteBuf readBuffer, ByteBuf writeBuffer) throws IOException {
+        int origSize = readBuffer.readableBytes();
+        this.compression.compress(readBuffer, writeBuffer.writeShortLE(-1));
+
+        if (writeBuffer.readableBytes() >= origSize) {
+            writeBuffer.writerIndex(0).writeShortLE(this.toReferenceSize(true, origSize)).writeBytes(readBuffer.readerIndex(0));
+            return true;
+        }
+
+        writeBuffer.setShortLE(0, this.toReferenceSize(false, writeBuffer.readableBytes() - 2));
+        return false;
+    }
+
+    @Override
+    protected int toReferenceSize(boolean uncompressed, int compressedSize) {
+        return uncompressed ? compressedSize | METABLOCK_HEADER_UNCOMPRESSED_FLAG : compressedSize;
     }
 
     public void write(@NonNull ByteBuf buffer) throws IOException {
         this.buffer.writeBytes(buffer);
-
-        this.flush();
-    }
-
-    public void flush() throws IOException {
-        if (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE) { //flush as many pending metablocks as possible
-            SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
-            ByteBuf dst = recycler.get();
-            try {
-                do {
-                    int startWriterIndex = dst.writerIndex();
-                    int offset = this.bytesWritten + dst.readableBytes();
-                    writeCompressedMetablock(this.compression, this.buffer.readSlice(METABLOCK_MAX_SIZE), dst);
-                    this.writeBlockCallback(offset, METABLOCK_MAX_SIZE, dst.writerIndex() - startWriterIndex);
-                } while (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE);
-                this.buffer.discardSomeReadBytes();
-
-                this.bytesWritten += dst.readableBytes();
-                writeFully(this.channel, dst);
-            } finally {
-                recycler.release(dst);
-            }
+        if (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE) { //flush as many complete metablocks as possible
+            do {
+                this.putBlock(this.buffer.readSlice(METABLOCK_MAX_SIZE));
+            } while (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE);
+            this.buffer.discardSomeReadBytes();
         }
     }
 
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        if (this.buffer.isReadable()) {
-            SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
-            ByteBuf dst = recycler.get();
-            try {
-                do {
-                    int blockSize = min(this.buffer.readableBytes(), METABLOCK_MAX_SIZE);
-                    int startWriterIndex = dst.writerIndex();
-                    int offset = this.bytesWritten + dst.readableBytes();
-                    writeCompressedMetablock(this.compression, this.buffer.readSlice(blockSize), dst);
-                    this.writeBlockCallback(offset, blockSize, dst.writerIndex() - startWriterIndex);
-                } while (this.buffer.isReadable());
-
-                this.bytesWritten += dst.readableBytes();
-                writeFully(this.channel, dst);
-            } finally {
-                recycler.release(dst);
-            }
+        if (this.buffer.isReadable()) { //flush all remaining buffered data
+            do {
+                int blockSize = min(this.buffer.readableBytes(), METABLOCK_MAX_SIZE);
+                this.putBlock(this.buffer.readSlice(blockSize));
+            } while (this.buffer.isReadable());
         }
         this.buffer.release();
-    }
 
-    protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
-    }
-
-    @Override
-    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        super.transferTo(channel, superblock);
-    }
-
-    @Override
-    public void close() throws IOException {
-        super.close();
+        super.finish(channel, superblock);
     }
 }

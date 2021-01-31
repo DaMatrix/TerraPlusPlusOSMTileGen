@@ -53,13 +53,10 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
 
         this.root = Files.createDirectories(root);
 
-        this.writer = new MetablockSequence(compression, root.resolve("metablocks")) {
-            @Override
-            protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
-                MultilevelSquashfsBuilder.this.offsets.add(offset);
-            }
-        };
+        this.writer = new MetablockSequence(compression, root.resolve("blocks"), parent, this.name());
     }
+
+    protected abstract String name();
 
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {

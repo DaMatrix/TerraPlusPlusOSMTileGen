@@ -60,7 +60,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
         this.parent = parent;
         this.workingDir = Files.createDirectories(root);
 
-        this.writer = new MetablockSequence(compression, root.resolve("metablocks"));
+        this.writer = new MetablockSequence(compression, root.resolve("metablocks"), parent, "directory table");
 
         this.stack.push(new Directory(""));
     }
@@ -75,7 +75,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        long blocksStart = this.parent.blockTable.writtenBytes + SUPERBLOCK_BYTES;
+        /*long blocksStart = this.parent.blockTable.writtenBytes + SUPERBLOCK_BYTES;
 
         Inode inode = this.parent.inodeTable.append(BasicFileInode.builder()
                 .blocks_start(toInt(blocksStart))
@@ -83,7 +83,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
                 .block_offset(0)
                 .file_size(contents.readableBytes())
                 .block_sizes(this.parent.blockTable.write(contents)));
-        this.stack.getFirst().entries.add(new AbsoluteDirectoryEntry(inode, name));
+        this.stack.getFirst().entries.add(new AbsoluteDirectoryEntry(inode, name));*/
     }
 
     protected AbsoluteDirectoryEntry toEntry(@NonNull Directory directory) throws IOException {
@@ -122,7 +122,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
             }
 
             directoryInode = this.parent.inodeTable.append(BasicDirectoryInode.builder()
-                    .block_idx(this.writer.blocksWritten)
+                    //.block_idx(this.writer.blocksWritten)
                     .block_offset(tochar(this.writer.buffer.readableBytes()))
                     .file_size(tochar(dst.readableBytes()))
                     .parent_inode_number(1)); //TODO: this is wrong, parent inode should only be 1 on root directory

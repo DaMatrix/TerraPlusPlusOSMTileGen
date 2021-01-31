@@ -20,7 +20,9 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
@@ -41,18 +43,24 @@ final class InodeTableBuilder implements ISquashfsBuilder {
 
     public InodeTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
-        this.writer = new MetablockSequence(compression, root);
+        this.writer = new MetablockSequence(compression, root, parent, "inode table");
     }
 
     public <C extends Inode, B extends Inode.InodeBuilder<C, ?>> C append(@NonNull B builder) throws IOException {
         C inode = builder.inode_number(u32(++this.inodes))
-                .inodeBlockStart(this.writer.bytesWritten())
-                .inodeBlockOffset(this.writer.buffer().readableBytes())
+                //.inodeBlockStart(this.writer.bytesWritten())
+                //.inodeBlockOffset(this.writer.buffer().readableBytes())
                 .build();
 
         //encode inode
-        inode.write(this.writer.buffer());
-        this.writer.flush();
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf buf = recycler.get();
+        try {
+            inode.write(buf);
+            this.writer.write(buf);
+        } finally {
+            recycler.release(buf);
+        }
 
         return inode;
     }
