@@ -25,7 +25,9 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
 

@@ -180,7 +180,7 @@ public final class Storage implements AutoCloseable {
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        String location = "0/" + Geometry.externalStorageLocation(type, id);
+        String location = Geometry.externalStorageLocation(type, id);
         long[] oldIntersected = this.intersectedTiles.get(access, combinedId);
 
         Element element = this.getElement(access, combinedId);
@@ -214,9 +214,9 @@ public final class Storage implements AutoCloseable {
                 if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
                     this.jsonStorage.put(access, combinedId, buffer);
-                    this.files.delete(access, location);
+                    this.files.delete(access, "0/" + location);
                 } else { //element is referenced multiple times, store it in an external file
-                    this.files.put(access, location, buffer);
+                    this.files.put(access, "0/" + location, buffer);
 
                     ByteBuffer referenceBuffer = Geometry.createReference(location);
                     this.jsonStorage.put(access, combinedId, referenceBuffer);
@@ -262,7 +262,12 @@ public final class Storage implements AutoCloseable {
                 }
 
                 List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
-                list.removeIf(Objects::isNull);
+                if (list.isEmpty()) {
+                    logger.error("no element jsons were found?!?");
+                    this.files.delete(access, file);
+                    return;
+                }
+
                 int count = list.size();
 
                 //compute total size
@@ -277,6 +282,7 @@ public final class Storage implements AutoCloseable {
                     for (int i = 0; i < count; i++) {
                         merged.put(list.get(i));
                     }
+                    merged.flip();
 
                     this.files.put(access, file, merged);
                 } finally {
@@ -297,9 +303,9 @@ public final class Storage implements AutoCloseable {
         this.dirtyTiles.clear();
 
         if (full) {
-            logger.trace("Clearing full GeoJSON storage...");
+            logger.trace("Clearing tile assembly GeoJSON storage...");
             this.jsonStorage.clear();
-            logger.trace("Clearing squashfs assembly file storage...");
+            logger.trace("Clearing completed file storage...");
             this.files.clear();
             logger.trace("Clearing tile content index...");
             this.tileContents.clear();

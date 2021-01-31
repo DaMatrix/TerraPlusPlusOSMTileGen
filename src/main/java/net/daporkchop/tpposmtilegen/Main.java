@@ -35,6 +35,8 @@ import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.Export;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.Purge;
+import net.daporkchop.tpposmtilegen.mode.PurgeCoastlines;
+import net.daporkchop.tpposmtilegen.mode.PurgeOSM;
 import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Serve;
 import net.daporkchop.tpposmtilegen.mode.Test;
@@ -62,6 +64,8 @@ public final class Main implements Runnable {
             new DigestPBF(),
             new Export(),
             new Purge(),
+            new PurgeCoastlines(),
+            new PurgeOSM(),
             new RecomputeReferences(),
             new Serve(),
             new Test(),

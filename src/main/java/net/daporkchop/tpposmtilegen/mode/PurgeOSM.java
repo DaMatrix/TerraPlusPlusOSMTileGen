@@ -18,32 +18,46 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.util.squashfs.compression;
+package net.daporkchop.tpposmtilegen.mode;
 
-import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
-import net.daporkchop.lib.compression.context.PDeflater;
-import net.daporkchop.lib.compression.zstd.Zstd;
+import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.storage.Storage;
 
-import java.io.IOException;
+import java.io.File;
 
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public final class ZstdCompression implements Compression {
-    protected final Ref<PDeflater> deflaterCache = ThreadRef.soft(Zstd.PROVIDER::deflater);
-
+public class PurgeOSM implements IMode {
     @Override
-    public int id() {
-        return COMPRESSION_ID_ZSTD;
+    public String name() {
+        return "purge_osm";
     }
 
     @Override
-    public void compress(@NonNull ByteBuf src, @NonNull ByteBuf dst) throws IOException {
-        this.deflaterCache.get().compressGrowing(src, dst);
+    public String synopsis() {
+        return "<index_dir>";
+    }
+
+    @Override
+    public String help() {
+        return "Deletes all OSM data.";
+    }
+
+    @Override
+    public void run(@NonNull String... args) throws Exception {
+        checkArg(args.length == 1, "Usage: purge <index_dir>");
+        File src = PFiles.assertDirectoryExists(new File(args[0]));
+
+        try (Storage storage = new Storage(src.toPath())) {
+            storage.nodes().clear();
+            storage.points().clear();
+            storage.ways().clear();
+            storage.relations().clear();
+            storage.sequenceNumber().clear();
+        }
     }
 }

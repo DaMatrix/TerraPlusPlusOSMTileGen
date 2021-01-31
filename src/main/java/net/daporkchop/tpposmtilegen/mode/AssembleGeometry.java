@@ -58,8 +58,6 @@ public class AssembleGeometry implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.purge(true); //clear everything
-
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
