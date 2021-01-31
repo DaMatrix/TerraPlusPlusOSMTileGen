@@ -24,34 +24,20 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
-import static net.daporkchop.tpposmtilegen.util.Utils.*;
+import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
-final class IdTableBuilder extends MultilevelSquashfsBuilder {
-    public IdTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+final class FragmentDatablockBuilder extends DatablockBuilder {
+    public FragmentDatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
     }
 
-    public void putId(int id) throws IOException {
-        this.count++;
-        this.writer.buffer().writeIntLE(id);
-        this.writer.flush();
-    }
-
     @Override
-    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        super.finish(channel, superblock);
-
-        superblock.id_count(u16(this.count));
-    }
-
-    @Override
-    protected void applyStartOffset(@NonNull Superblock superblock, long startOffset) {
-        superblock.id_table_start(startOffset);
+    protected String name() {
+        return "fragment data blocks";
     }
 }

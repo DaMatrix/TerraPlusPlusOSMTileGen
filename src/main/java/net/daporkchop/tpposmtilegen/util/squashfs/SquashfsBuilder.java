@@ -52,7 +52,7 @@ public final class SquashfsBuilder implements AutoCloseable {
     protected final IdTableBuilder idTable;
     protected final InodeTableBuilder inodeTable;
     protected final DirectoryTableBuilder directoryTable;
-    protected final BlockTableBuilder blockTable;
+    protected final DatablockBuilder blockTable;
     protected final FragmentTableBuilder fragmentTable;
 
     protected final int blockLog;
@@ -65,7 +65,7 @@ public final class SquashfsBuilder implements AutoCloseable {
         this.idTable = new IdTableBuilder(compression, this.root.resolve("id"), this);
         this.inodeTable = new InodeTableBuilder(compression, this.root.resolve("inode"), this);
         this.directoryTable = new DirectoryTableBuilder(compression, this.root.resolve("directory"), this);
-        this.blockTable = new BlockTableBuilder(compression, this.root.resolve("block"), this);
+        this.blockTable = new DatablockBuilder(compression, this.root.resolve("block"), this);
         this.fragmentTable = new FragmentTableBuilder(compression, this.root.resolve("fragment"), this);
 
         this.blockLog = blockLog;
@@ -91,11 +91,11 @@ public final class SquashfsBuilder implements AutoCloseable {
                     .flags(NO_XATTRS)
                     .compression_id(this.compression.id());
 
-            this.fragmentTable.finish(superblock);
-            this.blockTable.finish(superblock);
-            this.directoryTable.finish(superblock);
-            this.inodeTable.finish(superblock);
-            this.idTable.finish(superblock);
+            this.fragmentTable.finish(channel, superblock);
+            this.blockTable.finish(channel, superblock);
+            this.directoryTable.finish(channel, superblock);
+            this.inodeTable.finish(channel, superblock);
+            this.idTable.finish(channel, superblock);
 
             this.blockTable.transferTo(channel, superblock);
             superblock.xattr_id_table_start(0xFFFFFFFFL); //xattr table?

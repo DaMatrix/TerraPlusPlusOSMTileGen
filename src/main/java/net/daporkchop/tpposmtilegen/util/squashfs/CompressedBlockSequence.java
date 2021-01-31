@@ -21,6 +21,8 @@
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.ints.IntArrayList;
+import it.unimi.dsi.fastutil.ints.IntList;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import net.daporkchop.lib.common.function.io.IORunnable;
@@ -28,7 +30,6 @@ import net.daporkchop.tpposmtilegen.util.CloseableExecutor;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import org.rocksdb.RocksDB;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -37,14 +38,13 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.CompletableFuture;
 
-import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
  * @author DaPorkchop_
  */
-abstract class BlockedCompression implements ISquashfsBuilder {
+abstract class CompressedBlockSequence implements ISquashfsBuilder {
     protected final SquashfsBuilder parent;
     protected final Compression compression;
 
@@ -52,43 +52,41 @@ abstract class BlockedCompression implements ISquashfsBuilder {
 
     protected final Path rawFile;
     protected final FileChannel rawChannel;
-    protected final Path compressedFile;
-    protected final FileChannel compressedChannel;
-
     protected final Path indexFile;
     protected final FileChannel indexChannel;
 
-    public BlockedCompression(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+    protected final IntList blockSizes = new IntArrayList();
+
+    protected final int blockSize = this.blockSize0();
+
+    public CompressedBlockSequence(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
         this.compression = compression;
 
         this.root = Files.createDirectories(root);
 
         this.rawChannel = FileChannel.open(this.rawFile = root.resolve("raw"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-        this.compressedChannel = FileChannel.open(this.compressedFile = root.resolve("compressed"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
         this.indexChannel = FileChannel.open(this.indexFile = root.resolve("index"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
     }
 
     protected abstract String name();
 
-    protected abstract int blockSize();
+    protected abstract int blockSize0();
 
     @Override
     @SneakyThrows(Exception.class)
-    public void finish(@NonNull Superblock superblock) throws IOException {
+    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         CompletableFuture<Void> previousFuture = CompletableFuture.completedFuture(null);
 
         try (CloseableExecutor executor = new CloseableExecutor()) {
             long size = this.rawChannel.position();
-            int _blockSize = this.blockSize();
-
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Compress " + this.name())
-                    .slot("blocks", (size - 1L) / _blockSize + 1L).build()) {
-                for (long _pos = 0L; _pos < size; _pos += _blockSize) {
+                    .slot("blocks", (size - 1L) / this.blockSize + 1L).build()) {
+                long _pos = 0L;
+                for (int blockSize : this.blockSizes) {
                     long pos = _pos;
-                    int blockSize = toInt(min(size - _pos, _blockSize));
-
                     CompletableFuture<Void> thePreviousFuture = previousFuture;
+
                     previousFuture = CompletableFuture.runAsync((IORunnable) () -> {
                         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
                         ByteBuf readBuffer = recycler.get();
@@ -96,13 +94,13 @@ abstract class BlockedCompression implements ISquashfsBuilder {
                         ByteBuf indexBuffer = recycler.get();
                         try {
                             readFully(this.rawChannel, pos, readBuffer, blockSize);
-                            this.compress(readBuffer, writeBuffer, indexBuffer, blockSize);
-                            checkState(indexBuffer.readableBytes() == 8);
+                            boolean uncompressed = this.compress(readBuffer, writeBuffer);
+                            indexBuffer.writeIntLE(this.toReferenceSize(uncompressed, writeBuffer.readableBytes()));
 
-                            thePreviousFuture.get();
+                            thePreviousFuture.join();
 
-                            indexBuffer.writeLongLE(this.compressedChannel.position());
-                            writeFully(this.compressedChannel, writeBuffer);
+                            indexBuffer.writeLongLE(channel.position());
+                            writeFully(channel, writeBuffer);
                             writeFully(this.indexChannel, indexBuffer);
                         } finally {
                             recycler.release(indexBuffer);
@@ -111,35 +109,54 @@ abstract class BlockedCompression implements ISquashfsBuilder {
                         }
                         notifier.step(0);
                     }, executor);
+
+                    _pos += blockSize;
                 }
+                previousFuture.join();
             }
         }
     }
 
-    protected void compress(ByteBuf readBuffer, ByteBuf writeBuffer, ByteBuf indexBuffer, int blockSize) throws IOException {
-        this.compression.compress(readBuffer, writeBuffer);
-
-        if (writeBuffer.readableBytes() >= blockSize) {
-            writeBuffer.writerIndex(0).writeBytes(readBuffer.readerIndex(0));
-            indexBuffer.writeLongLE(this.toIndexSize(true, blockSize));
-        } else {
-            indexBuffer.writeLongLE(this.toIndexSize(false, writeBuffer.readableBytes()));
-        }
-    }
-
-    protected abstract long toIndexSize(boolean uncompressed, int compressedSize);
-
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+    }
+
+    protected boolean compress(ByteBuf readBuffer, ByteBuf writeBuffer) throws IOException {
+        int origSize = readBuffer.readableBytes();
+        this.compression.compress(readBuffer, writeBuffer);
+
+        if (writeBuffer.readableBytes() >= origSize) {
+            writeBuffer.writerIndex(0).writeBytes(readBuffer.readerIndex(0));
+            return true;
+        }
+        return false;
+    }
+
+    protected abstract int toReferenceSize(boolean uncompressed, int compressedSize);
+
+    public long putBlock(@NonNull ByteBuf buf) throws IOException {
+        checkArg(buf.readableBytes() == this.blockSize);
+        long idx = this.blockSizes.size();
+        this.blockSizes.add(buf.readableBytes());
+        writeFully(this.rawChannel, buf);
+        return idx;
+    }
+
+    public BlockReference getReference(long idx) throws IOException {
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf buf = recycler.get();
+        try {
+            readFully(this.indexChannel, idx * 12L, buf, 12);
+            return new BlockReference(buf.readIntLE(), buf.readLongLE());
+        } finally {
+            recycler.release(buf);
+        }
     }
 
     @Override
     public void close() throws IOException {
         this.rawChannel.close();
         Files.delete(this.rawFile);
-
-        this.compressedChannel.close();
-        Files.delete(this.compressedFile);
 
         this.indexChannel.close();
         Files.delete(this.indexFile);

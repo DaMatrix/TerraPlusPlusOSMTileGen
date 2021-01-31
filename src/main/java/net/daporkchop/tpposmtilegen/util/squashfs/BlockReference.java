@@ -20,38 +20,17 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
-import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-
-import java.io.IOException;
-import java.nio.channels.FileChannel;
-import java.nio.file.Path;
-
-import static net.daporkchop.tpposmtilegen.util.Utils.*;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * @author DaPorkchop_
  */
-final class IdTableBuilder extends MultilevelSquashfsBuilder {
-    public IdTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        super(compression, root, parent);
-    }
-
-    public void putId(int id) throws IOException {
-        this.count++;
-        this.writer.buffer().writeIntLE(id);
-        this.writer.flush();
-    }
-
-    @Override
-    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        super.finish(channel, superblock);
-
-        superblock.id_count(u16(this.count));
-    }
-
-    @Override
-    protected void applyStartOffset(@NonNull Superblock superblock, long startOffset) {
-        superblock.id_table_start(startOffset);
-    }
+@RequiredArgsConstructor
+@Getter
+@ToString
+final class BlockReference {
+    private final int size;
+    private final long blockStart;
 }

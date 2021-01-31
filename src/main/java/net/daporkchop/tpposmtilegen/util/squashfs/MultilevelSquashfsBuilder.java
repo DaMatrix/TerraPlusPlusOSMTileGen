@@ -23,8 +23,6 @@ package net.daporkchop.tpposmtilegen.util.squashfs;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.ints.IntArrayList;
 import it.unimi.dsi.fastutil.ints.IntList;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
@@ -44,7 +42,7 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
     protected final Path root;
 
     protected final SquashfsBuilder parent;
-    protected final MetablockWriter writer;
+    protected final MetablockSequence writer;
 
     protected final IntList offsets = new IntArrayList();
     @Getter
@@ -55,7 +53,7 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
 
         this.root = Files.createDirectories(root);
 
-        this.writer = new MetablockWriter(compression, root.resolve("metablocks")) {
+        this.writer = new MetablockSequence(compression, root.resolve("metablocks")) {
             @Override
             protected void writeBlockCallback(int offset, int originalSize, int compressedSize) throws IOException {
                 MultilevelSquashfsBuilder.this.offsets.add(offset);
@@ -64,8 +62,8 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish(@NonNull Superblock superblock) throws IOException {
-        this.writer.finish(superblock);
+    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        this.writer.finish(channel, superblock);
     }
 
     @Override

@@ -41,22 +41,12 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 /**
  * @author DaPorkchop_
  */
-class MetablockWriter implements ISquashfsBuilder {
-    protected final Path root;
-    protected final FileChannel channel;
-
-    protected final Compression compression;
+class MetablockSequence extends CompressedBlockSequence {
     @Getter
-    protected final ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer(METABLOCK_MAX_SIZE << 1);
+    protected final ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
 
-    @Getter
-    protected int bytesWritten = 0;
-    @Getter
-    protected int blocksWritten = 0;
-
-    public MetablockWriter(@NonNull Compression compression, @NonNull Path root) throws IOException {
-        this.compression = compression;
-        this.channel = FileChannel.open(this.root = root, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+    public MetablockSequence(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+        super(compression, root, parent);
     }
 
     public void write(@NonNull ByteBuf buffer) throws IOException {
@@ -87,7 +77,7 @@ class MetablockWriter implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish(@NonNull Superblock superblock) throws IOException {
+    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         if (this.buffer.isReadable()) {
             SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
             ByteBuf dst = recycler.get();
@@ -114,17 +104,11 @@ class MetablockWriter implements ISquashfsBuilder {
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        checkState(this.buffer.refCnt() == 0, "not finished!");
-
-        long size = this.channel.size();
-        for (long pos = 0L; pos < size; pos += this.channel.transferTo(pos, size - pos, channel)) {
-        }
+        super.transferTo(channel, superblock);
     }
 
     @Override
     public void close() throws IOException {
-        this.channel.close();
-
-        Files.delete(this.root);
+        super.close();
     }
 }

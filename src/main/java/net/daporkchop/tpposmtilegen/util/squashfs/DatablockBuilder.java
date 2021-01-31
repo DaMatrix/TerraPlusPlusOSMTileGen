@@ -22,57 +22,32 @@ package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
 import java.io.IOException;
-import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
-import static net.daporkchop.tpposmtilegen.util.Utils.*;
+import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
-final class InodeTableBuilder implements ISquashfsBuilder {
-    protected final SquashfsBuilder parent;
-    protected final MetablockSequence writer;
-
-    protected long inodes = 0L; //the total number of inodes created so far
-
-    public InodeTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        this.parent = parent;
-        this.writer = new MetablockSequence(compression, root);
-    }
-
-    public <C extends Inode, B extends Inode.InodeBuilder<C, ?>> C append(@NonNull B builder) throws IOException {
-        C inode = builder.inode_number(u32(++this.inodes))
-                .inodeBlockStart(this.writer.bytesWritten())
-                .inodeBlockOffset(this.writer.buffer().readableBytes())
-                .build();
-
-        //encode inode
-        inode.write(this.writer.buffer());
-        this.writer.flush();
-
-        return inode;
+class DatablockBuilder extends CompressedBlockSequence {
+    public DatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+        super(compression, root, parent);
     }
 
     @Override
-    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        this.writer.finish(channel, superblock);
-
-        superblock.inode_count(this.inodes);
+    protected String name() {
+        return "data blocks";
     }
 
     @Override
-    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        superblock.inode_table_start(channel.position());
-
-        this.writer.transferTo(channel, superblock);
+    protected int blockSize0() {
+        return 1 << this.parent.blockLog;
     }
 
     @Override
-    public void close() throws IOException {
-        this.writer.close();
+    protected int toReferenceSize(boolean uncompressed, int compressedSize) {
+        return uncompressed ? compressedSize | DATA_BLOCK_UNCOMPRESSED_FLAG : compressedSize;
     }
 }

@@ -29,7 +29,7 @@ import java.nio.channels.FileChannel;
  * @author DaPorkchop_
  */
 interface ISquashfsBuilder extends AutoCloseable {
-    void finish(@NonNull Superblock superblock) throws IOException;
+    void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException;
 
     void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException;
 

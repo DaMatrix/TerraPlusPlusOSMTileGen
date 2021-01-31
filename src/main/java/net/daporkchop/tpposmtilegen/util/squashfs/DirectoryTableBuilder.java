@@ -50,7 +50,7 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 final class DirectoryTableBuilder implements ISquashfsBuilder {
     protected final SquashfsBuilder parent;
     protected final Path workingDir;
-    protected final MetablockWriter writer;
+    protected final MetablockSequence writer;
 
     protected final Deque<Directory> stack = new ArrayDeque<>();
 
@@ -60,7 +60,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
         this.parent = parent;
         this.workingDir = Files.createDirectories(root);
 
-        this.writer = new MetablockWriter(compression, root.resolve("metablocks"));
+        this.writer = new MetablockSequence(compression, root.resolve("metablocks"));
 
         this.stack.push(new Directory(""));
     }
@@ -136,11 +136,11 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     @Override
-    public void finish(@NonNull Superblock superblock) throws IOException {
+    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         AbsoluteDirectoryEntry entry = this.toEntry(this.stack.pop());
         checkState(this.stack.isEmpty());
 
-        this.writer.finish(superblock);
+        this.writer.finish(channel, superblock);
 
         superblock.root_inode(entry.inode);
     }
