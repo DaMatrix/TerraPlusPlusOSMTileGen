@@ -26,6 +26,7 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
@@ -150,7 +151,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             final byte[] value;
         }
 
-        Threading.<ValueWithKey>iterateParallel(1024,
+        Threading.<ValueWithKey>iterateParallel(2 * CPU_COUNT,
                 c -> {
                     try (RocksIterator itr = access.iterator(this.column)) {
                         for (itr.seekToFirst(); itr.isValid(); itr.next()) {

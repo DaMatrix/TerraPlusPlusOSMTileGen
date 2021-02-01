@@ -72,6 +72,11 @@ public class Utils {
         }
     }
 
+    public void transferFully(@NonNull FileChannel src, @NonNull FileChannel dst) throws IOException {
+        for (long pos = 0L, count = src.position(); pos < count; pos += src.transferTo(pos, count - pos, dst)) {
+        }
+    }
+
     public void padTo4k(@NonNull FileChannel channel) throws IOException {
         long capacity = channel.position();
         if ((capacity & 0xFFFL) != 0L) {

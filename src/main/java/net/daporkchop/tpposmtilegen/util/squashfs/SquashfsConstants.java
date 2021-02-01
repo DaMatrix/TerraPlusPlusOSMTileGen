@@ -69,7 +69,7 @@ public class SquashfsConstants {
     public final char METABLOCK_HEADER_DATA_SIZE_MASK = 0x7FFF;
     public final char METABLOCK_MAX_SIZE = 0x2000;
 
-    public final int DIRECTORY_ENTRY_MAX_SIZE = 256;
+    public final int DIRECTORY_ENTRY_MAX_COUNT = 256;
 
     public final int DATA_BLOCK_UNCOMPRESSED_FLAG = 1 << 24;
 

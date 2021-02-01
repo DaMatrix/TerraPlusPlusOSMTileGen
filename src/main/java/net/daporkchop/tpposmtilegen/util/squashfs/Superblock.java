@@ -27,6 +27,7 @@ import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
+import static net.daporkchop.lib.logging.Logging.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
@@ -45,7 +46,7 @@ final class Superblock {
     private int block_log = -1;
     private int flags = -1;
     private int id_count = -1;
-    private Inode root_inode;
+    private long root_inode = -1L;
     private long bytes_used = -1L;
     private long id_table_start = -1L;
     private long xattr_id_table_start = -1L;
@@ -55,6 +56,7 @@ final class Superblock {
     private long export_table_start = -1L;
 
     public void write(@NonNull ByteBuf dst) {
+        logger.info("inode table: %d\ndirectory table: %d", this.inode_table_start, this.directory_table_start);
         dst.writeIntLE(SQUASHFS_MAGIC)
                 .writeIntLE(u32(this.inode_count))
                 .writeIntLE(u32(this.modification_time))
@@ -66,7 +68,7 @@ final class Superblock {
                 .writeShortLE(u16(this.id_count))
                 .writeShortLE(SQUASHFS_VERSION_MAJOR)
                 .writeShortLE(SQUASHFS_VERSION_MINOR)
-                .writeLongLE(u64(this.root_inode.reference()))
+                .writeLongLE(u64(this.root_inode))
                 .writeLongLE(u64(this.bytes_used))
                 .writeLongLE(u64(this.id_table_start))
                 .writeLongLE(-1L) //TODO: .writeLongLE(u64(this.xattr_id_table_start))

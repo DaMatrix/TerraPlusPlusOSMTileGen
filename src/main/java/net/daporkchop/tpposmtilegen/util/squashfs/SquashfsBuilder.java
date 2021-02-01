@@ -50,7 +50,6 @@ public final class SquashfsBuilder implements AutoCloseable {
     protected final Compression compression;
 
     protected final IdTableBuilder idTable;
-    protected final InodeTableBuilder inodeTable;
     protected final DirectoryTableBuilder directoryTable;
     protected final DatablockBuilder blockTable;
     protected final FragmentTableBuilder fragmentTable;
@@ -63,7 +62,6 @@ public final class SquashfsBuilder implements AutoCloseable {
         this.compression = compression;
 
         this.idTable = new IdTableBuilder(compression, this.root.resolve("id"), this);
-        this.inodeTable = new InodeTableBuilder(compression, this.root.resolve("inode"), this);
         this.directoryTable = new DirectoryTableBuilder(compression, this.root.resolve("directory"), this);
         this.blockTable = new DatablockBuilder(compression, this.root.resolve("block"), this);
         this.fragmentTable = new FragmentTableBuilder(compression, this.root.resolve("fragment"), this);
@@ -75,9 +73,11 @@ public final class SquashfsBuilder implements AutoCloseable {
 
     public void putFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
         for (int i = 0; i < 1000; i++) {
-            this.directoryTable.startDirectory(String.format("%03d", i));
+            this.directoryTable.createDirectory(String.format("%03d", i));
             for (int j = 0; j < 10; j++) {
-                this.directoryTable.addFile(String.format("%03d", j), Unpooled.wrappedBuffer(new byte[100]));
+                //this.directoryTable.addFile(String.format("%03d", j), Unpooled.wrappedBuffer(new byte[100]));
+                this.directoryTable.createDirectory(String.format("%03d", j));
+                this.directoryTable.endDirectory();
             }
             this.directoryTable.endDirectory();
         }
@@ -99,13 +99,11 @@ public final class SquashfsBuilder implements AutoCloseable {
             this.fragmentTable.finish(channel, superblock);
             this.blockTable.finish(channel, superblock);
             this.directoryTable.finish(channel, superblock);
-            this.inodeTable.finish(channel, superblock);
             this.idTable.finish(channel, superblock);
 
             this.blockTable.transferTo(channel, superblock);
             superblock.xattr_id_table_start(0xFFFFFFFFL); //xattr table?
-            this.inodeTable.transferTo(channel, superblock);
-            this.directoryTable.transferTo(channel,superblock );
+            this.directoryTable.transferTo(channel,superblock);
             this.fragmentTable.transferTo(channel, superblock);
             superblock.export_table_start(0xFFFFFFFFL); //export table?
             this.idTable.transferTo(channel, superblock); //apparently the id table needs to be at the end
@@ -129,7 +127,6 @@ public final class SquashfsBuilder implements AutoCloseable {
     @Override
     public void close() throws IOException {
         this.idTable.close();
-        this.inodeTable.close();
         this.directoryTable.close();
         this.blockTable.close();
         this.fragmentTable.close();

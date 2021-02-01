@@ -21,24 +21,20 @@
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.BasicDirectoryInode;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.BasicFileInode;
-import net.daporkchop.tpposmtilegen.util.squashfs.inode.Inode;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.Deque;
-import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
@@ -48,134 +44,261 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
  * @author DaPorkchop_
  */
 final class DirectoryTableBuilder implements ISquashfsBuilder {
+    static void writeString(@NonNull ByteBuf dst, @NonNull String text) {
+        int lengthIndex = dst.writerIndex();
+        int length = dst.writeIntLE(0).writeCharSequence(text, StandardCharsets.US_ASCII);
+        dst.setIntLE(lengthIndex, length);
+    }
+
+    static String readString(@NonNull ByteBuf src) {
+        return src.readCharSequence(src.readIntLE(), StandardCharsets.US_ASCII).toString();
+    }
+
     protected final SquashfsBuilder parent;
-    protected final Path workingDir;
-    protected final MetablockSequence writer;
+    protected final Path root;
 
-    protected final Deque<Directory> stack = new ArrayDeque<>();
+    protected final ImmediateMetablockSequence directoryTableWriter;
+    protected final ImmediateMetablockSequence inodeTableWriter;
 
-    protected Inode root;
+    protected final Path indexFile;
+    protected final FileChannel indexChannel;
+
+    protected final Deque<Dir> stack = new ArrayDeque<>();
+
+    private int inodeIdAllocator = 1;
 
     public DirectoryTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
-        this.workingDir = Files.createDirectories(root);
+        this.root = Files.createDirectories(root);
 
-        this.writer = new MetablockSequence(compression, root.resolve("metablocks"), parent, "directory table");
+        this.directoryTableWriter = new ImmediateMetablockSequence(compression, root.resolve("directories"), parent);
+        this.inodeTableWriter = new ImmediateMetablockSequence(compression, root.resolve("inodes"), parent);
 
-        this.stack.push(new Directory(""));
+        this.indexFile = root.resolve("index");
+        this.indexChannel = FileChannel.open(this.indexFile, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+
+        this.createDirectory("");
     }
 
-    public void startDirectory(@NonNull String name) throws IOException {
-        this.stack.push(new Directory(name));
+    public void createDirectory(@NonNull String name) throws IOException {
+        this.stack.push(new Dir(name));
     }
 
     public void endDirectory() throws IOException {
-        Directory directory = this.stack.pop();
-        this.stack.getFirst().appendDirectory(directory);
+        try (Dir dir = this.stack.pop()) {
+            dir.finish();
+
+            long pos = this.indexChannel.position();
+            writeFully(this.indexChannel, dir.buffer);
+
+            this.stack.getFirst().appendDirectory(dir.name, pos);
+        }
     }
 
     public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        /*long blocksStart = this.parent.blockTable.writtenBytes + SUPERBLOCK_BYTES;
-
-        Inode inode = this.parent.inodeTable.append(BasicFileInode.builder()
-                .blocks_start(toInt(blocksStart))
-                .fragment_block_index(-1)
-                .block_offset(0)
-                .file_size(contents.readableBytes())
-                .block_sizes(this.parent.blockTable.write(contents)));
-        this.stack.getFirst().entries.add(new AbsoluteDirectoryEntry(inode, name));*/
-    }
-
-    protected AbsoluteDirectoryEntry toEntry(@NonNull Directory directory) throws IOException {
-        Inode directoryInode;
-
-        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
-        ByteBuf dst = recycler.get();
-        try {
-            for (int i = 0, size = directory.entries.size(); i < size; ) {
-                int startIndex = dst.writerIndex();
-
-                AbsoluteDirectoryEntry startEntry = directory.entries.get(i);
-                int inodeBlockStart = startEntry.inode.inodeBlockStart();
-                int inodeNumber = startEntry.inode.inode_number();
-                dst.writeIntLE(-1)
-                        .writeIntLE(inodeBlockStart)
-                        .writeIntLE(inodeNumber);
-
-                int j = 0;
-                for (; j < DIRECTORY_ENTRY_MAX_SIZE && i + j < size; j++) {
-                    AbsoluteDirectoryEntry entry = directory.entries.get(i + j);
-                    if (entry.inode.inodeBlockStart() != inodeBlockStart || inodeNumber - entry.inode.inode_number() > Short.MAX_VALUE) {
-                        break;
-                    }
-
-                    dst.writeShortLE(entry.inode.inodeBlockOffset())
-                            .writeShortLE(inodeNumber - entry.inode.inode_number())
-                            .writeShortLE(entry.inode.basicType());
-
-                    int nameSizeIndex = dst.writerIndex();
-                    int nameSize = dst.writeShortLE(-1).writeCharSequence(entry.name, StandardCharsets.UTF_8);
-                    dst.setShortLE(nameSizeIndex, nameSize - 1);
-                }
-                dst.setIntLE(startIndex, j - 1);
-                i += j;
-            }
-
-            directoryInode = this.parent.inodeTable.append(BasicDirectoryInode.builder()
-                    //.block_idx(this.writer.blocksWritten)
-                    .block_offset(tochar(this.writer.buffer.readableBytes()))
-                    .file_size(tochar(dst.readableBytes()))
-                    .parent_inode_number(1)); //TODO: this is wrong, parent inode should only be 1 on root directory
-
-            this.writer.write(dst);
-        } finally {
-            recycler.release(dst);
-        }
-
-        return new AbsoluteDirectoryEntry(directoryInode, directory.name);
     }
 
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        AbsoluteDirectoryEntry entry = this.toEntry(this.stack.pop());
-        checkState(this.stack.isEmpty());
+        checkState(this.stack.size() == 1, this.stack.size());
 
-        this.writer.finish(channel, superblock);
+        long rootIndexPos;
+        try (Dir dir = this.stack.pop()) {
+            dir.finish();
 
-        superblock.root_inode(entry.inode);
+            rootIndexPos = this.indexChannel.position();
+            writeFully(this.indexChannel, dir.buffer);
+        }
+
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf buf = recycler.get();
+        try {
+            superblock.root_inode(this.writeDirectory(toInt(superblock.modification_time()), 1, rootIndexPos).reference())
+                    .inode_count(this.inodeIdAllocator - 1);
+        } finally {
+            recycler.release(buf);
+        }
+
+        this.inodeTableWriter.finish(channel, superblock);
+        this.directoryTableWriter.finish(channel, superblock);
+    }
+
+    private InodeReference writeDirectory(int timestamp, int parentInode, long indexPos) throws IOException {
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf readBuffer = recycler.get();
+        ByteBuf inodeWriteBuffer = recycler.get();
+        ByteBuf directoryEntriesBuffer = recycler.get();
+        try {
+            readFully(this.indexChannel, indexPos, readBuffer, 4);
+            int size = readBuffer.readIntLE();
+            readFully(this.indexChannel, indexPos + 4L, readBuffer.clear(), size);
+
+            int inodeNumber = this.inodeIdAllocator++;
+            inodeWriteBuffer.writeShortLE(INODE_EXTENDED_DIRECTORY) //inode_type
+                    .writeShortLE(0773) //permissions
+                    .writeShortLE(0).writeShortLE(0) //uid_idx & gid_idx
+                    .writeIntLE(timestamp)
+                    .writeIntLE(inodeNumber)
+                    .writeIntLE(1); //hard_link_count
+            int file_sizeIndex = inodeWriteBuffer.writerIndex();
+            inodeWriteBuffer.writeIntLE(-1);
+            int block_idxIndex = inodeWriteBuffer.writerIndex();
+            inodeWriteBuffer.writeIntLE(-1)
+                    .writeIntLE(parentInode)
+                    .writeShortLE(0); //index_count
+            int block_offsetIndex = inodeWriteBuffer.writerIndex();
+            inodeWriteBuffer.writeShortLE(-1)
+                    .writeIntLE(-1); //xattr_idx
+
+            int countIndex = -1;
+            int lastStart = -1;
+            int lastBaseInode = -1;
+            int count = 0;
+
+            while (readBuffer.isReadable()) {
+                boolean isDirectory = readBuffer.readBoolean();
+                String name = readString(readBuffer);
+
+                InodeReference childReference;
+                if (isDirectory) {
+                    childReference = this.writeDirectory(timestamp, inodeNumber, readBuffer.readLongLE());
+                } else {
+                    childReference = this.writeFile(timestamp, readBuffer);
+                }
+
+                if (count == 0
+                    || count++ == DIRECTORY_ENTRY_MAX_COUNT
+                    || lastStart != childReference.blockStart
+                    || childReference.inodeNumber - lastBaseInode > Short.MAX_VALUE) { //begin new entry
+                    if (count != 0) { //finish last entry
+                        directoryEntriesBuffer.setIntLE(countIndex, count - 2);
+                    }
+
+                    count = 1;
+                    countIndex = directoryEntriesBuffer.writerIndex();
+                    directoryEntriesBuffer.writeIntLE(-1)
+                            .writeIntLE(lastStart = childReference.blockStart)
+                            .writeIntLE(lastBaseInode = childReference.inodeNumber);
+                }
+
+                directoryEntriesBuffer.writeShortLE(childReference.blockOffset)
+                        .writeShortLE(childReference.inodeNumber - lastBaseInode)
+                        .writeShortLE(isDirectory ? INODE_BASIC_DIRECTORY : INODE_BASIC_FILE)
+                        .writeShortLE(name.length() - 1)
+                        .writeCharSequence(name, StandardCharsets.US_ASCII);
+            }
+
+            if (count != 0) { //finish last entry
+                directoryEntriesBuffer.setIntLE(countIndex, count - 1);
+            }
+
+            inodeWriteBuffer.setIntLE(file_sizeIndex, directoryEntriesBuffer.readableBytes())
+                    .setIntLE(block_idxIndex, this.directoryTableWriter.bytesWritten())
+                    .setShortLE(block_offsetIndex, this.directoryTableWriter.inBlockOffset());
+
+            InodeReference reference = new InodeReference(this.inodeTableWriter.bytesWritten(), this.inodeTableWriter.inBlockOffset(), inodeNumber);
+            this.inodeTableWriter.write(inodeWriteBuffer);
+            this.directoryTableWriter.write(directoryEntriesBuffer);
+            return reference;
+        } finally {
+            recycler.release(directoryEntriesBuffer);
+            recycler.release(inodeWriteBuffer);
+            recycler.release(readBuffer);
+        }
+    }
+
+    protected InodeReference writeFile(int timestamp, @NonNull ByteBuf readBuffer) throws IOException {
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf writeBuffer = recycler.get();
+        try {
+            int inodeNumber = this.inodeIdAllocator++;
+            writeBuffer.writeShortLE(INODE_EXTENDED_FILE) //inode_type
+                    .writeShortLE(0773) //permissions
+                    .writeShortLE(0).writeShortLE(0) //uid_idx & gid_idx
+                    .writeIntLE(timestamp)
+                    .writeIntLE(inodeNumber);
+
+            long fileSize = readBuffer.readLongLE();
+
+            int block_startIndex = writeBuffer.writerIndex();
+            writeBuffer.writeLongLE(-1L)
+                    .writeLongLE(fileSize)
+                    .writeLongLE(0L) //sparse
+                    .writeIntLE(0) //hard_link_count
+                    .writeIntLE(readBuffer.readIntLE()) //fragment_block_index
+                    .writeIntLE(readBuffer.readIntLE()) //block_offset
+                    .writeIntLE(-1); //xattr_idx
+
+            int blockSize = 1 << this.parent.blockLog;
+            if (fileSize >= blockSize) {
+                int blockReferenceIndex = readBuffer.readIntLE();
+                DatablockReference blockReference = this.parent.blockTable.getReference(blockReferenceIndex);
+                writeBuffer.setLongLE(block_startIndex, blockReference.blockStart());
+                writeBuffer.writeIntLE(blockReference.size());
+                for (int i = 1; (long) i * blockSize < fileSize; i++) {
+                    writeBuffer.writeIntLE(this.parent.blockTable.getReference(blockReferenceIndex + 1).size());
+                }
+            }
+
+            InodeReference reference = new InodeReference(this.inodeTableWriter.bytesWritten(), this.inodeTableWriter.inBlockOffset(), inodeNumber);
+            this.inodeTableWriter.write(writeBuffer);
+            return reference;
+        } finally {
+            recycler.release(writeBuffer);
+        }
     }
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         superblock.directory_table_start(channel.position());
 
-        this.writer.transferTo(channel, superblock);
+        superblock.inode_table_start(channel.position());
+        this.inodeTableWriter.transferTo(channel, superblock);
+        superblock.directory_table_start(channel.position());
+        this.directoryTableWriter.transferTo(channel, superblock);
     }
 
     @Override
     public void close() throws IOException {
-        this.writer.close();
+        this.indexChannel.close();
+        Files.delete(this.indexFile);
 
-        Files.delete(this.workingDir);
+        this.inodeTableWriter.close();
+        this.directoryTableWriter.close();
+
+        Files.delete(this.root);
     }
 
     @RequiredArgsConstructor
-    @ToString
-    protected static class AbsoluteDirectoryEntry {
-        @NonNull
-        public final Inode inode;
-        @NonNull
-        public final String name;
-    }
-
-    @RequiredArgsConstructor
-    protected class Directory {
+    static class Dir implements AutoCloseable {
+        protected final ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer().writeIntLE(-1);
         @NonNull
         protected final String name;
-        protected final List<AbsoluteDirectoryEntry> entries = new ArrayList<>();
 
-        public void appendDirectory(@NonNull Directory directory) throws IOException {
-            this.entries.add(DirectoryTableBuilder.this.toEntry(directory));
+        public void appendDirectory(@NonNull String name, long addr) {
+            this.buffer.writeBoolean(true);
+            writeString(this.buffer, name);
+            this.buffer.writeLongLE(addr);
+        }
+
+        public void finish() {
+            this.buffer.setIntLE(0, this.buffer.readableBytes() - 4);
+        }
+
+        @Override
+        public void close() {
+            this.buffer.release();
+        }
+    }
+
+    @RequiredArgsConstructor
+    static class InodeReference {
+        final int blockStart;
+        final int blockOffset;
+        final int inodeNumber;
+
+        protected long reference() {
+            return buildInodeReference(this.blockStart, this.blockOffset);
         }
     }
 }
