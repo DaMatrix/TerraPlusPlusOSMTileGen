@@ -21,9 +21,6 @@
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
 import io.netty.buffer.ByteBuf;
-import it.unimi.dsi.fastutil.ints.IntArrayList;
-import it.unimi.dsi.fastutil.ints.IntList;
-import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
@@ -44,10 +41,6 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
     protected final SquashfsBuilder parent;
     protected final MetablockSequence writer;
 
-    protected final IntList offsets = new IntArrayList();
-    @Getter
-    protected long count = 0L;
-
     public MultilevelSquashfsBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
 
@@ -65,8 +58,6 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        long baseOffset = channel.position();
-
         this.writer.transferTo(channel, superblock);
 
         this.applyStartOffset(superblock, channel.position());
@@ -74,11 +65,11 @@ public abstract class MultilevelSquashfsBuilder implements ISquashfsBuilder {
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
-            for (int offset : this.offsets) {
-                dst.writeLongLE(baseOffset + offset);
+            for (DatablockReference reference : this.writer) {
+                dst.writeLongLE(reference.blockStart());
+                writeFully(channel, dst);
+                dst.clear();
             }
-
-            writeFully(channel, dst);
         } finally {
             recycler.release(dst);
         }

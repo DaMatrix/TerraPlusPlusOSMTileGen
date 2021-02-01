@@ -35,6 +35,8 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
  * @author DaPorkchop_
  */
 final class IdTableBuilder extends MultilevelSquashfsBuilder {
+    protected char count;
+
     public IdTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
     }
@@ -60,7 +62,7 @@ final class IdTableBuilder extends MultilevelSquashfsBuilder {
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         super.finish(channel, superblock);
 
-        superblock.id_count(u16(this.count));
+        superblock.id_count(this.count);
     }
 
     @Override

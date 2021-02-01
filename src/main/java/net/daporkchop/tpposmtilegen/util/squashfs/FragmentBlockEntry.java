@@ -29,6 +29,6 @@ import lombok.ToString;
 @RequiredArgsConstructor
 @ToString
 final class FragmentBlockEntry {
-    protected final long start;
-    protected final int size;
+    protected final int fragment_block_index;
+    protected final int block_offset;
 }

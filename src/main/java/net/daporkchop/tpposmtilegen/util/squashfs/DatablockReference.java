@@ -20,24 +20,17 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
-import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
-
-import java.io.IOException;
-import java.nio.file.Path;
-
-import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
+import lombok.Getter;
+import lombok.RequiredArgsConstructor;
+import lombok.ToString;
 
 /**
  * @author DaPorkchop_
  */
-final class FragmentDatablockBuilder extends DatablockBuilder {
-    public FragmentDatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        super(compression, root, parent);
-    }
-
-    @Override
-    protected String name() {
-        return "fragment data blocks";
-    }
+@RequiredArgsConstructor
+@Getter
+@ToString
+final class DatablockReference {
+    private final int size;
+    private final long blockStart;
 }

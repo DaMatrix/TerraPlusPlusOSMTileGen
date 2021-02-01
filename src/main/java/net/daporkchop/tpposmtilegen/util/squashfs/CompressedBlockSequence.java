@@ -36,7 +36,9 @@ import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.Iterator;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.IntStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
@@ -44,7 +46,7 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
 /**
  * @author DaPorkchop_
  */
-abstract class CompressedBlockSequence implements ISquashfsBuilder {
+abstract class CompressedBlockSequence implements ISquashfsBuilder, Iterable<DatablockReference> {
     protected final SquashfsBuilder parent;
     protected final Compression compression;
 
@@ -57,11 +59,13 @@ abstract class CompressedBlockSequence implements ISquashfsBuilder {
 
     protected final IntList blockSizes = new IntArrayList();
 
-    protected final int blockSize = this.blockSize0();
+    protected final int blockSize;
 
     public CompressedBlockSequence(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         this.parent = parent;
         this.compression = compression;
+
+        this.blockSize = this.blockSize0();
 
         this.root = Files.createDirectories(root);
 
@@ -74,8 +78,12 @@ abstract class CompressedBlockSequence implements ISquashfsBuilder {
     protected abstract int blockSize0();
 
     @Override
-    @SneakyThrows(Exception.class)
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+    }
+
+    @Override
+    @SneakyThrows(Exception.class)
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         CompletableFuture<Void> previousFuture = CompletableFuture.completedFuture(null);
 
         try (CloseableExecutor executor = new CloseableExecutor()) {
@@ -117,10 +125,6 @@ abstract class CompressedBlockSequence implements ISquashfsBuilder {
         }
     }
 
-    @Override
-    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-    }
-
     protected boolean compress(ByteBuf readBuffer, ByteBuf writeBuffer) throws IOException {
         int origSize = readBuffer.readableBytes();
         this.compression.compress(readBuffer, writeBuffer);
@@ -134,23 +138,33 @@ abstract class CompressedBlockSequence implements ISquashfsBuilder {
 
     protected abstract int toReferenceSize(boolean uncompressed, int compressedSize);
 
-    public long putBlock(@NonNull ByteBuf buf) throws IOException {
-        checkArg(buf.readableBytes() == this.blockSize);
-        long idx = this.blockSizes.size();
+    public int writtenBlockCount() {
+        return this.blockSizes.size();
+    }
+
+    public int putBlock(@NonNull ByteBuf buf) throws IOException {
+        checkArg(buf.readableBytes() <= this.blockSize, buf.readableBytes());
+        int idx = this.writtenBlockCount();
         this.blockSizes.add(buf.readableBytes());
         writeFully(this.rawChannel, buf);
         return idx;
     }
 
-    public BlockReference getReference(long idx) throws IOException {
+    @SneakyThrows(IOException.class)
+    public DatablockReference getReference(int idx) {
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf buf = recycler.get();
         try {
             readFully(this.indexChannel, idx * 12L, buf, 12);
-            return new BlockReference(buf.readIntLE(), buf.readLongLE());
+            return new DatablockReference(buf.readIntLE(), buf.readLongLE());
         } finally {
             recycler.release(buf);
         }
+    }
+
+    @Override
+    public Iterator<DatablockReference> iterator() {
+        return IntStream.range(0, this.writtenBlockCount()).mapToObj(this::getReference).iterator();
     }
 
     @Override

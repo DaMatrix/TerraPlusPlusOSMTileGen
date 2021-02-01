@@ -74,8 +74,13 @@ public final class SquashfsBuilder implements AutoCloseable {
     }
 
     public void putFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        this.directoryTable.startDirectory("aaaa");
-        this.directoryTable.endDirectory();
+        for (int i = 0; i < 1000; i++) {
+            this.directoryTable.startDirectory(String.format("%03d", i));
+            for (int j = 0; j < 10; j++) {
+                this.directoryTable.addFile(String.format("%03d", j), Unpooled.wrappedBuffer(new byte[100]));
+            }
+            this.directoryTable.endDirectory();
+        }
 
         this.directoryTable.addFile(name, contents);
     }

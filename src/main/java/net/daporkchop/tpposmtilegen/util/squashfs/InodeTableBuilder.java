@@ -30,6 +30,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
@@ -48,8 +49,8 @@ final class InodeTableBuilder implements ISquashfsBuilder {
 
     public <C extends Inode, B extends Inode.InodeBuilder<C, ?>> C append(@NonNull B builder) throws IOException {
         C inode = builder.inode_number(u32(++this.inodes))
-                //.inodeBlockStart(this.writer.bytesWritten())
-                //.inodeBlockOffset(this.writer.buffer().readableBytes())
+                .inodeBlockStart(toInt(this.writer.rawChannel.position()) + this.writer.writtenBlockCount() * 2)
+                .inodeBlockOffset(this.writer.buffer.readableBytes())
                 .build();
 
         //encode inode

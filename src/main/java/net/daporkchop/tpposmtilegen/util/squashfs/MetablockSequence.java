@@ -72,14 +72,16 @@ class MetablockSequence extends CompressedBlockSequence {
         return uncompressed ? compressedSize | METABLOCK_HEADER_UNCOMPRESSED_FLAG : compressedSize;
     }
 
-    public void write(@NonNull ByteBuf buffer) throws IOException {
+    public int write(@NonNull ByteBuf buffer) throws IOException {
         this.buffer.writeBytes(buffer);
+        int blockIndex = this.writtenBlockCount();
         if (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE) { //flush as many complete metablocks as possible
             do {
                 this.putBlock(this.buffer.readSlice(METABLOCK_MAX_SIZE));
             } while (this.buffer.readableBytes() >= METABLOCK_MAX_SIZE);
             this.buffer.discardSomeReadBytes();
         }
+        return blockIndex;
     }
 
     @Override

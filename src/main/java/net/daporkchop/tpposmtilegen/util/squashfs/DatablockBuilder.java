@@ -24,6 +24,7 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
+import java.nio.channels.FileChannel;
 import java.nio.file.Path;
 
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
@@ -31,7 +32,7 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 /**
  * @author DaPorkchop_
  */
-class DatablockBuilder extends CompressedBlockSequence {
+final class DatablockBuilder extends CompressedBlockSequence {
     public DatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
     }
@@ -49,5 +50,15 @@ class DatablockBuilder extends CompressedBlockSequence {
     @Override
     protected int toReferenceSize(boolean uncompressed, int compressedSize) {
         return uncompressed ? compressedSize | DATA_BLOCK_UNCOMPRESSED_FLAG : compressedSize;
+    }
+
+    @Override
+    public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+        super.finish(channel, superblock);
+        super.transferTo(channel, superblock);
+    }
+
+    @Override
+    public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
     }
 }

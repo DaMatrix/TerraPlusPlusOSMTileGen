@@ -24,6 +24,7 @@ import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
 
 import java.io.File;
@@ -60,7 +61,7 @@ public class Export implements IMode {
         Path dst = Paths.get(args[1]);
         Files.deleteIfExists(dst);
 
-        try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
+        try (SquashfsBuilder builder = new SquashfsBuilder(NoCompression.INSTANCE, dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
             builder.putFile("asdf.txt", Unpooled.wrappedBuffer("12345".getBytes(StandardCharsets.UTF_8)));
 
             builder.finish(dst);
