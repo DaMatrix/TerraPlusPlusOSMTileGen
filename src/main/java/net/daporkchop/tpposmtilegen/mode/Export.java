@@ -28,6 +28,7 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
 
 import java.io.File;
 import java.nio.ByteBuffer;
@@ -61,17 +62,13 @@ public class Export implements IMode {
         checkArg(args.length == 2, "Usage: export <index_dir> <squashfs>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         Path dst = Paths.get(args[1]);
-        Files.deleteIfExists(dst);
 
         try (Storage storage = new Storage(src.toPath())) {
-            try (SquashfsBuilder builder = new SquashfsBuilder(NoCompression.INSTANCE, dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
+            try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Export files")
                          .slot("files").build()) {
                 storage.files().forEach(storage.db().read(),
                         (IOBiConsumer<String, ByteBuffer>) (name, data) -> {
-                            if (!name.contains("relation")) {
-                                return;
-                            }
                             builder.putFile(Paths.get(name), Unpooled.wrappedBuffer(data));
                             notifier.step(0);
                         });

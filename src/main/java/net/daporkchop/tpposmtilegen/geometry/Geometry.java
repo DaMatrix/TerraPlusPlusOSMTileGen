@@ -91,9 +91,9 @@ public interface Geometry extends Persistent {
 
     static String externalStorageLocation(int type, long id) {
         if (type == Coastline.TYPE) {
-            return PStrings.fastFormat("%s/%03d/%d.json", Element.typeName(type), id / 1000L, id % 1000L);
+            return PStrings.fastFormat("%s/%03d/%03d.json", Element.typeName(type), id / 1000L, id % 1000L);
         } else {
-            return PStrings.fastFormat("%s/%03d/%03d/%d.json", Element.typeName(type), id / 1000_000L, (id / 1000L) % 1000L, id % 1000L);
+            return PStrings.fastFormat("%s/%03d/%03d/%03d.json", Element.typeName(type), id / 1000_000L, (id / 1000L) % 1000L, id % 1000L);
         }
     }
 

@@ -63,13 +63,14 @@ public final class SquashfsBuilder implements AutoCloseable {
 
     public SquashfsBuilder(@NonNull Compression compression, @NonNull Path workingDirectory, @NonNull Path dst, int blockLog) throws IOException {
         checkArg(!Files.exists(workingDirectory), "working directory already exists: %s", workingDirectory);
+
+        this.channel = FileChannel.open(dst, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        writeFully(this.channel, Unpooled.wrappedBuffer(new byte[SUPERBLOCK_BYTES])); //write blank superblock
+
         this.root = Files.createDirectories(workingDirectory);
         this.compression = compression;
 
         this.blockLog = blockLog;
-
-        this.channel = FileChannel.open(dst, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-        writeFully(this.channel, Unpooled.wrappedBuffer(new byte[SUPERBLOCK_BYTES])); //write blank superblock
 
         this.idTable = new IdTableBuilder(compression, this.root.resolve("id"), this);
         this.directoryTable = new DirectoryTableBuilder(compression, this.root.resolve("directory"), this);

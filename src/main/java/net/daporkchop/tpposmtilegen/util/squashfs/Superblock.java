@@ -56,7 +56,8 @@ final class Superblock {
     private long export_table_start = -1L;
 
     public void write(@NonNull ByteBuf dst) {
-        logger.info("inode table: %d\ndirectory table: %d", this.inode_table_start, this.directory_table_start);
+        logger.info("inode table: %d\ndirectory table: %d\nfragment table: %d, count: %d\nid table: %d",
+                this.inode_table_start, this.directory_table_start, this.fragment_table_start, this.fragment_entry_count, this.id_table_start);
         dst.writeIntLE(SQUASHFS_MAGIC)
                 .writeIntLE(u32(this.inode_count))
                 .writeIntLE(u32(this.modification_time))

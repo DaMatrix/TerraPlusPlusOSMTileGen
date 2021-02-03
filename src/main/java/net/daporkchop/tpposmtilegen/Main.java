@@ -39,6 +39,7 @@ import net.daporkchop.tpposmtilegen.mode.PurgeCoastlines;
 import net.daporkchop.tpposmtilegen.mode.PurgeOSM;
 import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Serve;
+import net.daporkchop.tpposmtilegen.mode.Squash;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
@@ -68,6 +69,7 @@ public final class Main implements Runnable {
             new PurgeOSM(),
             new RecomputeReferences(),
             new Serve(),
+            new Squash(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));

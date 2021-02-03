@@ -24,17 +24,18 @@ import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import net.daporkchop.lib.common.function.io.IORunnable;
+import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
+import org.omg.IOP.IOR;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.Semaphore;
 
 import static java.lang.Math.*;
@@ -73,16 +74,16 @@ final class DatablockBuilder implements ISquashfsBuilder {
         long blockIndex = this.writtenBlocks;
         this.writtenBlocks += blocks;
 
-        buffer.retain();
+        ByteBuf slice = buffer.readSlice(min(buffer.readableBytes(), blocks * blockSize)).copy();
 
         this.lock.acquireUninterruptibly();
-        ForkJoinTask<?> task = ForkJoinPool.commonPool().submit((IORunnable) () -> {
+        CompletableFuture<Void> future = CompletableFuture.runAsync((IORunnable) () -> {
             SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
             ByteBuf compressedBuffer = recycler.get();
             ByteBuf indexBuffer = recycler.get();
             try {
                 for (int i = 0; i < blocks; i++) {
-                    indexBuffer.writeIntLE(this.compress(buffer.readSlice(min(buffer.readableBytes(), blockSize)), compressedBuffer))
+                    indexBuffer.writeIntLE(this.compress(slice.readSlice(min(slice.readableBytes(), blockSize)), compressedBuffer))
                             .writeLongLE(-1L);
                 }
 
@@ -100,11 +101,11 @@ final class DatablockBuilder implements ISquashfsBuilder {
                 this.lock.release();
                 recycler.release(indexBuffer);
                 recycler.release(compressedBuffer);
-                buffer.release();
+                slice.release();
             }
         });
         if (sync) {
-            task.join();
+            future.join();
         }
 
         return blockIndex;

@@ -44,15 +44,12 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
     protected final Path indexFile;
     protected final FileChannel indexChannel;
 
-    protected final DatablockBuilder blockWriter;
-
     protected int blockIdAllocator = 0;
 
     public FragmentTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
 
         this.indexChannel = FileChannel.open(this.indexFile = root.resolve("index"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-        this.blockWriter = new DatablockBuilder(root.resolve("block"), parent);
     }
 
     @Override
@@ -65,18 +62,13 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         int blockSize = 1 << this.parent.blockLog;
         checkArg(readableBytes < blockSize, "fragment data too big: %d > %d", readableBytes, blockSize);
 
-        if (this.dataBuffer.readableBytes() + readableBytes > blockSize) { //flush block
+        if (this.dataBuffer.readableBytes() + readableBytes >= blockSize) { //flush block
             this.flush(false);
         }
 
-        int blockOffset = this.dataBuffer.readableBytes();
+        FragmentBlockEntry entry = new FragmentBlockEntry(this.blockIdAllocator, this.dataBuffer.readableBytes());
         this.dataBuffer.writeBytes(data);
-
-        if (this.dataBuffer.readableBytes() == blockSize) {
-            this.flush(false);
-        }
-
-        return new FragmentBlockEntry(this.blockIdAllocator, blockOffset);
+        return entry;
     }
 
     private void flush(boolean sync) throws IOException {
@@ -128,8 +120,6 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
 
     @Override
     public void close() throws IOException {
-        this.blockWriter.close();
-
         this.indexChannel.close();
         Files.delete(this.indexFile);
 
