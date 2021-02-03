@@ -77,10 +77,10 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
         this.indexFile = root.resolve("index");
         this.indexChannel = FileChannel.open(this.indexFile, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
 
-        this.createDirectory("");
+        this.startDirectory("");
     }
 
-    public void createDirectory(@NonNull String name) throws IOException {
+    public void startDirectory(@NonNull String name) throws IOException {
         this.stack.push(new Dir(name));
     }
 
@@ -96,6 +96,27 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
+        int blockSize = 1 << this.parent.blockLog;
+        int fullFileSize = contents.readableBytes();
+
+        int blockReferenceIndex = -1;
+        if (fullFileSize >= blockSize) {
+            int prev = blockReferenceIndex = this.parent.blockTable.putBlock(contents.readSlice(blockSize));
+            while (contents.readableBytes() >= blockSize) {
+                int next = this.parent.blockTable.putBlock(contents.readSlice(blockSize));
+                checkState(prev + 1 == next);
+            }
+        }
+
+        int fragmentIndex = -1;
+        int fragmentOffset = 0;
+        if (contents.isReadable()) {
+            FragmentBlockEntry fragmentEntry = this.parent.fragmentTable.appendFragmentData(contents);
+            fragmentIndex = fragmentEntry.fragment_block_index;
+            fragmentOffset = fragmentEntry.block_offset;
+        }
+
+        this.stack.getFirst().appendFile(name, fullFileSize, fragmentIndex, fragmentOffset, blockReferenceIndex);
     }
 
     @Override
@@ -235,7 +256,7 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
                 DatablockReference blockReference = this.parent.blockTable.getReference(blockReferenceIndex);
                 writeBuffer.setLongLE(block_startIndex, blockReference.blockStart());
                 writeBuffer.writeIntLE(blockReference.size());
-                for (int i = 1; (long) i * blockSize < fileSize; i++) {
+                for (int i = 1; (long) i * blockSize < (fileSize & -blockSize); i++) {
                     writeBuffer.writeIntLE(this.parent.blockTable.getReference(blockReferenceIndex + 1).size());
                 }
             }
@@ -279,6 +300,17 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
             this.buffer.writeBoolean(true);
             writeString(this.buffer, name);
             this.buffer.writeLongLE(addr);
+        }
+
+        public void appendFile(@NonNull String name, long fileSize, int fragmentIndex, int fragmentOffset, int blockReferenceIndex) {
+            this.buffer.writeBoolean(false);
+            writeString(this.buffer, name);
+            this.buffer.writeLongLE(fileSize)
+                    .writeIntLE(fragmentIndex)
+                    .writeIntLE(fragmentOffset);
+            if (blockReferenceIndex != -1) {
+                this.buffer.writeIntLE(blockReferenceIndex);
+            }
         }
 
         public void finish() {

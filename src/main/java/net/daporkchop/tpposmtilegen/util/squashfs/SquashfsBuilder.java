@@ -28,6 +28,7 @@ import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -61,24 +62,25 @@ public final class SquashfsBuilder implements AutoCloseable {
         this.root = Files.createDirectories(workingDirectory);
         this.compression = compression;
 
+        this.blockLog = blockLog;
+
         this.idTable = new IdTableBuilder(compression, this.root.resolve("id"), this);
         this.directoryTable = new DirectoryTableBuilder(compression, this.root.resolve("directory"), this);
         this.blockTable = new DatablockBuilder(compression, this.root.resolve("block"), this);
         this.fragmentTable = new FragmentTableBuilder(compression, this.root.resolve("fragment"), this);
 
-        this.blockLog = blockLog;
-
         this.idTable.putId(tochar(1000));
     }
 
     public void putFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        for (int i = 0; i < 1000; i++) {
-            this.directoryTable.createDirectory(String.format("%03d", i));
-            for (int j = 0; j < 10; j++) {
-                //this.directoryTable.addFile(String.format("%03d", j), Unpooled.wrappedBuffer(new byte[100]));
-                this.directoryTable.createDirectory(String.format("%03d", j));
-                this.directoryTable.endDirectory();
-            }
+        byte[] arr = new byte[(1 << this.blockLog) + 1];
+        for (int i = 0; i < arr.length; i++) {
+            arr[i] = (byte) i;
+        }
+        for (int i = 0; i < 123; i++) {
+            this.directoryTable.startDirectory(String.format("%03d", i));
+            this.directoryTable.addFile("asdf", Unpooled.copiedBuffer("hello world!", StandardCharsets.UTF_8));
+            this.directoryTable.addFile("jklo", Unpooled.wrappedBuffer(arr));
             this.directoryTable.endDirectory();
         }
 

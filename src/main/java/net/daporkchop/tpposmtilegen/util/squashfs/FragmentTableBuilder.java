@@ -44,12 +44,20 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
     protected final Path indexFile;
     protected final FileChannel indexChannel;
 
+    protected final DatablockBuilder blockWriter;
+
     protected int blockIdAllocator = 0;
 
     public FragmentTableBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
 
         this.indexChannel = FileChannel.open(this.indexFile = root.resolve("index"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        this.blockWriter = new DatablockBuilder(compression, root.resolve("block"), parent) {
+            @Override
+            protected String name() {
+                return "fragment blocks";
+            }
+        };
     }
 
     @Override
@@ -73,7 +81,7 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
     }
 
     private void flush() throws IOException {
-        int id = this.parent.blockTable.putBlock(this.dataBuffer);
+        int id = this.blockWriter.putBlock(this.dataBuffer);
         this.dataBuffer.clear();
 
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
@@ -95,12 +103,14 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         }
         this.dataBuffer.release();
 
+        this.blockWriter.finish(channel, superblock);
+
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
             for (int i = 0; i < this.blockIdAllocator; i++) {
                 readFully(this.indexChannel, i * 4L, dst, 4);
-                DatablockReference reference = this.parent.blockTable.getReference(dst.readIntLE());
+                DatablockReference reference = this.blockWriter.getReference(dst.readIntLE());
                 dst.clear().writeLongLE(reference.blockStart()).writeIntLE(reference.size()).writeIntLE(0);
                 this.writer.write(dst);
                 dst.clear();
@@ -121,6 +131,8 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
 
     @Override
     public void close() throws IOException {
+        this.blockWriter.close();
+
         this.indexChannel.close();
         Files.delete(this.indexFile);
 

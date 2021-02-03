@@ -32,7 +32,7 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 /**
  * @author DaPorkchop_
  */
-final class DatablockBuilder extends CompressedBlockSequence {
+class DatablockBuilder extends CompressedBlockSequence {
     public DatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
         super(compression, root, parent);
     }

@@ -143,7 +143,7 @@ abstract class CompressedBlockSequence implements ISquashfsBuilder, Iterable<Dat
     }
 
     public int putBlock(@NonNull ByteBuf buf) throws IOException {
-        checkArg(buf.readableBytes() <= this.blockSize, buf.readableBytes());
+        checkArg(buf.readableBytes() <= this.blockSize, "%d > %d", buf.readableBytes(), this.blockSize);
         int idx = this.writtenBlockCount();
         this.blockSizes.add(buf.readableBytes());
         writeFully(this.rawChannel, buf);
