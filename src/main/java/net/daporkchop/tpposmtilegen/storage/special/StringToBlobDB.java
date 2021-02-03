@@ -59,6 +59,14 @@ public final class StringToBlobDB extends WrappedRocksDB {
         return arr != null ? ByteBuffer.wrap(arr) : null;
     }
 
+    public void forEach(@NonNull DBAccess access, @NonNull BiConsumer<String, ByteBuffer> callback) throws Exception {
+        try (RocksIterator itr = access.iterator(this.column)) {
+            for (itr.seekToFirst(); itr.isValid(); itr.next()) {
+                callback.accept(new String(itr.key(), StandardCharsets.US_ASCII), ByteBuffer.wrap(itr.value()));
+            }
+        }
+    }
+
     public void forEachParallel(@NonNull DBAccess access, @NonNull BiConsumer<String, ByteBuffer> callback) throws Exception {
         @AllArgsConstructor
         class ValueWithKey {

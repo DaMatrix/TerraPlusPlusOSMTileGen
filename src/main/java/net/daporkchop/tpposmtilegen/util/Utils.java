@@ -60,6 +60,12 @@ public class Utils {
         }
     }
 
+    public void writeFully(@NonNull FileChannel dst, long pos, @NonNull ByteBuf src) throws IOException {
+        while (src.isReadable()) {
+            pos += src.readBytes(dst, pos, src.readableBytes());
+        }
+    }
+
     public void readFully(@NonNull FileChannel src, @NonNull ByteBuf dst, int count) throws IOException {
         dst.ensureWritable(count);
         for (int i = 0; i < count; i += dst.writeBytes(src, count - i)) {

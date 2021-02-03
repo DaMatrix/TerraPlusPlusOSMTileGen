@@ -52,12 +52,7 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
         super(compression, root, parent);
 
         this.indexChannel = FileChannel.open(this.indexFile = root.resolve("index"), StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
-        this.blockWriter = new DatablockBuilder(compression, root.resolve("block"), parent) {
-            @Override
-            protected String name() {
-                return "fragment blocks";
-            }
-        };
+        this.blockWriter = new DatablockBuilder(root.resolve("block"), parent);
     }
 
     @Override
@@ -66,28 +61,32 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
     }
 
     public FragmentBlockEntry appendFragmentData(@NonNull ByteBuf data) throws IOException {
-        int readableBytes = this.dataBuffer.readableBytes();
+        int readableBytes = data.readableBytes();
         int blockSize = 1 << this.parent.blockLog;
-        checkArg(readableBytes < blockSize);
+        checkArg(readableBytes < blockSize, "fragment data too big: %d > %d", readableBytes, blockSize);
 
         if (this.dataBuffer.readableBytes() + readableBytes > blockSize) { //flush block
-            this.flush();
+            this.flush(false);
         }
 
         int blockOffset = this.dataBuffer.readableBytes();
         this.dataBuffer.writeBytes(data);
 
+        if (this.dataBuffer.readableBytes() == blockSize) {
+            this.flush(false);
+        }
+
         return new FragmentBlockEntry(this.blockIdAllocator, blockOffset);
     }
 
-    private void flush() throws IOException {
-        int id = this.blockWriter.putBlock(this.dataBuffer);
+    private void flush(boolean sync) throws IOException {
+        long id = this.parent.blockTable.writeBlocks(this.dataBuffer, 1, sync);
         this.dataBuffer.clear();
 
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
-            dst.writeIntLE(id);
+            dst.writeLongLE(id);
             writeFully(this.indexChannel, dst);
         } finally {
             recycler.release(dst);
@@ -99,18 +98,16 @@ final class FragmentTableBuilder extends MultilevelSquashfsBuilder {
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
         if (this.dataBuffer.isReadable()) {
-            this.flush();
+            this.flush(true);
         }
         this.dataBuffer.release();
-
-        this.blockWriter.finish(channel, superblock);
 
         SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
         ByteBuf dst = recycler.get();
         try {
             for (int i = 0; i < this.blockIdAllocator; i++) {
-                readFully(this.indexChannel, i * 4L, dst, 4);
-                DatablockReference reference = this.blockWriter.getReference(dst.readIntLE());
+                readFully(this.indexChannel, i * 8L, dst, 8);
+                DatablockReference reference = this.parent.blockTable.getReference(dst.readLongLE());
                 dst.clear().writeLongLE(reference.blockStart()).writeIntLE(reference.size()).writeIntLE(0);
                 this.writer.write(dst);
                 dst.clear();

@@ -96,16 +96,12 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
     }
 
     public void addFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        int blockSize = 1 << this.parent.blockLog;
         int fullFileSize = contents.readableBytes();
 
-        int blockReferenceIndex = -1;
-        if (fullFileSize >= blockSize) {
-            int prev = blockReferenceIndex = this.parent.blockTable.putBlock(contents.readSlice(blockSize));
-            while (contents.readableBytes() >= blockSize) {
-                int next = this.parent.blockTable.putBlock(contents.readSlice(blockSize));
-                checkState(prev + 1 == next);
-            }
+        long blockReferenceIndex = -1L;
+        int blocks = contents.readableBytes() >> this.parent.blockLog;
+        if (blocks > 0) {
+            blockReferenceIndex = this.parent.blockTable.writeBlocks(contents.readSlice(blocks << this.parent.blockLog), blocks, false);
         }
 
         int fragmentIndex = -1;
@@ -121,7 +117,9 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
 
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        checkState(this.stack.size() == 1, this.stack.size());
+        while (this.stack.size() > 1) {
+            this.endDirectory();
+        }
 
         long rootIndexPos;
         try (Dir dir = this.stack.pop()) {
@@ -245,14 +243,14 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
             writeBuffer.writeLongLE(-1L)
                     .writeLongLE(fileSize)
                     .writeLongLE(0L) //sparse
-                    .writeIntLE(0) //hard_link_count
+                    .writeIntLE(1) //hard_link_count
                     .writeIntLE(readBuffer.readIntLE()) //fragment_block_index
                     .writeIntLE(readBuffer.readIntLE()) //block_offset
                     .writeIntLE(-1); //xattr_idx
 
             int blockSize = 1 << this.parent.blockLog;
             if (fileSize >= blockSize) {
-                int blockReferenceIndex = readBuffer.readIntLE();
+                long blockReferenceIndex = readBuffer.readLongLE();
                 DatablockReference blockReference = this.parent.blockTable.getReference(blockReferenceIndex);
                 writeBuffer.setLongLE(block_startIndex, blockReference.blockStart());
                 writeBuffer.writeIntLE(blockReference.size());
@@ -296,25 +294,36 @@ final class DirectoryTableBuilder implements ISquashfsBuilder {
         @NonNull
         protected final String name;
 
+        protected String prevName;
+
         public void appendDirectory(@NonNull String name, long addr) {
+            this.checkValidName(name);
             this.buffer.writeBoolean(true);
             writeString(this.buffer, name);
             this.buffer.writeLongLE(addr);
         }
 
-        public void appendFile(@NonNull String name, long fileSize, int fragmentIndex, int fragmentOffset, int blockReferenceIndex) {
+        public void appendFile(@NonNull String name, long fileSize, int fragmentIndex, int fragmentOffset, long blockReferenceIndex) {
+            this.checkValidName(name);
             this.buffer.writeBoolean(false);
             writeString(this.buffer, name);
             this.buffer.writeLongLE(fileSize)
                     .writeIntLE(fragmentIndex)
                     .writeIntLE(fragmentOffset);
-            if (blockReferenceIndex != -1) {
-                this.buffer.writeIntLE(blockReferenceIndex);
+            if (blockReferenceIndex != -1L) {
+                this.buffer.writeLongLE(blockReferenceIndex);
             }
         }
 
         public void finish() {
             this.buffer.setIntLE(0, this.buffer.readableBytes() - 4);
+        }
+
+        private void checkValidName(@NonNull String name) {
+            if (this.prevName != null) {
+                checkArg(this.prevName.compareTo(name) < 0, "new name must be greater than old name: \"%s\" -> \"%s\"", this.prevName, name);
+            }
+            this.prevName = name;
         }
 
         @Override

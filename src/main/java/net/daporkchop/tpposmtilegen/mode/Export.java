@@ -22,12 +22,15 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import io.netty.buffer.Unpooled;
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.io.IOBiConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
-import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
 
 import java.io.File;
-import java.nio.charset.StandardCharsets;
+import java.nio.ByteBuffer;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -60,14 +63,19 @@ public class Export implements IMode {
         Path dst = Paths.get(args[1]);
         Files.deleteIfExists(dst);
 
-        try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), 19)) {
-            builder.putFile("asdf.txt", Unpooled.wrappedBuffer("12345".getBytes(StandardCharsets.UTF_8)));
-
-            builder.finish(dst);
+        try (Storage storage = new Storage(src.toPath())) {
+            try (SquashfsBuilder builder = new SquashfsBuilder(NoCompression.INSTANCE, dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
+                 ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Export files")
+                         .slot("files").build()) {
+                storage.files().forEach(storage.db().read(),
+                        (IOBiConsumer<String, ByteBuffer>) (name, data) -> {
+                            if (!name.contains("relation")) {
+                                return;
+                            }
+                            builder.putFile(Paths.get(name), Unpooled.wrappedBuffer(data));
+                            notifier.step(0);
+                        });
+            }
         }
-
-        /*try (Storage storage = new Storage(src.toPath())) {
-            throw new UnsupportedOperationException();
-        }*/
     }
 }

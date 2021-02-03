@@ -28,12 +28,12 @@ import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.concurrent.TimeUnit;
 
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
@@ -50,6 +50,8 @@ public final class SquashfsBuilder implements AutoCloseable {
 
     protected final Compression compression;
 
+    protected final FileChannel channel;
+
     protected final IdTableBuilder idTable;
     protected final DirectoryTableBuilder directoryTable;
     protected final DatablockBuilder blockTable;
@@ -57,40 +59,54 @@ public final class SquashfsBuilder implements AutoCloseable {
 
     protected final int blockLog;
 
-    public SquashfsBuilder(@NonNull Compression compression, @NonNull Path workingDirectory, int blockLog) throws IOException {
+    protected Path lastPath;
+
+    public SquashfsBuilder(@NonNull Compression compression, @NonNull Path workingDirectory, @NonNull Path dst, int blockLog) throws IOException {
         checkArg(!Files.exists(workingDirectory), "working directory already exists: %s", workingDirectory);
         this.root = Files.createDirectories(workingDirectory);
         this.compression = compression;
 
         this.blockLog = blockLog;
 
+        this.channel = FileChannel.open(dst, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
+        writeFully(this.channel, Unpooled.wrappedBuffer(new byte[SUPERBLOCK_BYTES])); //write blank superblock
+
         this.idTable = new IdTableBuilder(compression, this.root.resolve("id"), this);
         this.directoryTable = new DirectoryTableBuilder(compression, this.root.resolve("directory"), this);
-        this.blockTable = new DatablockBuilder(compression, this.root.resolve("block"), this);
+        this.blockTable = new DatablockBuilder(this.root.resolve("block"), this);
         this.fragmentTable = new FragmentTableBuilder(compression, this.root.resolve("fragment"), this);
 
         this.idTable.putId(tochar(1000));
     }
 
-    public void putFile(@NonNull String name, @NonNull ByteBuf contents) throws IOException {
-        byte[] arr = new byte[(1 << this.blockLog) + 1];
-        for (int i = 0; i < arr.length; i++) {
-            arr[i] = (byte) i;
+    public void putFile(@NonNull Path path, @NonNull ByteBuf contents) throws IOException {
+        int newCount = path.getNameCount();
+
+        int highestCommonIndex = -1;
+        if (this.lastPath != null) {
+            int oldCount = this.lastPath.getNameCount();
+            for (int i = 0, lim = min(newCount, oldCount) - 1; i < lim; i++) {
+                if (!path.getName(i).equals(this.lastPath.getName(i))) {
+                    for (; i < oldCount - 1; i++) {
+                        this.directoryTable.endDirectory();
+                    }
+                    break;
+                } else {
+                    highestCommonIndex = i;
+                }
+            }
         }
-        for (int i = 0; i < 123; i++) {
-            this.directoryTable.startDirectory(String.format("%03d", i));
-            this.directoryTable.addFile("asdf", Unpooled.copiedBuffer("hello world!", StandardCharsets.UTF_8));
-            this.directoryTable.addFile("jklo", Unpooled.wrappedBuffer(arr));
-            this.directoryTable.endDirectory();
+        for (int i = highestCommonIndex + 1; i < newCount - 1; i++) {
+            this.directoryTable.startDirectory(path.getName(i).toString());
         }
 
-        this.directoryTable.addFile(name, contents);
+        this.directoryTable.addFile(path.getFileName().toString(), contents);
+        this.lastPath = path;
     }
 
-    public void finish(@NonNull Path file) throws IOException {
-        try (FileChannel channel = FileChannel.open(file, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW)) {
-            writeFully(channel, Unpooled.wrappedBuffer(new byte[SUPERBLOCK_BYTES])); //write blank superblock
-
+    @Override
+    public void close() throws IOException {
+        try {
             Superblock superblock = new Superblock()
                     .modification_time(TimeUnit.MILLISECONDS.toSeconds(System.currentTimeMillis()))
                     .block_log(this.blockLog)
@@ -98,41 +114,36 @@ public final class SquashfsBuilder implements AutoCloseable {
                     .flags(NO_XATTRS)
                     .compression_id(this.compression.id());
 
-            this.fragmentTable.finish(channel, superblock);
-            this.blockTable.finish(channel, superblock);
-            this.directoryTable.finish(channel, superblock);
-            this.idTable.finish(channel, superblock);
+            this.fragmentTable.finish(this.channel, superblock);
+            this.blockTable.finish(this.channel, superblock);
+            this.directoryTable.finish(this.channel, superblock);
+            this.idTable.finish(this.channel, superblock);
 
-            this.blockTable.transferTo(channel, superblock);
             superblock.xattr_id_table_start(0xFFFFFFFFL); //xattr table?
-            this.directoryTable.transferTo(channel,superblock);
-            this.fragmentTable.transferTo(channel, superblock);
+            this.directoryTable.transferTo(this.channel, superblock);
+            this.fragmentTable.transferTo(this.channel, superblock);
             superblock.export_table_start(0xFFFFFFFFL); //export table?
-            this.idTable.transferTo(channel, superblock); //apparently the id table needs to be at the end
+            this.idTable.transferTo(this.channel, superblock); //apparently the id table needs to be at the end
 
-            superblock.bytes_used(channel.position());
-
-            channel.position(0L);
+            superblock.bytes_used(this.channel.position());
+            this.channel.position(0L);
 
             SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
             ByteBuf buf = recycler.get();
             try {
                 superblock.write(buf);
                 checkState(buf.readableBytes() == SUPERBLOCK_BYTES);
-                writeFully(channel, buf);
+                writeFully(this.channel, buf);
             } finally {
                 recycler.release(buf);
             }
+        } finally {
+            this.idTable.close();
+            this.directoryTable.close();
+            this.blockTable.close();
+            this.fragmentTable.close();
+
+            Files.delete(this.root);
         }
-    }
-
-    @Override
-    public void close() throws IOException {
-        this.idTable.close();
-        this.directoryTable.close();
-        this.blockTable.close();
-        this.fragmentTable.close();
-
-        Files.delete(this.root);
     }
 }

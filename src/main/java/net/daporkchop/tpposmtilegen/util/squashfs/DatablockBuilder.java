@@ -20,45 +20,135 @@
 
 package net.daporkchop.tpposmtilegen.util.squashfs;
 
+import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
+import lombok.SneakyThrows;
+import net.daporkchop.lib.common.function.io.IORunnable;
+import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinTask;
+import java.util.concurrent.Semaphore;
 
+import static java.lang.Math.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Utils.*;
 import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
 
 /**
  * @author DaPorkchop_
  */
-class DatablockBuilder extends CompressedBlockSequence {
-    public DatablockBuilder(@NonNull Compression compression, @NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
-        super(compression, root, parent);
+final class DatablockBuilder implements ISquashfsBuilder {
+    protected final SquashfsBuilder parent;
+
+    protected final Path root;
+
+    protected final Path indexFile;
+    protected final FileChannel indexChannel;
+
+    protected final Semaphore lock = new Semaphore(PorkUtil.CPU_COUNT);
+
+    protected long writtenBlocks = 0L;
+
+    public DatablockBuilder(@NonNull Path root, @NonNull SquashfsBuilder parent) throws IOException {
+        this.parent = parent;
+
+        this.root = Files.createDirectories(root);
+
+        this.indexFile = this.root.resolve("index");
+        this.indexChannel = FileChannel.open(this.indexFile, StandardOpenOption.READ, StandardOpenOption.WRITE, StandardOpenOption.CREATE_NEW);
     }
 
-    @Override
-    protected String name() {
-        return "data blocks";
+    public long writeBlocks(@NonNull ByteBuf buffer, int blocks, boolean sync) {
+        int blockSize = 1 << this.parent.blockLog;
+        checkArg(positive(buffer.readableBytes(), "readable bytes") > (positive(blocks, "blocks") - 1) * blockSize);
+
+        long blockIndex = this.writtenBlocks;
+        this.writtenBlocks += blocks;
+
+        buffer.retain();
+
+        this.lock.acquireUninterruptibly();
+        ForkJoinTask<?> task = ForkJoinPool.commonPool().submit((IORunnable) () -> {
+            SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+            ByteBuf compressedBuffer = recycler.get();
+            ByteBuf indexBuffer = recycler.get();
+            try {
+                for (int i = 0; i < blocks; i++) {
+                    indexBuffer.writeIntLE(this.compress(buffer.readSlice(min(buffer.readableBytes(), blockSize)), compressedBuffer))
+                            .writeLongLE(-1L);
+                }
+
+                synchronized (this.parent.channel) {
+                    long pos = this.parent.channel.position();
+                    for (int i = 0, off = 0; i < blocks; i++) {
+                        indexBuffer.setLongLE(i * 12 + 4, pos + off);
+                        off += indexBuffer.getIntLE(i * 12) & ~DATA_BLOCK_UNCOMPRESSED_FLAG;
+                    }
+
+                    writeFully(this.parent.channel, compressedBuffer);
+                    writeFully(this.indexChannel, blockIndex * 12L, indexBuffer);
+                }
+            } finally {
+                this.lock.release();
+                recycler.release(indexBuffer);
+                recycler.release(compressedBuffer);
+                buffer.release();
+            }
+        });
+        if (sync) {
+            task.join();
+        }
+
+        return blockIndex;
     }
 
-    @Override
-    protected int blockSize0() {
-        return 1 << this.parent.blockLog;
+    protected int compress(ByteBuf readBuffer, ByteBuf writeBuffer) throws IOException {
+        int count = readBuffer.readableBytes();
+        int oldWriteIndex = writeBuffer.writerIndex();
+        this.parent.compression.compress(readBuffer, writeBuffer);
+
+        if (writeBuffer.writerIndex() - oldWriteIndex >= count) {
+            writeBuffer.writerIndex(oldWriteIndex).writeBytes(readBuffer.readerIndex(0));
+            return count | DATA_BLOCK_UNCOMPRESSED_FLAG;
+        }
+        return writeBuffer.writerIndex() - oldWriteIndex;
     }
 
-    @Override
-    protected int toReferenceSize(boolean uncompressed, int compressedSize) {
-        return uncompressed ? compressedSize | DATA_BLOCK_UNCOMPRESSED_FLAG : compressedSize;
+    @SneakyThrows(IOException.class)
+    public DatablockReference getReference(long idx) {
+        SimpleRecycler<ByteBuf> recycler = IO_BUFFER_RECYCLER.get();
+        ByteBuf buf = recycler.get();
+        try {
+            readFully(this.indexChannel, idx * 12L, buf, 12);
+            return new DatablockReference(buf.readIntLE(), buf.readLongLE());
+        } finally {
+            recycler.release(buf);
+        }
     }
 
     @Override
     public void finish(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
-        super.finish(channel, superblock);
-        super.transferTo(channel, superblock);
+        this.lock.acquireUninterruptibly(PorkUtil.CPU_COUNT);
+        this.lock.release(PorkUtil.CPU_COUNT);
     }
 
     @Override
     public void transferTo(@NonNull FileChannel channel, @NonNull Superblock superblock) throws IOException {
+    }
+
+    @Override
+    public void close() throws IOException {
+        this.indexChannel.close();
+        Files.delete(this.indexFile);
+
+        Files.delete(this.root);
     }
 }
