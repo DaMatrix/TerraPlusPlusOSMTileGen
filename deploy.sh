@@ -20,4 +20,6 @@
 
 #!/bin/bash
 
-rsync --progress -r build/install/T++OSMTileGen/ /home/daporkchop/10.0.0.20/gis/T++OSMTileGen/
+rm /home/daporkchop/10.0.0.20/gis/T++OSMTileGen/lib/T++OSMTileGen-0.0.1.jar
+cp build/install/T++OSMTileGen/lib/T++OSMTileGen-0.0.1.jar /home/daporkchop/10.0.0.20/gis/T++OSMTileGen/lib/
+#rsync --progress -r build/install/T++OSMTileGen/ /home/daporkchop/10.0.0.20/gis/T++OSMTileGen/

@@ -24,10 +24,13 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.io.File;
+import java.util.Scanner;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -50,11 +53,33 @@ public class Update implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: update <index_dir> <tile_dir>");
+        checkArg(args.length == 1, "Usage: update <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (Storage storage = new Storage(src.toPath())) {
-            Updater.update(storage);
+        try (Storage storage = new Storage(src.toPath());
+             DBAccess txn = storage.db().newTransaction();
+             Serve.Server server = new Serve.Server(8080, storage, txn)) {
+            Updater updater = new Updater(storage);
+            try (Scanner scanner = new Scanner(System.in)) {
+                LOOP:
+                while (true) {
+                    String command = scanner.nextLine();
+                    switch (command) {
+                        case "rollback":
+                            txn.clear();
+                            logger.info("Rolled back changes.");
+                            break;
+                        case "update":
+                            logger.info("update result: %b", updater.update(storage, txn));
+                            break;
+                        case "stop":
+                            break LOOP;
+                        default:
+                            logger.error("Unknown command: %s", command);
+                    }
+                }
+            }
+            txn.clear();
         }
     }
 }

@@ -25,7 +25,6 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.NonNull;
-import lombok.experimental.UtilityClass;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
@@ -33,12 +32,8 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 
 import java.io.FileNotFoundException;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.Arrays;
-import java.util.List;
 import java.util.function.LongPredicate;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -49,10 +44,11 @@ import static net.daporkchop.lib.logging.Logging.*;
  *
  * @author DaPorkchop_
  */
-@UtilityClass
 public class Updater {
-    public void update(@NonNull Storage storage) throws Exception {
-        ChangesetState globalState = storage.getChangesetState();
+    protected final ChangesetState globalState;
+
+    public Updater(@NonNull Storage storage) throws Exception {
+        this.globalState = storage.getChangesetState();
 
         long sequenceNumber = storage.sequenceNumber().get(storage.db().read());
         if (sequenceNumber < 0L) { //compute sequence number
@@ -63,7 +59,7 @@ public class Updater {
 
             //binary search to find sequence number from timestamp
             long min = 0;
-            long max = globalState.sequenceNumber();
+            long max = this.globalState.sequenceNumber();
             while (min <= max) {
                 long middle = (min + max) >> 1L;
                 long middleTimestamp;
@@ -88,40 +84,31 @@ public class Updater {
             try (DBAccess batch = storage.db().newNotAutoFlushingWriteBatch()) {
                 storage.sequenceNumber().set(batch, min - 60L);
             }
-            sequenceNumber = min - 60L;
         } else if (storage.replicationTimestamp().get() < 0L) { //set timestamp
             storage.replicationTimestamp().set(storage.getChangesetState(sequenceNumber).timestamp().toEpochMilli() / 1000L);
         }
+    }
+
+    public boolean update(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
+        long sequenceNumber = storage.sequenceNumber().get(access);
 
         Instant now = Instant.ofEpochSecond(storage.replicationTimestamp().get());
-        logger.info("current: %d (%s)\nlatest: %d (%s)", sequenceNumber, now, globalState.sequenceNumber(), globalState.timestamp());
+        logger.info("current: %d (%s)\nlatest: %d (%s)", sequenceNumber, now, this.globalState.sequenceNumber(), this.globalState.timestamp());
 
-        if (sequenceNumber >= globalState.sequenceNumber()) {
-            logger.info("nothing to do...");
-            return;
+        if (sequenceNumber >= this.globalState.sequenceNumber()) {
+            return false;
         }
 
         logger.info("updating...");
         ChangesetState state = storage.getChangesetState(sequenceNumber);
-        try {
-            for (; sequenceNumber < globalState.sequenceNumber(); sequenceNumber = storage.sequenceNumber().get(storage.db().read())) {
-                long next = sequenceNumber + 1L;
-                ChangesetState nextState = storage.getChangesetState(next);
-                logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
+        long next = sequenceNumber + 1L;
+        ChangesetState nextState = storage.getChangesetState(next);
+        logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
-                Changeset changeset = storage.getChangeset(next);
-                try (DBAccess txn = storage.db().newTransaction()) {
-                    applyChanges(storage, txn, now, changeset);
-                    storage.sequenceNumber().set(txn, next);
-                }
-
-                storage.dirtyTiles().clear();
-
-                state = nextState;
-            }
-        } catch (Throwable t) {
-            logger.alert(t);
-        }
+        Changeset changeset = storage.getChangeset(next);
+        this.applyChanges(storage, access, now, changeset);
+        storage.sequenceNumber().set(access, next);
+        return true;
     }
 
     private void applyChanges(Storage storage, DBAccess access, Instant now, Changeset changeset) throws Exception {
@@ -132,17 +119,17 @@ public class Updater {
             switch (entry.op()) {
                 case CREATE:
                     for (Changeset.Element element : entry.elements()) {
-                        create(storage, access, element, changedIds);
+                        this.create(storage, access, element, changedIds);
                     }
                     break;
                 case MODIFY:
                     for (Changeset.Element element : entry.elements()) {
-                        modify(storage, access, element, changedIds);
+                        this.modify(storage, access, element, changedIds);
                     }
                     break;
                 case DELETE:
                     for (Changeset.Element element : entry.elements()) {
-                        delete(storage, access, element, changedIds);
+                        this.delete(storage, access, element, changedIds);
                     }
                     break;
             }
@@ -218,7 +205,7 @@ public class Updater {
             Point point = storage.points().get(access, id);
             if (point == null) {
                 logger.warn("attempting to modify non-existent node with id %d, assuming that it's newly re-created!", id);
-                create(storage, access, element, changedIds);
+                this.create(storage, access, element, changedIds);
                 return;
             }
 
@@ -233,7 +220,7 @@ public class Updater {
             Way way = storage.ways().get(access, id);
             if (way == null) {
                 logger.warn("attempting to modify non-existent way with id %d, assuming that it's newly re-created!", id);
-                create(storage, access, element, changedIds);
+                this.create(storage, access, element, changedIds);
                 return;
             }
 
@@ -254,7 +241,7 @@ public class Updater {
             Relation relation = storage.relations().get(access, id);
             if (relation == null) {
                 logger.warn("attempting to modify non-existent relation with id %d, assuming that it's newly re-created!", id);
-                create(storage, access, element, changedIds);
+                this.create(storage, access, element, changedIds);
                 return;
             }
 
@@ -276,7 +263,7 @@ public class Updater {
 
         //this will force the element's tile intersections and references to be re-computed
         changedIds.add(combinedId);
-        markReferentsDirty(storage, access, changedIds, combinedId);
+        this.markReferentsDirty(storage, access, changedIds, combinedId);
     }
 
     private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
@@ -284,20 +271,17 @@ public class Updater {
         long combinedId = Element.addTypeToId(element.type(), id);
 
         if (element instanceof Changeset.Node) {
-            Changeset.Node changedNode = (Changeset.Node) element;
             Point point = storage.points().get(access, id);
             checkState(point != null, "node with id %d doesn't exist", id);
 
             storage.points().delete(access, id);
             storage.nodes().delete(access, id);
         } else if (element instanceof Changeset.Way) {
-            Changeset.Way changedWay = (Changeset.Way) element;
             Way way = storage.ways().get(access, id);
             checkState(way != null, "way with id %d doesn't exist", id);
 
             storage.ways().delete(access, id);
         } else if (element instanceof Changeset.Relation) {
-            Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation relation = storage.relations().get(access, id);
             checkState(relation != null, "relation with id %d doesn't exist", id);
 
@@ -306,7 +290,7 @@ public class Updater {
 
         //this will force the element's tile intersections and references to be re-computed
         changedIds.add(combinedId);
-        markReferentsDirty(storage, access, changedIds, combinedId);
+        this.markReferentsDirty(storage, access, changedIds, combinedId);
     }
 
     private void markReferentsDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
@@ -318,7 +302,7 @@ public class Updater {
         for (int i = 0, size = referents.size(); i < size; i++) {
             long referent = referents.getLong(i);
             if (changedIds.add(referent)) {
-                markReferentsDirty(storage, access, changedIds, referent);
+                this.markReferentsDirty(storage, access, changedIds, referent);
             }
         }
     }

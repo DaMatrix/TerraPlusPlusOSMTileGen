@@ -31,10 +31,10 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public class Purge implements IMode {
+public class PurgeGeometry implements IMode {
     @Override
     public String name() {
-        return "purge";
+        return "purge_geometry";
     }
 
     @Override
@@ -44,12 +44,12 @@ public class Purge implements IMode {
 
     @Override
     public String help() {
-        return "Deletes all indices.";
+        return "Deletes all geometry.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: purge <index_dir>");
+        checkArg(args.length == 1, "Usage: purge_geometry <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {

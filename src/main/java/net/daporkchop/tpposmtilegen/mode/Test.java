@@ -20,15 +20,21 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
+import io.netty.util.AsciiString;
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.throwing.EBiConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
+import java.nio.ByteBuffer;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -56,16 +62,66 @@ public class Test implements IMode {
         checkArg(args.length == 1, "Usage: test <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
+        //stupidly inefficient code to fix broken file names
         try (Storage storage = new Storage(src.toPath())) {
-            try (DBAccess access = storage.db().read()) {
-                long id = 317213289L;
-                long combinedId = Element.addTypeToId(Relation.TYPE, id);
-                Element element = storage.getElement(access, combinedId);
-                checkState(element != null, "unable to find element!");
-                Geometry geometry = element.toGeometry(storage, access);
-                checkState(geometry != null, "unable to assemble geometry!");
-                System.out.println(geometry);
+            Ref<Matcher> regexCache = ThreadRef.regex(Pattern.compile("(0/(?:coastline|(?:relation|way)/\\d{3})/\\d{3}/)(\\d{1,2})\\.json"));
+            Ref<StringBuffer> bufferCache = ThreadRef.late(StringBuffer::new);
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Fix external file names").slot("skipped").slot("renamed").slot("modified").slot("modified and renamed").build()) {
+                storage.files().forEachParallel(storage.db().read(), (EBiConsumer<String, ByteBuffer>) (path, buffer) -> {
+                    try {
+                        Matcher matcher = regexCache.get();
+
+                        boolean content = false;
+
+                        String replacedContent = this.replace(bufferCache, matcher.reset(new AsciiString(buffer.array(), false)));
+                        if (replacedContent != null) {
+                            buffer = Geometry.toBytes(replacedContent);
+                            content = true;
+                        }
+
+                        String replacedName = this.replace(bufferCache, matcher.reset(path));
+                        boolean name = replacedName != null;
+
+                        if (content | name) {
+                            if (buffer.hasArray()) {
+                                buffer = ByteBuffer.allocateDirect(buffer.array().length).put(buffer.array());
+                                buffer.flip();
+                            }
+                            storage.files().put(storage.db().batch(), name ? replacedName : path, buffer);
+                            if (name) {
+                                storage.files().delete(storage.db().batch(), path);
+                            }
+                        }
+
+                        if (content && name) {
+                            notifier.step(3);
+                        } else if (content) {
+                            notifier.step(2);
+                        } else if (name) {
+                            notifier.step(1);
+                        } else {
+                            notifier.step(0);
+                        }
+                    } finally {
+                        if (!buffer.hasArray()) {
+                            PUnsafe.pork_releaseBuffer(buffer);
+                        }
+                    }
+                });
             }
         }
+    }
+
+    private String replace(@NonNull Ref<StringBuffer> bufCache, @NonNull Matcher matcher) {
+        if (matcher.find()) {
+            StringBuffer buf = bufCache.get();
+            buf.setLength(0);
+            do {
+                matcher.appendReplacement(buf, matcher.group(1) + String.format("%03d", Integer.parseUnsignedInt(matcher.group(2))) + ".json");
+            } while (matcher.find());
+            matcher.appendTail(buf);
+            return buf.toString();
+        }
+        return null;
     }
 }

@@ -113,6 +113,7 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public void clear() throws Exception {
+        this.transaction.rollback();
     }
 
     @Override

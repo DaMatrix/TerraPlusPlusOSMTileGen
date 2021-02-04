@@ -57,6 +57,7 @@ public class PurgeOSM implements IMode {
             storage.points().clear();
             storage.ways().clear();
             storage.relations().clear();
+            storage.references().clear();
             storage.sequenceNumber().clear();
         }
     }
