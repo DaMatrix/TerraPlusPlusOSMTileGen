@@ -50,7 +50,7 @@ public class Export implements IMode {
 
     @Override
     public String synopsis() {
-        return "<index_dir> <squashfs>";
+        return "<index_dir> <squashfs> <compression>";
     }
 
     @Override
@@ -60,12 +60,12 @@ public class Export implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: export <index_dir> <squashfs>");
+        checkArg(args.length == 3, "Usage: export <index_dir> <squashfs> <compression>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         Path dst = Paths.get(args[1]);
 
         try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true)) {
-            try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
+            try (SquashfsBuilder builder = new SquashfsBuilder(Squash.compressionForName(args[2]), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Export files")
                          .slot("files").build()) {
                 storage.files().forEach(storage.db().read(),

@@ -33,8 +33,6 @@ import java.io.File;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantLock;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -67,8 +65,7 @@ public class ServeWithUpdates implements IMode {
         try (Storage storage = new Storage(src.toPath(), lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS);
              Serve.Server server = new Serve.Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             AtomicBoolean running = new AtomicBoolean(true);
-            Lock lock = new ReentrantLock();
-            new Thread((ERunnable) () -> {
+            Thread updateThread = new Thread((ERunnable) () -> {
                 while (running.get()) {
                     logger.info("Checking for updates...");
                     Updater updater = new Updater(storage);
@@ -82,14 +79,9 @@ public class ServeWithUpdates implements IMode {
                             }
                         });
 
-                        lock.lock();
-                        try {
-                            thread.start();
-                            thread.join();
-                            updateCount++;
-                        } finally {
-                            lock.unlock();
-                        }
+                        thread.start();
+                        thread.join();
+                        updateCount++;
                     } while (running.get() && result[0]);
 
                     if (updateCount == 0) {
@@ -98,15 +90,21 @@ public class ServeWithUpdates implements IMode {
                         logger.info("Processed %d changesets.", updateCount);
                     }
                     if (running.get()) {
-                        Thread.sleep(TimeUnit.MINUTES.toMillis(1L));
+                        try {
+                            Thread.sleep(TimeUnit.MINUTES.toMillis(1L));
+                        } catch (InterruptedException ignores) {
+                            //exit silently
+                        }
                     }
                 }
-            }).start();
+            });
+            updateThread.start();
 
             new Scanner(System.in).nextLine();
             logger.info("Waiting for update thread to stop...");
             running.set(false);
-            lock.lock();
+            updateThread.interrupt();
+            updateThread.join();
         }
     }
 }

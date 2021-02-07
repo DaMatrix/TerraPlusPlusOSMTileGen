@@ -29,6 +29,9 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.Compression;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.GzipCompression;
+import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.ZstdCompression;
 
 import java.io.File;
@@ -50,6 +53,19 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
  * @author DaPorkchop_
  */
 public class Squash implements IMode {
+    static Compression compressionForName(@NonNull String name) {
+        switch (name) {
+            case "none":
+                return NoCompression.INSTANCE;
+            case "gzip":
+                return new GzipCompression();
+            case "zstd":
+                return new ZstdCompression();
+            default:
+                throw new IllegalArgumentException("unknown compression mode (valid options: none, gzip, zstd)");
+        }
+    }
+
     @Override
     public String name() {
         return "squash";
@@ -57,7 +73,7 @@ public class Squash implements IMode {
 
     @Override
     public String synopsis() {
-        return "<src_dir> <squashfs>";
+        return "<src_dir> <squashfs> <compression>";
     }
 
     @Override
@@ -67,10 +83,10 @@ public class Squash implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: squash <src_dir> <squashfs>");
+        checkArg(args.length == 3, "Usage: squash <src_dir> <squashfs> <compression>");
         Path dst = Paths.get(args[1]);
 
-        try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
+        try (SquashfsBuilder builder = new SquashfsBuilder(compressionForName(args[2]), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
              ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Squash")
                      .slot("files").slot("directories").build()) {
             this.squashRecursive(builder, notifier, null, Paths.get(args[0]));
