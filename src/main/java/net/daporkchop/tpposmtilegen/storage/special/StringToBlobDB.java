@@ -29,16 +29,34 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
+import org.rocksdb.Slice;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.function.BiConsumer;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
  */
 public final class StringToBlobDB extends WrappedRocksDB {
+    static byte[] next(@NonNull byte[] curr) {
+        int len = curr.length;
+        byte[] next = new byte[len + 1];
+        System.arraycopy(curr, 0, next, 0, len - 1);
+        next[len - 1] = (byte) '0';
+        next[len] = (byte) '/';
+        return next;
+    }
+
     public StringToBlobDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
         super(database, column, desc);
     }
@@ -57,6 +75,43 @@ public final class StringToBlobDB extends WrappedRocksDB {
     public ByteBuffer get(@NonNull DBAccess access, @NonNull String key) throws Exception {
         byte[] arr = access.get(this.column, key.getBytes(StandardCharsets.US_ASCII));
         return arr != null ? ByteBuffer.wrap(arr) : null;
+    }
+
+    public List<String> listChildren(@NonNull DBAccess access, @NonNull String in) throws Exception { //my god this is bad
+        if (!in.endsWith("/")) {
+            in += '/';
+        }
+        boolean root = "/".equals(in);
+        if (root) {
+            in = "";
+        }
+
+        byte[] lowKey = in.getBytes(StandardCharsets.US_ASCII);
+        int prefixLength = in.length();
+
+        try (Slice lowerBound = root ? null : new Slice(lowKey);
+             Slice upperBound = root ? null : new Slice(next(lowKey));
+             ReadOptions options = root ? null : new ReadOptions(Database.READ_OPTIONS)
+                     .setIterateLowerBound(lowerBound)
+                     .setIterateUpperBound(upperBound);
+             RocksIterator itr = access.iterator(this.column, root ? Database.READ_OPTIONS : options)) {
+            List<String> children = new ArrayList<>();
+            for (itr.seekToFirst(); itr.isValid();) {
+                byte[] key = itr.key();
+                String child = new String(key, prefixLength, key.length - prefixLength, StandardCharsets.US_ASCII);
+                boolean directory = child.indexOf('/') >= 0;
+                if (directory) {
+                    child = child.substring(0, child.indexOf('/') + 1);
+                }
+                children.add(child);
+                if (directory) {
+                    itr.seek(next((in + child).getBytes(StandardCharsets.US_ASCII)));
+                } else {
+                    itr.next();
+                }
+            }
+            return children.isEmpty() ? null : children;
+        }
     }
 
     public void forEach(@NonNull DBAccess access, @NonNull BiConsumer<String, ByteBuffer> callback) throws Exception {

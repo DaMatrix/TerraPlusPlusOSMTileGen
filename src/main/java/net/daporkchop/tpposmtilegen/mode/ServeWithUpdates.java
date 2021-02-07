@@ -20,30 +20,21 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import io.netty.handler.codec.http.FullHttpRequest;
-import io.netty.handler.codec.http.HttpMethod;
-import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.http.HttpServer;
-import net.daporkchop.tpposmtilegen.http.exception.HttpException;
-import net.daporkchop.tpposmtilegen.http.handle.HttpHandler;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import org.rocksdb.DBOptions;
 
 import java.io.File;
-import java.net.InetSocketAddress;
-import java.nio.ByteBuffer;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -73,42 +64,49 @@ public class ServeWithUpdates implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (DBOptions options = new DBOptions(Database.DB_OPTIONS)) {
-            if (lite) {
-                options.setMaxOpenFiles(64).setMaxFileOpeningThreads(1);
-            }
-            try (Storage storage = new Storage(src.toPath(), options);
-                 Serve.Server server = new Serve.Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
-                Thread updateThread = new FastThreadLocalThread((ERunnable) () -> {
-                    try {
-                        while (true) {
-                            logger.info("Checking for updates...");
-                            Updater updater = new Updater(storage);
-                            int updateCount = 0;
-                            try (DBAccess txn = storage.db().newTransaction()) {
-                                while (!Thread.interrupted() && updater.update(storage, txn)) {
-                                    updateCount++;
-                                    txn.flush(true); //commit changes
-                                }
-                            }
-                            if (updateCount == 0) {
-                                logger.info("No updates found.");
-                            } else {
-                                logger.info("Processed %d changesets.", updateCount);
-                            }
-                            Thread.sleep(TimeUnit.MINUTES.toMillis(1L));
-                        }
-                    } catch (InterruptedException ignored) {
-                        //exit silently
-                    }
-                });
-                updateThread.start();
+        try (Storage storage = new Storage(src.toPath(), lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS);
+             Serve.Server server = new Serve.Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
+            AtomicBoolean running = new AtomicBoolean(true);
+            Lock lock = new ReentrantLock();
+            new Thread((ERunnable) () -> {
+                while (running.get()) {
+                    logger.info("Checking for updates...");
+                    Updater updater = new Updater(storage);
+                    int updateCount = 0;
 
-                new Scanner(System.in).nextLine();
-                logger.info("Waiting for update thread to stop...");
-                updateThread.interrupt();
-                updateThread.join();
-            }
+                    boolean[] result = new boolean[1];
+                    do {
+                        Thread thread = new FastThreadLocalThread((ERunnable) () -> {
+                            try (DBAccess txn = storage.db().newTransaction()) {
+                                result[0] = updater.update(storage, txn);
+                            }
+                        });
+
+                        lock.lock();
+                        try {
+                            thread.start();
+                            thread.join();
+                            updateCount++;
+                        } finally {
+                            lock.unlock();
+                        }
+                    } while (running.get() && result[0]);
+
+                    if (updateCount == 0) {
+                        logger.info("No updates found.");
+                    } else {
+                        logger.info("Processed %d changesets.", updateCount);
+                    }
+                    if (running.get()) {
+                        Thread.sleep(TimeUnit.MINUTES.toMillis(1L));
+                    }
+                }
+            }).start();
+
+            new Scanner(System.in).nextLine();
+            logger.info("Waiting for update thread to stop...");
+            running.set(false);
+            lock.lock();
         }
     }
 }

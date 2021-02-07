@@ -37,7 +37,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 class AutoFlushingWriteBatch extends FlushableWriteBatch {
     protected final long threshold;
 
-    public AutoFlushingWriteBatch(OptimisticTransactionDB db, long threshold) {
+    public AutoFlushingWriteBatch(RocksDB db, long threshold) {
         super(db);
 
         this.threshold = positive(threshold, "threshold");

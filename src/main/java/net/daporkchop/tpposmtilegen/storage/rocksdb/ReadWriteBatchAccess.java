@@ -25,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
@@ -38,7 +39,7 @@ final class ReadWriteBatchAccess implements DBAccess {
     @NonNull
     protected final DBAccess delegate;
     @NonNull
-    protected final OptimisticTransactionDB db;
+    protected final RocksDB db;
 
     @Override
     public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {

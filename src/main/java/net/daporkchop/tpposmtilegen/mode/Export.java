@@ -25,6 +25,7 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.function.io.IOBiConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.squashfs.SquashfsBuilder;
 import net.daporkchop.tpposmtilegen.util.squashfs.compression.NoCompression;
@@ -63,7 +64,7 @@ public class Export implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         Path dst = Paths.get(args[1]);
 
-        try (Storage storage = new Storage(src.toPath())) {
+        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true)) {
             try (SquashfsBuilder builder = new SquashfsBuilder(new ZstdCompression(), dst.resolveSibling(dst.getFileName().toString() + ".tmp"), dst, 19);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Export files")
                          .slot("files").build()) {

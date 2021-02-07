@@ -59,10 +59,7 @@ public class CreateSnapshot implements IMode {
         checkArg(args.length == 2, "Usage: create_snapshot <index_dir> <snapshot_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (DBOptions options = new DBOptions(Database.DB_OPTIONS)
-                .setMaxOpenFiles(64)
-                .setMaxFileOpeningThreads(1);
-             Storage storage = new Storage(src.toPath(), options)) {
+        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true)) {
             storage.createSnapshot(Paths.get(args[1]));
         }
     }

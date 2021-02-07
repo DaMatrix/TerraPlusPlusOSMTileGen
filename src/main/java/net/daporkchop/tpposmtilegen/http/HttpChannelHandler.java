@@ -35,9 +35,9 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpResponse;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import io.netty.handler.codec.http.HttpUtil;
-import io.netty.util.AsciiString;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 
 import java.io.PrintWriter;
@@ -53,33 +53,27 @@ class HttpChannelHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
 
     @Override
     protected void channelRead0(ChannelHandlerContext ctx, FullHttpRequest request) throws Exception {
-        ByteBuf body;
-        AsciiString contentType = HttpHeaderValues.APPLICATION_JSON;
-        HttpResponseStatus status = HttpResponseStatus.OK;
+        Response tempResponse = new Response();
         try {
-            body = this.server.handler.handleRequest(request);
+            this.server.handler.handleRequest(request, tempResponse);
         } catch (HttpException e) {
-            if ((body = e.body()) != null) {
-                body.retain();
-            }
-            status = e.status();
+            tempResponse.status(e.status())
+                    .contentType(HttpHeaderValues.TEXT_PLAIN)
+                    .body(PorkUtil.fallbackIfNull(e.body(), Unpooled.EMPTY_BUFFER).retain());
         } catch (Exception e) {
-            contentType = HttpHeaderValues.TEXT_PLAIN;
-            status = HttpResponseStatus.BAD_REQUEST;
-            body = ByteBufAllocator.DEFAULT.buffer();
+            ByteBuf body = ByteBufAllocator.DEFAULT.buffer();
             try (PrintWriter writer = new PrintWriter(new ByteBufOutputStream(body))) {
                 e.printStackTrace(writer);
             }
+            tempResponse.contentType(HttpHeaderValues.TEXT_PLAIN)
+                    .status(HttpResponseStatus.INTERNAL_SERVER_ERROR)
+                    .body(body);
         }
 
-        HttpResponse response = new DefaultFullHttpResponse(request.protocolVersion(), status, body != null ? body : Unpooled.EMPTY_BUFFER);
+        HttpResponse response = new DefaultFullHttpResponse(request.protocolVersion(), tempResponse.status(), tempResponse.body());
 
-        if (body != null) {
-            response.headers().set(HttpHeaderNames.CONTENT_TYPE, contentType);
-            response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, body.readableBytes());
-        } else {
-            response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, 0);
-        }
+        response.headers().set(HttpHeaderNames.CONTENT_TYPE, tempResponse.contentType());
+        response.headers().setInt(HttpHeaderNames.CONTENT_LENGTH, tempResponse.body().readableBytes());
 
         boolean keepAlive = HttpUtil.isKeepAlive(request);
         if (keepAlive) {

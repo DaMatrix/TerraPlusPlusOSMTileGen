@@ -18,15 +18,15 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.http.handle;
+package net.daporkchop.tpposmtilegen.http;
 
-import io.netty.buffer.ByteBuf;
 import io.netty.handler.codec.http.FullHttpRequest;
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.http.Response;
 
 /**
  * @author DaPorkchop_
  */
 public interface HttpHandler {
-    ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception;
+    void handleRequest(@NonNull FullHttpRequest request, @NonNull Response response) throws Exception;
 }

@@ -25,6 +25,7 @@ import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.WriteBatch;
 
@@ -37,7 +38,7 @@ import java.util.List;
 @RequiredArgsConstructor
 class FlushableWriteBatch implements DBAccess {
     @NonNull
-    protected final OptimisticTransactionDB db;
+    protected final RocksDB db;
     protected final WriteBatch batch = new WriteBatch();
     protected boolean dirty = false;
 

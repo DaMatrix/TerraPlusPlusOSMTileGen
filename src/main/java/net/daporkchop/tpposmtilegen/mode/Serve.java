@@ -22,22 +22,28 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import lombok.NonNull;
+import net.daporkchop.lib.binary.oio.appendable.PAppendable;
+import net.daporkchop.lib.binary.oio.appendable.UTF8ByteBufAppendable;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.http.HttpServer;
+import net.daporkchop.tpposmtilegen.http.Response;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
-import net.daporkchop.tpposmtilegen.http.handle.HttpHandler;
+import net.daporkchop.tpposmtilegen.http.HttpHandler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import org.rocksdb.DBOptions;
 
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.util.List;
 import java.util.Scanner;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -67,10 +73,7 @@ public class Serve implements IMode {
         checkArg(args.length == 2, "Usage: serve <index_dir> <port>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (DBOptions options = new DBOptions(Database.DB_OPTIONS)
-                .setMaxOpenFiles(64)
-                .setMaxFileOpeningThreads(1);
-             Storage storage = new Storage(src.toPath(), options);
+        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true);
              Server server = new Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             new Scanner(System.in).nextLine();
         }
@@ -90,17 +93,36 @@ public class Serve implements IMode {
         }
 
         @Override
-        public ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception {
+        public void handleRequest(@NonNull FullHttpRequest request, @NonNull Response response) throws Exception {
             if (request.method() != HttpMethod.GET) {
                 throw new HttpException(HttpResponseStatus.METHOD_NOT_ALLOWED);
             }
 
-            ByteBuffer buffer = this.storage.files().get(this.access, request.uri().substring(1));
-            if (buffer == null) {
-                throw new HttpException(HttpResponseStatus.NOT_FOUND);
+            String path = request.uri().substring(1); //trim leading slash
+            if (path.isEmpty()) {
+                path = "/";
             }
 
-            return Unpooled.wrappedBuffer(buffer);
+            ByteBuffer buffer = this.storage.files().get(this.access, path);
+            if (buffer != null) {
+                response.contentType(HttpHeaderValues.APPLICATION_JSON)
+                        .status(HttpResponseStatus.OK)
+                        .body(Unpooled.wrappedBuffer(buffer));
+            } else {
+                List<String> children = this.storage.files().listChildren(this.access, path);
+                if (children == null) {
+                    throw new HttpException(HttpResponseStatus.NOT_FOUND);
+                }
+                ByteBuf body = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
+                response.contentType("text/html")
+                        .status(HttpResponseStatus.OK)
+                        .body(body);
+                try (PAppendable out = new UTF8ByteBufAppendable(body)) {
+                    out.append("<html><body><ul>");
+                    children.forEach((IOConsumer<String>) s -> out.appendFmt("<li><a href=\"%1$s\">%1$s</a></li>", s));
+                    out.appendLn("</ul></body></html>");
+                }
+            }
         }
 
         @Override

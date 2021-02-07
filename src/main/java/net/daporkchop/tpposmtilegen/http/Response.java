@@ -18,38 +18,28 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.http.handle;
+package net.daporkchop.tpposmtilegen.http;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.handler.codec.http.FullHttpRequest;
+import io.netty.buffer.Unpooled;
+import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpResponseStatus;
+import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.tpposmtilegen.http.exception.HttpException;
-
-import java.util.Comparator;
-import java.util.Map;
-import java.util.NavigableMap;
-import java.util.TreeMap;
+import lombok.Setter;
+import lombok.ToString;
 
 /**
  * @author DaPorkchop_
  */
-public class PathBasedRouter implements HttpHandler {
-    protected final NavigableMap<String, HttpHandler> routes = new TreeMap<>(Comparator.reverseOrder());
-
-    public PathBasedRouter put(@NonNull String prefix, @NonNull HttpHandler handler) {
-        this.routes.put(prefix, handler);
-        return this;
-    }
-
-    @Override
-    public ByteBuf handleRequest(@NonNull FullHttpRequest request) throws Exception {
-        String uri = request.uri();
-        Map.Entry<String, HttpHandler> entry = this.routes.floorEntry(uri);
-        if (entry == null || !uri.startsWith(entry.getKey())) {
-            throw new HttpException(HttpResponseStatus.NOT_FOUND);
-        }
-        request.setUri(uri.substring(entry.getKey().length())); //strip path
-        return entry.getValue().handleRequest(request);
-    }
+@Getter
+@Setter
+@ToString
+public class Response {
+    @NonNull
+    protected Object contentType = HttpHeaderValues.TEXT_PLAIN;
+    @NonNull
+    protected HttpResponseStatus status = HttpResponseStatus.OK;
+    @NonNull
+    protected ByteBuf body = Unpooled.EMPTY_BUFFER;
 }

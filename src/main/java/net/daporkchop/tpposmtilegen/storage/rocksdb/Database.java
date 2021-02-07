@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -43,8 +42,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -55,6 +52,7 @@ import static net.daporkchop.lib.logging.Logging.*;
  */
 public final class Database implements AutoCloseable {
     public static final DBOptions DB_OPTIONS;
+    public static final DBOptions DB_OPTIONS_LITE;
     public static final ColumnFamilyOptions COLUMN_OPTIONS;
     public static final ReadOptions READ_OPTIONS;
     public static final WriteOptions WRITE_OPTIONS;
@@ -77,6 +75,8 @@ public final class Database implements AutoCloseable {
                 .setAllowMmapWrites(true)
                 .setAdviseRandomOnOpen(true)
                 .setEnablePipelinedWrite(true);
+        DB_OPTIONS_LITE = new DBOptions(DB_OPTIONS)
+                .setMaxOpenFiles(CPU_COUNT << 1);
 
         COLUMN_OPTIONS = new ColumnFamilyOptions()
                 .setArenaBlockSize(1L << 20)
@@ -92,7 +92,7 @@ public final class Database implements AutoCloseable {
     }
 
     @Getter
-    private final OptimisticTransactionDB delegate;
+    private final RocksDB delegate;
     private final List<ColumnFamilyHandle> columns;
     private final DBAccess batch;
     private final DBAccess readWriteBatch;
@@ -100,7 +100,7 @@ public final class Database implements AutoCloseable {
     @Getter
     private final DBAccess read;
 
-    private Database(@NonNull OptimisticTransactionDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
+    private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
         this.delegate = delegate;
         this.columns = columns;
         this.batch = new ThreadLocalDBAccess(new CloseableThreadLocal<DBAccess>() {
@@ -114,19 +114,24 @@ public final class Database implements AutoCloseable {
     }
 
     public DBAccess batch() {
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return this.batch;
     }
 
     public DBAccess readWriteBatch() {
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return this.readWriteBatch;
     }
 
     public DBAccess newNotAutoFlushingWriteBatch() {
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return new FlushableWriteBatch(this.delegate);
     }
 
     public DBAccess newTransaction() {
-        return new TransactionAccess(this.delegate, this.delegate.beginTransaction(SYNC_WRITE_OPTIONS));
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        OptimisticTransactionDB delegate = (OptimisticTransactionDB) this.delegate;
+        return new TransactionAccess(delegate, delegate.beginTransaction(SYNC_WRITE_OPTIONS));
     }
 
     public void flush() throws Exception {
@@ -150,6 +155,7 @@ public final class Database implements AutoCloseable {
         private final List<ColumnFamilyDescriptor> columns = new ArrayList<>();
         private final List<Factory> factories = new ArrayList<>();
         private boolean autoFlush;
+        private boolean readOnly;
 
         public Builder() {
             this.columns.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, COLUMN_OPTIONS));
@@ -179,13 +185,15 @@ public final class Database implements AutoCloseable {
         public Database build(@NonNull Path path, @NonNull DBOptions options) throws Exception {
             List<ColumnFamilyHandle> columns = new ArrayList<>(this.columns.size());
 
-            OptimisticTransactionDB db;
+            RocksDB db;
             OPEN_DB:
             try {
-                db = OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
+                db = this.readOnly
+                        ? RocksDB.openReadOnly(options, path.toString(), this.columns, columns)
+                        : OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
             } catch (RocksDBException e) {
                 String s = e.getMessage().replace("You have to open all column families. Column families not opened: ", "");
-                if (s.length() != e.getMessage().length()) {
+                if (!this.readOnly && s.length() != e.getMessage().length()) {
                     for (String name : s.split(", ")) {
                         logger.warn("Deleting column family: %s", name);
                         this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), COLUMN_OPTIONS));

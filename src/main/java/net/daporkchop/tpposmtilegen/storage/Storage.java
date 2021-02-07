@@ -27,7 +27,6 @@ import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import lombok.Data;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
@@ -52,7 +51,6 @@ import net.daporkchop.tpposmtilegen.storage.map.NodeDB;
 import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
-import net.daporkchop.tpposmtilegen.storage.map.StringDB;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -62,7 +60,6 @@ import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.StringToBlobDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
@@ -76,11 +73,9 @@ import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Objects;
 import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -119,6 +114,10 @@ public final class Storage implements AutoCloseable {
     }
 
     public Storage(@NonNull Path root, @NonNull DBOptions options) throws Exception {
+        this(root, options, false);
+    }
+
+    public Storage(@NonNull Path root, @NonNull DBOptions options, boolean readOnly) throws Exception {
         this.root = root;
 
         this.db = new Database.Builder()
@@ -135,6 +134,7 @@ public final class Storage implements AutoCloseable {
                 .add("files", CompressionType.ZSTD_COMPRESSION, (database, handle, descriptor) -> this.files = new StringToBlobDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor))
                 .autoFlush(true)
+                .readOnly(readOnly)
                 .build(root.resolve("db"), options);
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
@@ -186,7 +186,7 @@ public final class Storage implements AutoCloseable {
 
         Element element = this.getElement(access, combinedId);
         if (element == null && !allowUnknown) {
-            throw new IllegalStateException(PStrings.fastFormat( "unknown %s %d", typeName, id));
+            throw new IllegalStateException(PStrings.fastFormat("unknown %s %d", typeName, id));
         }
 
         Geometry geometry;
@@ -239,7 +239,7 @@ public final class Storage implements AutoCloseable {
     public void exportDirtyTiles(@NonNull DBAccess access, boolean parallel) throws Exception {
         long count = this.dirtyTiles.count(access);
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write tiles")
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write dirty tiles")
                 .slot("tiles", count)
                 .build()) {
             if (parallel) {
@@ -247,6 +247,18 @@ public final class Storage implements AutoCloseable {
             } else {
                 this.dirtyTiles.forEach(access, this.exportTile(access, notifier));
             }
+        }
+        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Clear dirty tiles")
+                .slot("tiles", count)
+                .build()) {
+            this.dirtyTiles.forEach(access, tilePos -> {
+                try {
+                    this.dirtyTiles.unmarkDirty(access, tilePos);
+                } catch (Exception e) {
+                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
+                }
+                notifier.step(0);
+            });
         }
     }
 

@@ -27,7 +27,6 @@ import io.netty.channel.EventLoopGroup;
 import lombok.NonNull;
 import net.daporkchop.lib.network.nettycommon.PorkNettyHelper;
 import net.daporkchop.lib.network.nettycommon.transport.Transport;
-import net.daporkchop.tpposmtilegen.http.handle.HttpHandler;
 
 import java.net.InetSocketAddress;
 
