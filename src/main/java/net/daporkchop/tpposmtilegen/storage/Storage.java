@@ -352,6 +352,12 @@ public final class Storage implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
+        this.flush();
+
+        this.db.delegate().flushWal(true);
+        this.db.delegate().flush(Database.FLUSH_OPTIONS);
+        this.db.delegate().flushWal(true);
+
         this.replicationTimestamp.close();
 
         this.db.close();

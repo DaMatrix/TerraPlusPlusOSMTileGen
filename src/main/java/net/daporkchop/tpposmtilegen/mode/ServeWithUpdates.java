@@ -80,7 +80,12 @@ public class ServeWithUpdates implements IMode {
                         });
 
                         thread.start();
-                        thread.join();
+                        try {
+                            thread.join();
+                        } catch (InterruptedException ignored) {
+                            thread.join();
+                            result[0] = false;
+                        }
                         updateCount++;
                     } while (running.get() && result[0]);
 
@@ -92,7 +97,7 @@ public class ServeWithUpdates implements IMode {
                     if (running.get()) {
                         try {
                             Thread.sleep(TimeUnit.MINUTES.toMillis(1L));
-                        } catch (InterruptedException ignores) {
+                        } catch (InterruptedException ignored) {
                             //exit silently
                         }
                     }

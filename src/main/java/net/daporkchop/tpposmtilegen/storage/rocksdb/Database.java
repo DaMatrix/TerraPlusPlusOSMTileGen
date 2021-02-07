@@ -32,6 +32,7 @@ import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.FlushOptions;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -57,6 +58,7 @@ public final class Database implements AutoCloseable {
     public static final ReadOptions READ_OPTIONS;
     public static final WriteOptions WRITE_OPTIONS;
     public static final WriteOptions SYNC_WRITE_OPTIONS;
+    public static final FlushOptions FLUSH_OPTIONS;
 
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
@@ -89,6 +91,8 @@ public final class Database implements AutoCloseable {
         READ_OPTIONS = new ReadOptions();
         WRITE_OPTIONS = new WriteOptions();
         SYNC_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
+
+        FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true).setAllowWriteStall(true);
     }
 
     @Getter
