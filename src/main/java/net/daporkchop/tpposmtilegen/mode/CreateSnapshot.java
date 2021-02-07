@@ -22,14 +22,15 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import org.rocksdb.Checkpoint;
 import org.rocksdb.DBOptions;
+import org.rocksdb.RocksDB;
 
 import java.io.File;
-import java.util.Scanner;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -37,59 +38,32 @@ import static net.daporkchop.lib.logging.Logging.*;
 /**
  * @author DaPorkchop_
  */
-public class Update implements IMode {
+public class CreateSnapshot implements IMode {
     @Override
     public String name() {
-        return "update";
+        return "create_snapshot";
     }
 
     @Override
     public String synopsis() {
-        return "<index_dir>";
+        return "<index_dir> <snapshot_dir>";
     }
 
     @Override
     public String help() {
-        return "Updates the index and tiles by applying the latest changesets from the OpenStreetMap database.";
+        return "Creates a snapshot of the given index database.";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: update <index_dir>");
+        checkArg(args.length == 2, "Usage: create_snapshot <index_dir> <snapshot_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (DBOptions options = new DBOptions(Database.DB_OPTIONS)
-                        .setMaxOpenFiles(64)
-                        .setMaxFileOpeningThreads(1);
-                Storage storage = new Storage(src.toPath(), options);
-             DBAccess txn = storage.db().newTransaction();
-             Serve.Server server = new Serve.Server(8080, storage, txn)) {
-            Updater updater = new Updater(storage);
-            try (Scanner scanner = new Scanner(System.in)) {
-                LOOP:
-                while (true) {
-                    String command = scanner.nextLine();
-                    switch (command) {
-                        case "rollback":
-                            txn.clear();
-                            logger.info("Rolled back changes.");
-                            break;
-                        case "update":
-                            logger.info("update result: %b", updater.update(storage, txn));
-                            break;
-                        case "stop":
-                            break LOOP;
-                        case "commit":
-                            logger.info("Committing...");
-                            txn.flush(true);
-                            logger.success("Committed.");
-                            break;
-                        default:
-                            logger.error("Unknown command: %s", command);
-                    }
-                }
-            }
-            txn.clear();
+                .setMaxOpenFiles(64)
+                .setMaxFileOpeningThreads(1);
+             Storage storage = new Storage(src.toPath(), options)) {
+            storage.createSnapshot(Paths.get(args[1]));
         }
     }
 }

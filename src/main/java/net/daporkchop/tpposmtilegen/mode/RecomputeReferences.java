@@ -60,7 +60,7 @@ public class RecomputeReferences implements IMode {
         try (Storage storage = new Storage(src.toPath())) {
             storage.references().clear();
 
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble & index geometry")
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
                 LongObjConsumer<Element> func = (id, element) -> {

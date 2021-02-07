@@ -30,6 +30,7 @@ import net.daporkchop.lib.logging.format.FormatParser;
 import net.daporkchop.tpposmtilegen.mode.AssembleGeometry;
 import net.daporkchop.tpposmtilegen.mode.AssembleTiles;
 import net.daporkchop.tpposmtilegen.mode.Compact;
+import net.daporkchop.tpposmtilegen.mode.CreateSnapshot;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.Export;
@@ -39,6 +40,7 @@ import net.daporkchop.tpposmtilegen.mode.PurgeCoastlines;
 import net.daporkchop.tpposmtilegen.mode.PurgeOSM;
 import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Serve;
+import net.daporkchop.tpposmtilegen.mode.ServeWithUpdates;
 import net.daporkchop.tpposmtilegen.mode.Squash;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
@@ -61,6 +63,7 @@ public final class Main implements Runnable {
             new AssembleGeometry(),
             new AssembleTiles(),
             new Compact(),
+            new CreateSnapshot(),
             new DigestCoastlines(),
             new DigestPBF(),
             new Export(),
@@ -69,6 +72,7 @@ public final class Main implements Runnable {
             new PurgeOSM(),
             new RecomputeReferences(),
             new Serve(),
+            new ServeWithUpdates(),
             new Squash(),
             new Test(),
             new Update()

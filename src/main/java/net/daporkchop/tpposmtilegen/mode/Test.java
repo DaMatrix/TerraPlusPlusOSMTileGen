@@ -64,44 +64,21 @@ public class Test implements IMode {
 
         //stupidly inefficient code to fix broken file names
         try (Storage storage = new Storage(src.toPath())) {
-            Ref<Matcher> regexCache = ThreadRef.regex(Pattern.compile("(0/(?:coastline|(?:relation|way)/\\d{3})/\\d{3}/)(\\d{1,2})\\.json"));
+            Ref<Matcher> regexCache = ThreadRef.regex(Pattern.compile("(/)(\\d{1,2})\\.json"));
             Ref<StringBuffer> bufferCache = ThreadRef.late(StringBuffer::new);
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Fix external file names").slot("skipped").slot("renamed").slot("modified").slot("modified and renamed").build()) {
-                storage.files().forEachParallel(storage.db().read(), (EBiConsumer<String, ByteBuffer>) (path, buffer) -> {
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Fix json file names").slot("skipped").slot("modified").build()) {
+                storage.jsonStorage().forEachParallel(storage.db().read(), (id, buffer) -> {
                     try {
-                        Matcher matcher = regexCache.get();
-
-                        boolean content = false;
-
-                        String replacedContent = this.replace(bufferCache, matcher.reset(new AsciiString(buffer.array(), false)));
+                        String replacedContent = this.replace(bufferCache, regexCache.get().reset(new AsciiString(buffer.array(), false)));
                         if (replacedContent != null) {
                             buffer = Geometry.toBytes(replacedContent);
-                            content = true;
-                        }
-
-                        String replacedName = this.replace(bufferCache, matcher.reset(path));
-                        boolean name = replacedName != null;
-
-                        if (content | name) {
-                            if (buffer.hasArray()) {
-                                buffer = ByteBuffer.allocateDirect(buffer.array().length).put(buffer.array());
-                                buffer.flip();
-                            }
-                            storage.files().put(storage.db().batch(), name ? replacedName : path, buffer);
-                            if (name) {
-                                storage.files().delete(storage.db().batch(), path);
-                            }
-                        }
-
-                        if (content && name) {
-                            notifier.step(3);
-                        } else if (content) {
-                            notifier.step(2);
-                        } else if (name) {
+                            storage.jsonStorage().put(storage.db().batch(), id, buffer);
                             notifier.step(1);
                         } else {
                             notifier.step(0);
                         }
+                    } catch (Exception e) {
+                        throw new RuntimeException(e);
                     } finally {
                         if (!buffer.hasArray()) {
                             PUnsafe.pork_releaseBuffer(buffer);

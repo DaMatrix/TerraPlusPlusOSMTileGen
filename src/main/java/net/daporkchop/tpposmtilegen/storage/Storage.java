@@ -65,6 +65,7 @@ import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
+import org.rocksdb.Checkpoint;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 
@@ -318,6 +319,23 @@ public final class Storage implements AutoCloseable {
 
     public void flush() throws Exception {
         this.db.flush();
+    }
+
+    public void createSnapshot(@NonNull Path dst) throws Exception {
+        Path tmpDir = Files.createDirectories(dst.resolveSibling(dst.getFileName().toString() + ".tmp"));
+
+        logger.info("Constructing snapshot...");
+        try (Checkpoint checkpoint = Checkpoint.create(this.db.delegate())) {
+            logger.info("Creating snapshot...");
+            checkpoint.createCheckpoint(tmpDir.resolve("db").toString());
+        }
+
+        logger.info("Writing extra attributes...");
+        Files.write(tmpDir.resolve("replication_base_url.txt"), this.replicationBaseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+        new OffHeapAtomicLong(tmpDir.resolve("osm_replicationTimestamp"), this.replicationTimestamp.get()).close();
+
+        logger.info("Finishing up...");
+        Files.move(tmpDir, dst);
     }
 
     @Override
