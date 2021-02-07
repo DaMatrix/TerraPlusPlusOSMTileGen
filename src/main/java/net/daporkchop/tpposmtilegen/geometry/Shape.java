@@ -23,11 +23,13 @@ package net.daporkchop.tpposmtilegen.geometry;
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
+import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 
 import java.awt.Polygon;
+import java.util.stream.IntStream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -114,21 +116,25 @@ public final class Shape extends ComplexGeometry {
         }
 
         try {
-            LongSet tilePositions = new LongOpenHashSet(tileCount);
+            LongSet tilePositions = LongSets.synchronize(new LongOpenHashSet(tileCount));
 
-            for (int x = tileMinX; x <= tileMaxX; x++) {
-                for (int y = tileMinY; y <= tileMaxY; y++) {
-                    ADD:
-                    if (outerPoly.intersects(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) {
-                        for (Polygon innerPoly : innerPolys) {
-                            if (innerPoly.contains(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) { //tile is entirely contained within a hole
-                                break ADD;
+            IntStream stream = IntStream.rangeClosed(tileMinX, tileMaxY);
+            if (tileMaxY - tileMinX > 16) {
+                stream = stream.parallel();
+            }
+            stream.forEach(x -> {
+                        for (int y = tileMinY; y <= tileMaxY; y++) {
+                            ADD:
+                            if (outerPoly.intersects(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) {
+                                for (Polygon innerPoly : innerPolys) {
+                                    if (innerPoly.contains(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) { //tile is entirely contained within a hole
+                                        break ADD;
+                                    }
+                                }
+                                tilePositions.add(xy2tilePos(x, y));
                             }
                         }
-                        tilePositions.add(xy2tilePos(x, y));
-                    }
-                }
-            }
+                    });
             return tilePositions.toLongArray();
         } finally {
             for (int i = innerCount - 1; i >= 0; i--) {

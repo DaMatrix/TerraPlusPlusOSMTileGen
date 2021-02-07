@@ -102,4 +102,9 @@ final class ReadAccess implements DBAccess {
     @Override
     public void close() throws Exception {
     }
+
+    @Override
+    public boolean threadSafe() {
+        return true;
+    }
 }

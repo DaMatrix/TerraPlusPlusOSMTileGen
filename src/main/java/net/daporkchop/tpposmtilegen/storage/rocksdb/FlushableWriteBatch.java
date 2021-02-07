@@ -123,4 +123,9 @@ class FlushableWriteBatch implements DBAccess {
 
         this.batch.close();
     }
+
+    @Override
+    public boolean threadSafe() {
+        return true;
+    }
 }

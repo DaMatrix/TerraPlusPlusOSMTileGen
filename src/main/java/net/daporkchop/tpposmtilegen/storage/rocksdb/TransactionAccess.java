@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.unsafe.PUnsafe;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
@@ -121,5 +120,10 @@ final class TransactionAccess implements DBAccess {
         this.flush(true);
 
         this.transaction.close();
+    }
+
+    @Override
+    public boolean threadSafe() {
+        return false;
     }
 }

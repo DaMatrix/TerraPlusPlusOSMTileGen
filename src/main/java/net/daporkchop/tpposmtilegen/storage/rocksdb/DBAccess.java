@@ -62,4 +62,6 @@ public interface DBAccess extends AutoCloseable {
     void clear() throws Exception;
 
     void close() throws Exception;
+
+    boolean threadSafe();
 }

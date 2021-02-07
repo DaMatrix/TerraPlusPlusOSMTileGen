@@ -76,6 +76,8 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.List;
+import java.util.concurrent.locks.ReadWriteLock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -236,17 +238,13 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportDirtyTiles(@NonNull DBAccess access, boolean parallel) throws Exception {
+    public void exportDirtyTiles(@NonNull DBAccess access) throws Exception {
         long count = this.dirtyTiles.count(access);
 
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write dirty tiles")
                 .slot("tiles", count)
                 .build()) {
-            if (parallel) {
-                this.dirtyTiles.forEachParallel(access, this.exportTile(access, notifier));
-            } else {
-                this.dirtyTiles.forEach(access, this.exportTile(access, notifier));
-            }
+            this.dirtyTiles.forEachParallel(access, this.exportTile(access, notifier));
         }
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Clear dirty tiles")
                 .slot("tiles", count)
@@ -262,44 +260,59 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public LongConsumer exportTile(@NonNull DBAccess access, @NonNull ProgressNotifier notifier) {
+    protected LongConsumer exportTile(@NonNull DBAccess access, @NonNull ProgressNotifier notifier) {
+        ReadWriteLock lock = new ReentrantReadWriteLock();
         return tilePos -> {
+            String path = PStrings.fastFormat("0/tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos));
+
             try {
                 LongList elements = new LongArrayList();
-                this.tileContents.getElementsInTile(access, tilePos, elements);
-                String file = PStrings.fastFormat("0/tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos));
+                List<ByteBuffer> list;
 
-                if (elements.isEmpty()) { //nothing to write
-                    this.files.delete(access, file);
-                    return;
+                if (!access.threadSafe()) {
+                    lock.readLock().lock();
                 }
-
-                List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
-                if (list.isEmpty()) {
-                    logger.error("no element jsons were found?!?");
-                    this.files.delete(access, file);
-                    return;
+                try {
+                    this.tileContents.getElementsInTile(access, tilePos, elements);
+                    list = this.jsonStorage.getAll(access, elements);
+                } finally {
+                    if (!access.threadSafe()) {
+                        lock.readLock().unlock();
+                    }
                 }
-
-                int count = list.size();
 
                 //compute total size
+                int count = list.size();
                 int size = 0;
                 for (int i = 0; i < count; i++) {
                     size += list.get(i).remaining();
                 }
 
-                //combine all buffers
-                ByteBuffer merged = ByteBuffer.allocateDirect(size);
-                try {
+                ByteBuffer merged = null;
+                if (count != 0) {
+                    merged = ByteBuffer.allocateDirect(size);
                     for (int i = 0; i < count; i++) {
                         merged.put(list.get(i));
                     }
                     merged.flip();
+                }
 
-                    this.files.put(access, file, merged);
+                if (!access.threadSafe()) {
+                    lock.writeLock().lock();
+                }
+                try {
+                    if (merged != null) {
+                        this.files.put(access, path, merged);
+                    } else {
+                        this.files.delete(access, path);
+                    }
                 } finally {
-                    PUnsafe.pork_releaseBuffer(merged);
+                    if (!access.threadSafe()) {
+                        lock.writeLock().unlock();
+                    }
+                    if (merged != null) {
+                        PUnsafe.pork_releaseBuffer(merged);
+                    }
                 }
             } catch (Exception e) {
                 throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);

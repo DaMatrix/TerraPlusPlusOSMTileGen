@@ -103,4 +103,9 @@ final class ThreadLocalDBAccess implements DBAccess {
     public void close() throws Exception {
         this.delegate.close();
     }
+
+    @Override
+    public boolean threadSafe() {
+        return true;
+    }
 }
