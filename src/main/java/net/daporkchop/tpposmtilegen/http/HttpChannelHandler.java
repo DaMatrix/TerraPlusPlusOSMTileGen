@@ -38,9 +38,13 @@ import io.netty.handler.codec.http.HttpUtil;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.logging.Logger;
+import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 
 import java.io.PrintWriter;
+
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -48,6 +52,8 @@ import java.io.PrintWriter;
 @RequiredArgsConstructor
 @ChannelHandler.Sharable
 class HttpChannelHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
+    protected static final Logger logger = Logging.logger.channel("HTTP");
+
     @NonNull
     protected final HttpServer server;
 
@@ -69,6 +75,11 @@ class HttpChannelHandler extends SimpleChannelInboundHandler<FullHttpRequest> {
                     .status(HttpResponseStatus.INTERNAL_SERVER_ERROR)
                     .body(body);
         }
+
+        logger.info("%s %s [%s %s] %d %d",
+                ctx.channel().localAddress(), ctx.channel().remoteAddress(),
+                request.method(), request.uri(),
+                tempResponse.status().code(), tempResponse.body().readableBytes());
 
         HttpResponse response = new DefaultFullHttpResponse(request.protocolVersion(), tempResponse.status(), tempResponse.body());
 

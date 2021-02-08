@@ -166,7 +166,7 @@ public class Updater {
         logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 5: write updated tiles
-        storage.exportDirtyTiles(access);
+        storage.exportDirtyTiles(access, true);
         logger.trace("pass 5: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
 

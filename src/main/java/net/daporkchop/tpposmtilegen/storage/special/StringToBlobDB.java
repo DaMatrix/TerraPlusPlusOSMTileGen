@@ -35,14 +35,10 @@ import org.rocksdb.Slice;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.function.BiConsumer;
-
-import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -66,6 +62,15 @@ public final class StringToBlobDB extends WrappedRocksDB {
         buf.writeCharSequence(key, StandardCharsets.US_ASCII);
 
         access.put(this.column, buf.internalNioBuffer(0, buf.readableBytes()), value);
+    }
+
+    public void putHeap(@NonNull DBAccess access, @NonNull String key, @NonNull ByteBuffer value) throws Exception {
+        byte[] arr = value.array();
+        if (value.arrayOffset() + value.position() != 0 || value.remaining() != arr.length) {
+            arr = Arrays.copyOfRange(arr, value.arrayOffset() + value.position(), value.remaining());
+        }
+
+        access.put(this.column, key.getBytes(StandardCharsets.US_ASCII), arr);
     }
 
     public void delete(@NonNull DBAccess access, @NonNull String key) throws Exception {
@@ -96,7 +101,7 @@ public final class StringToBlobDB extends WrappedRocksDB {
                      .setIterateUpperBound(upperBound);
              RocksIterator itr = access.iterator(this.column, root ? Database.READ_OPTIONS : options)) {
             List<String> children = new ArrayList<>();
-            for (itr.seekToFirst(); itr.isValid();) {
+            for (itr.seekToFirst(); itr.isValid(); ) {
                 byte[] key = itr.key();
                 String child = new String(key, prefixLength, key.length - prefixLength, StandardCharsets.US_ASCII);
                 boolean directory = child.indexOf('/') >= 0;

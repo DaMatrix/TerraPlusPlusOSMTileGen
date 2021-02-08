@@ -65,6 +65,7 @@ import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
+import org.rocksdb.OptimisticTransactionDB;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -75,6 +76,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -238,13 +240,17 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportDirtyTiles(@NonNull DBAccess access) throws Exception {
+    public void exportDirtyTiles(@NonNull DBAccess access, boolean parallel) throws Exception {
         long count = this.dirtyTiles.count(access);
 
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write dirty tiles")
                 .slot("tiles", count)
                 .build()) {
-            this.dirtyTiles.forEachParallel(access, this.exportTile(access, notifier));
+            if (parallel) {
+                this.dirtyTiles.forEachParallel(access, this.exportTile(access, notifier));
+            } else {
+                this.dirtyTiles.forEach(access, this.exportTile(access, notifier));
+            }
         }
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Clear dirty tiles")
                 .slot("tiles", count)
@@ -283,18 +289,18 @@ public final class Storage implements AutoCloseable {
 
                 //compute total size
                 int count = list.size();
-                int size = 0;
-                for (int i = 0; i < count; i++) {
-                    size += list.get(i).remaining();
-                }
+                int size = list.stream().mapToInt(ByteBuffer::remaining).sum();
 
-                ByteBuffer merged = null;
-                if (count != 0) {
-                    merged = ByteBuffer.allocateDirect(size);
-                    for (int i = 0; i < count; i++) {
-                        merged.put(list.get(i));
+                byte[] merged = null;
+                if (count != 0) { //merge buffers
+                    merged = new byte[size];
+                    for (int i = 0, off = 0; i < count; i++) {
+                        ByteBuffer buf = list.get(i);
+                        list.set(i, null);
+                        int remaining = buf.remaining();
+                        buf.get(merged, off, remaining);
+                        off += remaining;
                     }
-                    merged.flip();
                 }
 
                 if (!access.threadSafe()) {
@@ -302,16 +308,13 @@ public final class Storage implements AutoCloseable {
                 }
                 try {
                     if (merged != null) {
-                        this.files.put(access, path, merged);
+                        this.files.putHeap(access, path, ByteBuffer.wrap(merged));
                     } else {
                         this.files.delete(access, path);
                     }
                 } finally {
                     if (!access.threadSafe()) {
                         lock.writeLock().unlock();
-                    }
-                    if (merged != null) {
-                        PUnsafe.pork_releaseBuffer(merged);
                     }
                 }
             } catch (Exception e) {
@@ -365,11 +368,13 @@ public final class Storage implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
-        this.flush();
+        if (this.db.delegate() instanceof OptimisticTransactionDB) {
+            this.flush();
 
-        this.db.delegate().flushWal(true);
-        this.db.delegate().flush(Database.FLUSH_OPTIONS);
-        this.db.delegate().flushWal(true);
+            this.db.delegate().flushWal(true);
+            this.db.delegate().flush(Database.FLUSH_OPTIONS);
+            this.db.delegate().flushWal(true);
+        }
 
         this.replicationTimestamp.close();
 

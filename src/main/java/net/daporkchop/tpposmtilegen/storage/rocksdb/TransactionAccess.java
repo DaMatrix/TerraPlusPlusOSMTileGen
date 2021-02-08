@@ -117,7 +117,7 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public void close() throws Exception {
-        this.flush(true);
+        this.clear();
 
         this.transaction.close();
     }

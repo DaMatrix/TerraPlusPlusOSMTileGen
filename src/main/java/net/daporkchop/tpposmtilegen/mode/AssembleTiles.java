@@ -58,7 +58,7 @@ public class AssembleTiles implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.exportDirtyTiles(storage.db().readWriteBatch());
+            storage.exportDirtyTiles(storage.db().readWriteBatch(), true);
 
             storage.purge(false); //erase temporary data
         }
