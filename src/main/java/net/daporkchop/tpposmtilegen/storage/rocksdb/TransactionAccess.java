@@ -22,15 +22,18 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
 import org.rocksdb.Transaction;
+import sun.security.util.ByteArrayLexOrder;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -38,12 +41,13 @@ import java.util.List;
  */
 @RequiredArgsConstructor
 final class TransactionAccess implements DBAccess {
+    private static final Comparator<byte[]> BYTES_COMPARATOR = new ByteArrayLexOrder();
+
     private static byte[] toByteArray(@NonNull ByteBuffer buf) {
         byte[] arr = new byte[buf.remaining()];
         buf.get(arr);
         return arr;
     }
-
     @NonNull
     protected final OptimisticTransactionDB db;
     @NonNull
@@ -95,7 +99,14 @@ final class TransactionAccess implements DBAccess {
              ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
              RocksIterator iterator = this.transaction.getIterator(options, columnFamilyHandle)) {
             for (iterator.seek(beginKey); iterator.isValid(); iterator.next()) {
-                this.transaction.delete(columnFamilyHandle, iterator.key());
+                byte[] key = iterator.key();
+
+                if (BYTES_COMPARATOR.compare(endKey, key) >= 0) {
+                    //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
+                    return;
+                }
+
+                this.transaction.delete(columnFamilyHandle, key);
             }
         }
     }

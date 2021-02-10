@@ -25,17 +25,14 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
-
-import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
  * Tracks which elements are contained in each tile.
@@ -121,7 +118,14 @@ public final class TileDB extends WrappedRocksDB {
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
                  RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
-                    long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
+                    byte[] key = iterator.key();
+
+                    if (PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET) != PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET)) {
+                        //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
+                        return;
+                    }
+
+                    long val = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
                     dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
                 }
             }

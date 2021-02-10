@@ -142,7 +142,14 @@ public final class ReferenceDB extends WrappedRocksDB {
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
                  RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
-                    long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
+                    byte[] key = iterator.key();
+
+                    if (PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET) != PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET)) {
+                        //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
+                        return;
+                    }
+
+                    long val = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
                     dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
                 }
             }
