@@ -30,6 +30,7 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
@@ -80,6 +81,7 @@ import java.util.List;
 import java.util.concurrent.locks.ReadWriteLock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.LongConsumer;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -342,12 +344,26 @@ public final class Storage implements AutoCloseable {
             checkpoint.createCheckpoint(tmpDir.resolve("db").toString());
         }
 
-        logger.info("Writing extra attributes...");
+        logger.info("Copying extra stuff...");
         Files.write(tmpDir.resolve("replication_base_url.txt"), this.replicationBaseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
         new OffHeapAtomicLong(tmpDir.resolve("osm_replicationTimestamp"), this.replicationTimestamp.get()).close();
 
+        if (Files.exists(this.root.resolve("custom"))) {
+            this.copyRecursive(this.root.resolve("custom"), tmpDir.resolve("custom"));
+        }
+
         logger.info("Finishing up...");
         Files.move(tmpDir, dst);
+    }
+
+    private void copyRecursive(@NonNull Path src, @NonNull Path dst) throws IOException {
+        if (Files.isDirectory(src)) {
+            try (Stream<Path> stream = Files.list(src)) {
+                stream.forEach((IOConsumer<Path>) path -> this.copyRecursive(path, dst.resolve(path.getFileName())));
+            }
+        } else {
+            Files.copy(src, dst);
+        }
     }
 
     @Override

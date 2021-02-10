@@ -32,10 +32,10 @@ import net.daporkchop.lib.binary.oio.appendable.PAppendable;
 import net.daporkchop.lib.binary.oio.appendable.UTF8ByteBufAppendable;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.http.HttpHandler;
 import net.daporkchop.tpposmtilegen.http.HttpServer;
 import net.daporkchop.tpposmtilegen.http.Response;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
-import net.daporkchop.tpposmtilegen.http.HttpHandler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -43,8 +43,14 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import java.io.File;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -83,6 +89,7 @@ public class Serve implements IMode {
         protected final Storage storage;
         protected final DBAccess access;
         protected final HttpServer server;
+        protected final Path customRoot;
 
         public Server(int port, @NonNull Storage storage, @NonNull DBAccess access) {
             this.storage = storage;
@@ -90,6 +97,8 @@ public class Serve implements IMode {
 
             this.server = new HttpServer(new InetSocketAddress(port), this);
             logger.success("Server started on port %d", port);
+
+            this.customRoot = storage.root().resolve("custom");
         }
 
         @Override
@@ -99,8 +108,30 @@ public class Serve implements IMode {
             }
 
             String path = request.uri().substring(1); //trim leading slash
-            if (path.isEmpty()) {
-                path = "/";
+
+            Path filePath = this.customRoot.resolve(path);
+            if (!filePath.startsWith(this.customRoot)) {
+                throw new HttpException(HttpResponseStatus.BAD_REQUEST);
+            }
+            boolean fileExists = Files.isReadable(filePath);
+            if (fileExists && Files.isRegularFile(filePath)) {
+                if (path.endsWith(".html")) {
+                    response.contentType("text/html");
+                } else if (path.endsWith(".json")) {
+                    response.contentType(HttpHeaderValues.APPLICATION_JSON);
+                } else {
+                    response.contentType(HttpHeaderValues.TEXT_PLAIN);
+                }
+
+                try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
+                    int size = toInt(channel.size());
+                    ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size, size);
+                    while (buf.isWritable()) {
+                        buf.writeBytes(channel, buf.writableBytes());
+                    }
+                    response.body(buf).status(HttpResponseStatus.OK);
+                    return;
+                }
             }
 
             ByteBuffer buffer = this.storage.files().get(this.access, path);
@@ -110,15 +141,34 @@ public class Serve implements IMode {
                         .body(Unpooled.wrappedBuffer(buffer));
             } else {
                 List<String> children = this.storage.files().listChildren(this.access, path);
-                if (children == null) {
+                if (children == null && !fileExists) {
                     throw new HttpException(HttpResponseStatus.NOT_FOUND);
                 }
+
+                if (fileExists) {
+                    if (children == null) {
+                        children = new ArrayList<>();
+                    }
+                    try (Stream<Path> paths = Files.list(filePath)) {
+                        paths.map(p -> {
+                            if (Files.isDirectory(p)) {
+                                return p.getFileName().toString() + '/';
+                            } else {
+                                return p.getFileName().toString();
+                            }
+                        }).forEach(children::add);
+                    }
+                }
+
+                children.add(0, "../");
+                children.sort(String.CASE_INSENSITIVE_ORDER);
+
                 ByteBuf body = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
                 response.contentType("text/html")
                         .status(HttpResponseStatus.OK)
                         .body(body);
                 try (PAppendable out = new UTF8ByteBufAppendable(body)) {
-                    out.append("<html><body><ul>");
+                    out.appendFmt("<html><body><h1>Index of %s</h1><ul>", path.isEmpty() ? "/" : path);
                     children.forEach((IOConsumer<String>) s -> out.appendFmt("<li><a href=\"%1$s\">%1$s</a></li>", s));
                     out.appendLn("</ul></body></html>");
                 }
