@@ -76,10 +76,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -240,52 +237,31 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportDirtyTiles(@NonNull DBAccess access, boolean parallel) throws Exception {
+    public void exportDirtyTiles(@NonNull DBAccess access) throws Exception {
         long count = this.dirtyTiles.count(access);
 
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write dirty tiles")
                 .slot("tiles", count)
                 .build()) {
-            if (parallel) {
+            if (access.threadSafe()) {
+                notifier.logger().debug("using parallel mode");
                 this.dirtyTiles.forEachParallel(access, this.exportTile(access, notifier));
             } else {
+                notifier.logger().debug("using single-threaded mode");
                 this.dirtyTiles.forEach(access, this.exportTile(access, notifier));
             }
-        }
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Clear dirty tiles")
-                .slot("tiles", count)
-                .build()) {
-            this.dirtyTiles.forEach(access, tilePos -> {
-                try {
-                    this.dirtyTiles.unmarkDirty(access, tilePos);
-                } catch (Exception e) {
-                    throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
-                }
-                notifier.step(0);
-            });
         }
     }
 
     protected LongConsumer exportTile(@NonNull DBAccess access, @NonNull ProgressNotifier notifier) {
-        ReadWriteLock lock = new ReentrantReadWriteLock();
         return tilePos -> {
             String path = PStrings.fastFormat("0/tile/%d/%d.json", Tile.tileX(tilePos), Tile.tileY(tilePos));
 
             try {
                 LongList elements = new LongArrayList();
-                List<ByteBuffer> list;
+                this.tileContents.getElementsInTile(access, tilePos, elements);
 
-                if (!access.threadSafe()) {
-                    lock.readLock().lock();
-                }
-                try {
-                    this.tileContents.getElementsInTile(access, tilePos, elements);
-                    list = this.jsonStorage.getAll(access, elements);
-                } finally {
-                    if (!access.threadSafe()) {
-                        lock.readLock().unlock();
-                    }
-                }
+                List<ByteBuffer> list = this.jsonStorage.getAll(access, elements);
 
                 //compute total size
                 int count = list.size();
@@ -303,20 +279,12 @@ public final class Storage implements AutoCloseable {
                     }
                 }
 
-                if (!access.threadSafe()) {
-                    lock.writeLock().lock();
+                if (merged != null) {
+                    this.files.putHeap(access, path, ByteBuffer.wrap(merged));
+                } else {
+                    this.files.delete(access, path);
                 }
-                try {
-                    if (merged != null) {
-                        this.files.putHeap(access, path, ByteBuffer.wrap(merged));
-                    } else {
-                        this.files.delete(access, path);
-                    }
-                } finally {
-                    if (!access.threadSafe()) {
-                        lock.writeLock().unlock();
-                    }
-                }
+                this.dirtyTiles.unmarkDirty(access, tilePos);
             } catch (Exception e) {
                 throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
             }

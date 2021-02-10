@@ -22,12 +22,7 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
-import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
-import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
 
@@ -58,7 +53,7 @@ public class AssembleTiles implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.exportDirtyTiles(storage.db().readWriteBatch(), true);
+            storage.exportDirtyTiles(storage.db().readWriteBatch());
 
             storage.purge(false); //erase temporary data
         }

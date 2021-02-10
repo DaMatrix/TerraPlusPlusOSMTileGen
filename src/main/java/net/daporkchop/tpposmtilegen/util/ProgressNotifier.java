@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.util;
 
 import lombok.AllArgsConstructor;
+import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.lib.logging.Logger;
@@ -68,6 +69,7 @@ public final class ProgressNotifier implements AutoCloseable {
     protected final String prefix;
     protected final StringBuilder builder = new StringBuilder();
 
+    @Getter
     protected final Logger logger;
 
     private ProgressNotifier(@NonNull Slot[] slots, @NonNull String prefix, long interval) {
