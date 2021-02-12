@@ -81,6 +81,7 @@ public final class Database implements AutoCloseable {
                 .setMaxOpenFiles(CPU_COUNT << 1);
 
         COLUMN_OPTIONS = new ColumnFamilyOptions()
+                .setMaxWriteBufferNumberToMaintain(-1)
                 .setArenaBlockSize(1L << 20)
                 .setOptimizeFiltersForHits(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
