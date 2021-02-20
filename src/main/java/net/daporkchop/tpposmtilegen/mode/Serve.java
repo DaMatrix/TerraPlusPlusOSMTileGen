@@ -66,7 +66,7 @@ public class Serve implements IMode {
 
     @Override
     public String synopsis() {
-        return "<index_dir> <port>";
+        return "<index_dir> <port> <lite>";
     }
 
     @Override
@@ -76,10 +76,11 @@ public class Serve implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 2, "Usage: serve <index_dir> <port>");
+        checkArg(args.length == 3, "Usage: serve <index_dir> <port> <lite>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
+        boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true);
+        try (Storage storage = new Storage(src.toPath(), lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS, true);
              Server server = new Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             new Scanner(System.in).nextLine();
         }
