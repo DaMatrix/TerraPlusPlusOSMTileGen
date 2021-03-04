@@ -24,10 +24,13 @@ import io.netty.bootstrap.ServerBootstrap;
 import io.netty.channel.Channel;
 import io.netty.channel.ChannelFuture;
 import io.netty.channel.EventLoopGroup;
+import io.netty.channel.epoll.EpollEventLoopGroup;
+import io.netty.channel.epoll.EpollServerSocketChannel;
 import lombok.NonNull;
-import net.daporkchop.lib.network.nettycommon.PorkNettyHelper;
-import net.daporkchop.lib.network.nettycommon.transport.Transport;
+import lombok.SneakyThrows;
+import net.daporkchop.lib.common.util.PorkUtil;
 
+import java.lang.reflect.InvocationTargetException;
 import java.net.InetSocketAddress;
 
 /**
@@ -42,20 +45,19 @@ public class HttpServer implements AutoCloseable {
     public HttpServer(@NonNull InetSocketAddress address, @NonNull HttpHandler handler) {
         this.handler = handler;
 
-        Transport transport = PorkNettyHelper.getTransportTCP();
-        EventLoopGroup group = transport.eventLoopGroupPool().get();
+        EventLoopGroup group = new EpollEventLoopGroup(Integer.parseUnsignedInt(System.getProperty("pork.threads", String.valueOf(PorkUtil.CPU_COUNT))));
 
         ChannelFuture future = new ServerBootstrap()
-                .channelFactory(transport.channelFactorySocketServer())
+                .channelFactory(EpollServerSocketChannel::new)
                 .group(group)
                 .childHandler(new HttpInitializer(this))
                 .bind(address).awaitUninterruptibly();
 
         if (future.isSuccess()) {
             this.channel = future.channel();
-            this.channel.closeFuture().addListener(f -> transport.eventLoopGroupPool().release(group));
+            this.channel.closeFuture().addListener(f -> group.shutdownGracefully());
         } else {
-            transport.eventLoopGroupPool().release(group); //ensure event loop doesn't leak
+            group.shutdownGracefully();
             throw new RuntimeException(future.cause());
         }
     }

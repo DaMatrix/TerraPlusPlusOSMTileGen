@@ -119,7 +119,7 @@ public class Serve implements IMode {
                 if (path.endsWith(".html")) {
                     response.contentType("text/html");
                 } else if (path.endsWith(".json")) {
-                    response.contentType(HttpHeaderValues.APPLICATION_JSON);
+                    response.contentType("application/geo+json");
                 } else {
                     response.contentType(HttpHeaderValues.TEXT_PLAIN);
                 }
@@ -137,7 +137,7 @@ public class Serve implements IMode {
 
             ByteBuffer buffer = this.storage.files().get(this.access, path);
             if (buffer != null) {
-                response.contentType(HttpHeaderValues.APPLICATION_JSON)
+                response.contentType("application/geo+json")
                         .status(HttpResponseStatus.OK)
                         .body(Unpooled.wrappedBuffer(buffer));
             } else {

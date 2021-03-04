@@ -34,6 +34,7 @@ import net.daporkchop.tpposmtilegen.mode.CreateSnapshot;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.Export;
+import net.daporkchop.tpposmtilegen.mode.GenerateBlankTiles;
 import net.daporkchop.tpposmtilegen.mode.IMode;
 import net.daporkchop.tpposmtilegen.mode.PurgeGeometry;
 import net.daporkchop.tpposmtilegen.mode.PurgeCoastlines;
@@ -67,6 +68,7 @@ public final class Main implements Runnable {
             new DigestCoastlines(),
             new DigestPBF(),
             new Export(),
+            new GenerateBlankTiles(),
             new PurgeCoastlines(),
             new PurgeGeometry(),
             new PurgeOSM(),

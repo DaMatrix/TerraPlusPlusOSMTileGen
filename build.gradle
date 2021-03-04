@@ -65,6 +65,7 @@ repositories {
         name = "JitPack"
         url = "https://jitpack.io/"
     }
+    mavenCentral()
 }
 
 configurations {
