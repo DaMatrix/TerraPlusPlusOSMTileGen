@@ -49,7 +49,7 @@ public class ChangesetState {
         long sequenceNumber = -1L;
 
         Matcher matcher = Pattern.compile("^(.*?)=(.+)$", Pattern.MULTILINE)
-                .matcher(data.readCharSequence(data.readableBytes(), StandardCharsets.US_ASCII));
+                .matcher(data.readCharSequence(data.readableBytes(), StandardCharsets.UTF_8));
         while (matcher.find()) {
             switch (matcher.group(1)) {
                 case "timestamp":

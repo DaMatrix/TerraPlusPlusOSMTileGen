@@ -205,7 +205,7 @@ public final class Storage implements AutoCloseable {
             this.intersectedTiles.put(access, combinedId, arr);
 
             //encode geometry to GeoJSON
-            ByteBuffer buffer;
+            ByteBuf buffer;
             try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
                 StringBuilder builder = handle.get();
                 builder.setLength(0);
@@ -213,23 +213,23 @@ public final class Storage implements AutoCloseable {
                 Geometry.toGeoJSON(builder, geometry, element.tags(), combinedId);
 
                 //convert json to bytes
-                buffer = Geometry.toBytes(builder);
+                buffer = Geometry.toByteBuf(builder);
             }
 
             try {
-                if (!geometry.shouldStoreExternally(tileCount, buffer.remaining())) {
+                if (!geometry.shouldStoreExternally(tileCount, buffer.readableBytes())) {
                     //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                    this.jsonStorage.put(access, combinedId, buffer);
+                    this.jsonStorage.put(access, combinedId, buffer.nioBuffer());
                     this.files.delete(access, "0/" + location);
                 } else { //element is referenced multiple times, store it in an external file
-                    this.files.put(access, "0/" + location, buffer);
+                    this.files.put(access, "0/" + location, buffer.nioBuffer());
 
                     ByteBuffer referenceBuffer = Geometry.createReference(location);
                     this.jsonStorage.put(access, combinedId, referenceBuffer);
                     PUnsafe.pork_releaseBuffer(referenceBuffer);
                 }
             } finally {
-                PUnsafe.pork_releaseBuffer(buffer);
+                buffer.release();
             }
         } else {
             //delete element from everything

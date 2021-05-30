@@ -71,7 +71,7 @@ public class Test implements IMode {
                     try {
                         String replacedContent = this.replace(bufferCache, regexCache.get().reset(new AsciiString(buffer.array(), false)));
                         if (replacedContent != null) {
-                            buffer = Geometry.toBytes(replacedContent);
+                            buffer = Geometry.toNioBuffer(replacedContent);
                             storage.jsonStorage().put(storage.db().batch(), id, buffer);
                             notifier.step(1);
                         } else {

@@ -21,6 +21,9 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import io.netty.buffer.ByteBuf;
+import io.netty.buffer.ByteBufAllocator;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
@@ -78,7 +81,7 @@ public interface Geometry extends Persistent {
         return buffer;
     }
 
-    static ByteBuffer toBytes(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
+    static ByteBuffer toNioBuffer(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
         int length = text.length();
         ByteBuffer buffer = ByteBuffer.allocateDirect(length);
         for (int i = 0; i < length; i++) {
@@ -87,6 +90,12 @@ public interface Geometry extends Persistent {
         }
         buffer.flip();
         return buffer;
+    }
+
+    static ByteBuf toByteBuf(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
+        ByteBuf buf = ByteBufAllocator.DEFAULT.directBuffer(text.length());
+        buf.writeCharSequence(text, StandardCharsets.UTF_8);
+        return buf;
     }
 
     static String externalStorageLocation(int type, long id) {
