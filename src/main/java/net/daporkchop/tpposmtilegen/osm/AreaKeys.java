@@ -40,7 +40,6 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 /**
  * @author DaPorkchop_
  */
-//TODO: use filters from https://github.com/drolbr/Overpass-API/blob/dc125141a0b9435da6e273bfbe09af7fa19b283c/src/rules/areas.osm3s
 @UtilityClass
 public class AreaKeys {
     protected final Predicate<Map<String, String>> RELATION_FILTER = parseFilter("relations");

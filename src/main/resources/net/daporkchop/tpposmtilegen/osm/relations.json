@@ -1,5 +1,17 @@
 [
   {
-    "type": "multipolygon"
+    "type": [
+      "multipolygon",
+      "boundary"
+    ]
+  },
+  {
+    "admin_level": null
+  },
+  {
+    "postal_code": null
+  },
+  {
+    "addr:postcode": null
   }
 ]
