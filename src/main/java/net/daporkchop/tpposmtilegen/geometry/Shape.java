@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongSets;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.awt.Polygon;
 import java.util.stream.IntStream;
@@ -171,5 +172,36 @@ public final class Shape extends ComplexGeometry {
         for (int i = 0; i < count; i++) {
             loop[i].toBytes(dst);
         }
+    }
+
+    @Override
+    public WeightedDouble averagePointDensity() {
+        double sum = 0.0d;
+        long cnt = 0L;
+
+        for (int i = 1; i < this.outerLoop.length; i++) {
+            Point p0 = this.outerLoop[i - 1];
+            Point p1 = this.outerLoop[i];
+            long dx = p0.x() - p1.x();
+            long dy = p0.y() - p1.y();
+            if ((dx | dy) != 0) {
+                sum += sqrt(dx * dx + dy * dy);
+                cnt++;
+            }
+        }
+        for (Point[] loop : this.innerLoops) {
+            for (int i = 1; i < loop.length; i++) {
+                Point p0 = loop[i - 1];
+                Point p1 = loop[i];
+                long dx = p0.x() - p1.x();
+                long dy = p0.y() - p1.y();
+                if ((dx | dy) != 0) {
+                    sum += sqrt(dx * dx + dy * dy);
+                    cnt++;
+                }
+            }
+        }
+
+        return new WeightedDouble(sum, cnt);
     }
 }

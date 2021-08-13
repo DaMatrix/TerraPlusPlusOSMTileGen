@@ -27,6 +27,9 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.util.WeightedDouble;
+
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -91,5 +94,10 @@ public class Area implements Geometry {
         for (Shape shape : this.shapes) {
             shape.toBytes(dst);
         }
+    }
+
+    @Override
+    public WeightedDouble averagePointDensity() {
+        return Stream.of(this.shapes).map(Shape::averagePointDensity).reduce(WeightedDouble::add).get();
     }
 }

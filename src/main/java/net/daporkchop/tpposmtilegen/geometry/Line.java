@@ -25,6 +25,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
@@ -125,5 +126,25 @@ public final class Line extends ComplexGeometry {
         for (int i = 0; i < count; i++) {
             this.points[i].toBytes(dst);
         }
+    }
+
+    @Override
+    public WeightedDouble averagePointDensity() {
+        double sum = 0.0d;
+        long cnt = 0L;
+
+        int count = this.points.length;
+        for (int i = 1; i < count; i++) {
+            Point p0 = this.points[i - 1];
+            Point p1 = this.points[i];
+            long dx = p0.x() - p1.x();
+            long dy = p0.y() - p1.y();
+            if ((dx | dy) != 0) {
+                sum += sqrt(dx * dx + dy * dy);
+                cnt++;
+            }
+        }
+
+        return new WeightedDouble(sum, cnt);
     }
 }

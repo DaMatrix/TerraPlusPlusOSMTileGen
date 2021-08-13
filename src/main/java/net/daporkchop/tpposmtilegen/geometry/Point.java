@@ -29,6 +29,7 @@ import lombok.Setter;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -54,6 +55,8 @@ public final class Point implements Geometry {
 
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;
+
+    public static final double AVERAGE_DENSITY = 2409.331319429213d;
 
     public static int doubleToFix(double v) {
         return floorI(v * PRECISION);
@@ -148,6 +151,16 @@ public final class Point implements Geometry {
         dst.append(',');
         appendCoordinate(this.y, dst);
         dst.append(']').append('}');
+    }
+
+    @Override
+    public Geometry simplify() {
+        return null; //points cannot be simplified
+    }
+
+    @Override
+    public WeightedDouble averagePointDensity() {
+        return new WeightedDouble(0.0d, 0.0d);
     }
 
     @Override

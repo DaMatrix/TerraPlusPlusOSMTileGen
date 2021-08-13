@@ -29,6 +29,7 @@ import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.logging.format.FormatParser;
 import net.daporkchop.tpposmtilegen.mode.AssembleGeometry;
 import net.daporkchop.tpposmtilegen.mode.AssembleTiles;
+import net.daporkchop.tpposmtilegen.mode.AveragePointDensity;
 import net.daporkchop.tpposmtilegen.mode.Compact;
 import net.daporkchop.tpposmtilegen.mode.CreateSnapshot;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
@@ -63,6 +64,7 @@ public final class Main implements Runnable {
     protected static final Map<String, IMode> MODES = Stream.of(
             new AssembleGeometry(),
             new AssembleTiles(),
+            new AveragePointDensity(),
             new Compact(),
             new CreateSnapshot(),
             new DigestCoastlines(),

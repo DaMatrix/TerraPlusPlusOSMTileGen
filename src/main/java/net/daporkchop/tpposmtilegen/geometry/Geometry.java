@@ -21,7 +21,6 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
-import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
 import lombok.NonNull;
@@ -29,6 +28,7 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Persistent;
+import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
@@ -123,4 +123,13 @@ public interface Geometry extends Persistent {
     }
 
     void toGeoJSON(@NonNull StringBuilder dst);
+
+    /**
+     * @return the simplified geometry, or {@code null} if it should be discarded
+     */
+    default Geometry simplify() {
+        return null; //TODO: remove this implementation
+    }
+
+    WeightedDouble averagePointDensity();
 }
