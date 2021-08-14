@@ -56,9 +56,6 @@ public final class Point implements Geometry {
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;
 
-    public static final double AVERAGE_DENSITY_LEVEL0 = 2409.331319429213d;
-    public static final double DENSITY_INCREASE_PER_LEVEL = 2.0d;
-
     public static int doubleToFix(double v) {
         return floorI(v * PRECISION);
     }

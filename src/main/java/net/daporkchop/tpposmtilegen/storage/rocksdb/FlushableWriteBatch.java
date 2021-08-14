@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
@@ -98,10 +97,10 @@ class FlushableWriteBatch implements DBAccess {
     }
 
     @Override
-    public void flush(boolean sync) throws Exception {
+    public void flush() throws Exception {
         if (this.dirty) {
             try {
-                this.db.write(sync ? Database.SYNC_WRITE_OPTIONS : Database.WRITE_OPTIONS, this.batch);
+                this.db.write(Database.WRITE_OPTIONS, this.batch);
             } finally {
                 this.batch.clear();
                 this.dirty = false;
@@ -119,7 +118,7 @@ class FlushableWriteBatch implements DBAccess {
 
     @Override
     public void close() throws Exception {
-        this.flush(true);
+        this.flush();
 
         this.batch.close();
     }

@@ -21,9 +21,7 @@
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.RocksDB;
-import org.rocksdb.RocksDBException;
 
 import java.nio.ByteBuffer;
 
@@ -75,7 +73,7 @@ class AutoFlushingWriteBatch extends FlushableWriteBatch {
 
     protected void checkFlush() throws Exception {
         if (this.batch.getDataSize() >= this.threshold) {
-            this.flush(false);
+            this.flush();
         }
     }
 }

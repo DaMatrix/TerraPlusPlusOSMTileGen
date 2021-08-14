@@ -24,12 +24,16 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
+import net.daporkchop.tpposmtilegen.util.Utils;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.concurrent.atomic.DoubleAdder;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -61,6 +65,8 @@ public class AveragePointDensity implements IMode {
         DoubleAdder value = new DoubleAdder();
         DoubleAdder weight = new DoubleAdder();
 
+        PFiles.rmContentsParallel(new File("/media/daporkchop/2tb/aaa"));
+
         try (Storage storage = new Storage(src.toPath())) {
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Compute average point density")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
@@ -69,8 +75,21 @@ public class AveragePointDensity implements IMode {
                     int type = element.type();
                     try {
                         Geometry geometry = element.toGeometry(storage, storage.db().read());
-                        if (geometry != null) {
-                            WeightedDouble density = geometry.averagePointDensity();
+                        Geometry simplified;
+                        if (geometry != null && (simplified = geometry.simplify(Utils.AVERAGE_DENSITY_LEVEL0 * 2.0d)) != null) {
+                            StringBuilder builder = new StringBuilder();
+
+                            builder.append("{\"type\":\"FeatureCollection\",\"features\":[\n")
+                            .append("{\"type\":\"Feature\",\"properties\":{\"simplified\":\"false\"},\"geometry\":");
+                            geometry.toGeoJSON(builder);
+                            builder.append("},\n")
+                                    .append("{\"type\":\"Feature\",\"properties\":{\"simplified\":\"true\"},\"geometry\":");
+                            simplified.toGeoJSON(builder);
+                            builder.append("}\n]}\n");
+
+                            Files.write(Paths.get("/media/daporkchop/2tb/aaa/" + id + ".json"), builder.toString().getBytes(StandardCharsets.UTF_8));
+
+                            WeightedDouble density = simplified.averagePointDensity();
                             value.add(density.value());
                             weight.add(density.weight());
                         }
@@ -80,7 +99,7 @@ public class AveragePointDensity implements IMode {
                     notifier.step(type);
                 };
 
-                storage.ways().forEachParallel(storage.db().read(), func);
+                //storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);
             }

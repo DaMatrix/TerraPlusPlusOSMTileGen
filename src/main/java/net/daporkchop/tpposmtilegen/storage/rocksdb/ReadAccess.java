@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
@@ -90,7 +89,7 @@ final class ReadAccess implements DBAccess {
     }
 
     @Override
-    public void flush(boolean sync) throws Exception {
+    public void flush() throws Exception {
         throw new UnsupportedOperationException();
     }
 

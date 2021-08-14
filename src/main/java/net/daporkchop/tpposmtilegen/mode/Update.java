@@ -81,7 +81,7 @@ public class Update implements IMode {
                             break LOOP;
                         case "commit":
                             logger.info("Committing...");
-                            txn.flush(true);
+                            txn.flush();
                             logger.success("Committed.");
                             break;
                         default:

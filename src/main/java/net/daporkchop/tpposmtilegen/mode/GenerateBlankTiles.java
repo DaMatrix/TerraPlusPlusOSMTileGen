@@ -69,7 +69,7 @@ public class GenerateBlankTiles implements IMode {
                             storage.files().putHeap(txn, path, ByteBuffer.allocate(0));
                         }
                     }
-                    txn.flush(true);
+                    txn.flush();
                 } catch (Exception e) {
                     throw new RuntimeException(e);
                 }

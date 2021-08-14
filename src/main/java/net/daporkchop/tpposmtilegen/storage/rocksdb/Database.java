@@ -24,6 +24,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
@@ -33,6 +34,7 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
 import org.rocksdb.FlushOptions;
+import org.rocksdb.LRUCache;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -54,7 +56,10 @@ import static net.daporkchop.lib.logging.Logging.*;
 public final class Database implements AutoCloseable {
     public static final DBOptions DB_OPTIONS;
     public static final DBOptions DB_OPTIONS_LITE;
-    public static final ColumnFamilyOptions COLUMN_OPTIONS;
+
+    public static final ColumnFamilyOptions COLUMN_OPTIONS_FAST;
+    public static final ColumnFamilyOptions COLUMN_OPTIONS_COMPACT;
+
     public static final ReadOptions READ_OPTIONS;
     public static final WriteOptions WRITE_OPTIONS;
     public static final WriteOptions SYNC_WRITE_OPTIONS;
@@ -63,14 +68,20 @@ public final class Database implements AutoCloseable {
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
 
+        long tableSizeBase = 65536L;
+        long dataBlockSize = 1024L;
+        int cacheShardBits = 7;
+
         DB_OPTIONS = new DBOptions()
                 .setEnv(Env.getDefault().setBackgroundThreads(CPU_COUNT))
+                .setIncreaseParallelism(CPU_COUNT)
+                .setMaxBackgroundJobs(CPU_COUNT)
+                .setMaxSubcompactions(CPU_COUNT)
                 .setCreateIfMissing(true)
                 .setCreateMissingColumnFamilies(true)
                 .setSkipStatsUpdateOnDbOpen(true)
-                .setCompactionReadaheadSize(16L << 20L)
+                .setCompactionReadaheadSize(tableSizeBase << 10L)
                 .setAllowConcurrentMemtableWrite(true)
-                .setIncreaseParallelism(CPU_COUNT)
                 .setKeepLogFileNum(2L)
                 .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
@@ -80,12 +91,27 @@ public final class Database implements AutoCloseable {
         DB_OPTIONS_LITE = new DBOptions(DB_OPTIONS)
                 .setMaxOpenFiles(CPU_COUNT << 1);
 
-        COLUMN_OPTIONS = new ColumnFamilyOptions()
+        COLUMN_OPTIONS_FAST = new ColumnFamilyOptions()
                 .setMaxWriteBufferNumberToMaintain(-1)
-                .setArenaBlockSize(1L << 20)
+                .setMaxWriteBufferNumber(CPU_COUNT << 2)
+                .setMinWriteBufferNumberToMerge(1)
+                .setTargetFileSizeBase(tableSizeBase << 10L)
                 .setOptimizeFiltersForHits(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
                 .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
+                .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
+                        .setAllowTrivialMove(true));
+        COLUMN_OPTIONS_COMPACT = new ColumnFamilyOptions()
+                .setMaxWriteBufferNumberToMaintain(-1)
+                .setMaxWriteBufferNumber(CPU_COUNT << 2)
+                .setMinWriteBufferNumberToMerge(1)
+                .setTargetFileSizeBase(tableSizeBase << 10L)
+                .setTableFormatConfig(new BlockBasedTableConfig()
+                        .setBlockSize(dataBlockSize << 10L)
+                        .setBlockCache(new LRUCache((dataBlockSize << 11L) * (1L << (long) cacheShardBits), cacheShardBits)))
+                .setOptimizeFiltersForHits(true)
+                .setCompactionStyle(CompactionStyle.LEVEL)
+                .setCompressionType(CompressionType.ZSTD_COMPRESSION)
                 .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
                         .setAllowTrivialMove(true));
 
@@ -140,7 +166,13 @@ public final class Database implements AutoCloseable {
     }
 
     public void flush() throws Exception {
-        this.batch.flush(true);
+        this.batch.flush();
+    }
+
+    public void flushWAL() throws Exception {
+        logger.info("Flushing batched writes and WAL...");
+        this.batch.flush();
+        this.delegate.flush(FLUSH_OPTIONS, this.columns);
     }
 
     @Override
@@ -163,22 +195,12 @@ public final class Database implements AutoCloseable {
         private boolean readOnly;
 
         public Builder() {
-            this.columns.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, COLUMN_OPTIONS));
+            this.columns.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, COLUMN_OPTIONS_FAST));
             this.factories.add(null);
         }
 
         public Builder add(@NonNull String name, @NonNull Factory factory) {
-            return this.add(name, COLUMN_OPTIONS, factory);
-        }
-
-        public Builder add(@NonNull String name, @NonNull CompressionType compression, @NonNull Factory factory) {
-            ColumnFamilyOptions options;
-            if (compression == COLUMN_OPTIONS.compressionType()) {
-                options = COLUMN_OPTIONS;
-            } else {
-                options = new ColumnFamilyOptions(COLUMN_OPTIONS).setCompressionType(compression);
-            }
-            return this.add(name, options, factory);
+            return this.add(name, COLUMN_OPTIONS_FAST, factory);
         }
 
         public Builder add(@NonNull String name, @NonNull ColumnFamilyOptions descriptor, @NonNull Factory factory) {
@@ -201,7 +223,7 @@ public final class Database implements AutoCloseable {
                 if (!this.readOnly && s.length() != e.getMessage().length()) {
                     for (String name : s.split(", ")) {
                         logger.warn("Deleting column family: %s", name);
-                        this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), COLUMN_OPTIONS));
+                        this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), COLUMN_OPTIONS_FAST));
                     }
                     db = OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
                     while (columns.size() > this.factories.size()) {

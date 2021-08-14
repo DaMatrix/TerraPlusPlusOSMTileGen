@@ -57,7 +57,7 @@ public interface DBAccess extends AutoCloseable {
 
     long getDataSize() throws Exception;
 
-    void flush(boolean sync) throws Exception;
+    void flush() throws Exception;
 
     void clear() throws Exception;
 

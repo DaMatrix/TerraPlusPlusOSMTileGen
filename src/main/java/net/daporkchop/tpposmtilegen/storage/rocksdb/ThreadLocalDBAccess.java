@@ -90,8 +90,8 @@ final class ThreadLocalDBAccess implements DBAccess {
     }
 
     @Override
-    public void flush(boolean sync) throws Exception {
-        this.delegate.forEach((EConsumer<DBAccess>) a -> a.flush(sync));
+    public void flush() throws Exception {
+        this.delegate.forEach((EConsumer<DBAccess>) a -> a.flush());
     }
 
     @Override

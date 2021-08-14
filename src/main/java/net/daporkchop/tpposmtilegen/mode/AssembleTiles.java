@@ -56,6 +56,7 @@ public class AssembleTiles implements IMode {
             storage.exportDirtyTiles(storage.db().readWriteBatch());
 
             storage.purge(false); //erase temporary data
+            storage.db().flushWAL();
         }
     }
 }

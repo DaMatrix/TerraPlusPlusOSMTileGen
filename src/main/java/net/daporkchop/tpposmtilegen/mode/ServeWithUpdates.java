@@ -76,7 +76,7 @@ public class ServeWithUpdates implements IMode {
                         Thread thread = new FastThreadLocalThread((ERunnable) () -> {
                             try (DBAccess txn = storage.db().newTransaction()) {
                                 result[0] = updater.update(storage, txn);
-                                txn.flush(true); //commit changes
+                                txn.flush(); //commit changes
                             }
                         });
 

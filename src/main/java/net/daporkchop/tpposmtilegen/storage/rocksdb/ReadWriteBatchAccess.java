@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksIterator;
@@ -92,8 +91,8 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
-    public void flush(boolean sync) throws Exception {
-        this.delegate.flush(sync);
+    public void flush() throws Exception {
+        this.delegate.flush();
     }
 
     @Override

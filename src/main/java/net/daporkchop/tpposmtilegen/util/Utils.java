@@ -54,6 +54,14 @@ public class Utils {
         }
     });
 
+    public static final double AVERAGE_DENSITY_LEVEL0 = 2409.331319429213d;
+    public static final int MAX_LEVELS = 17;
+
+    public static double averageDensityAtLevel(int level) {
+        //increase by factor of 2 with each level
+        return AVERAGE_DENSITY_LEVEL0 * (1 << notNegative(level, "level"));
+    }
+
     public void writeFully(@NonNull FileChannel dst, @NonNull ByteBuf src) throws IOException {
         while (src.isReadable()) {
             src.readBytes(dst, src.readableBytes());
