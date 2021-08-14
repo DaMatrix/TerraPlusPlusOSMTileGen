@@ -45,6 +45,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.CopyOnWriteArraySet;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -135,7 +137,7 @@ public final class Database implements AutoCloseable {
 
     private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
         this.delegate = delegate;
-        this.columns = columns;
+        this.columns = new CopyOnWriteArrayList<>(columns);
         this.batch = new ThreadLocalDBAccess(new CloseableThreadLocal<DBAccess>() {
             @Override
             protected DBAccess initialValue0() throws Exception {
@@ -168,9 +170,17 @@ public final class Database implements AutoCloseable {
     }
 
     public void flush() throws Exception {
-        logger.info("Flushing batched writes and WAL...");
         this.batch.flush();
-        this.delegate.flush(FLUSH_OPTIONS, this.columns);
+    }
+
+    public ColumnFamilyHandle nukeAndReplaceColumnFamily(@NonNull ColumnFamilyHandle old, @NonNull ColumnFamilyDescriptor desc) throws Exception {
+        checkState(this.columns.remove(old), "column doesn't exist?!?");
+        this.flush();
+        this.delegate.dropColumnFamily(old);
+        old.close();
+        ColumnFamilyHandle column = this.delegate.createColumnFamily(desc);
+        this.columns.add(column);
+        return column;
     }
 
     @Override

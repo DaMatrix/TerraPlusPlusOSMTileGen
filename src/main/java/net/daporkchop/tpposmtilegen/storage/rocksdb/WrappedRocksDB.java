@@ -56,10 +56,7 @@ public abstract class WrappedRocksDB {
     }
 
     public void clear() throws Exception {
-        this.database.flush();
-        this.database.delegate().dropColumnFamily(this.column);
-        this.column.close();
-        this.column = this.database.delegate().createColumnFamily(this.desc);
+        this.column = this.database.nukeAndReplaceColumnFamily(this.column, this.desc);
     }
 
     public void optimize() throws Exception {
