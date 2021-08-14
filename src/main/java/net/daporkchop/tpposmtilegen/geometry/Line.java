@@ -92,16 +92,17 @@ public final class Line extends ComplexGeometry {
     }
 
     @Override
-    protected long[] listIntersectedTilesComplex(int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+    protected long[] listIntersectedTilesComplex(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
         long[] arr = new long[tileCount];
         int i = 0;
 
         Line2D.Double line = new Line2D.Double();
         Rectangle2D.Double rectangle = new Rectangle2D.Double();
 
+        int tileSizePointScale = TILE_SIZE_POINT_SCALE[level];
         for (int x = tileMinX; x <= tileMaxX; x++) { //iterate through every tile
             for (int y = tileMinY; y <= tileMaxY; y++) {
-                rectangle.setRect(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE);
+                rectangle.setRect(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale);
 
                 Point prevPoint = this.points[0];
                 for (int p = 1, len = this.points.length; p < len; p++) { //iterate through every line segment

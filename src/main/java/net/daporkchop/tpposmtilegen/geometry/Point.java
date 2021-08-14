@@ -138,8 +138,8 @@ public final class Point implements Geometry {
     }
 
     @Override
-    public long[] listIntersectedTiles() {
-        return new long[]{ point2tile(this.x, this.y) };
+    public long[] listIntersectedTiles(int level) {
+        return new long[]{ point2tile(level, this.x, this.y) };
     }
 
     @Override

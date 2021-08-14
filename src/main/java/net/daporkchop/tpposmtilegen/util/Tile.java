@@ -23,7 +23,10 @@ package net.daporkchop.tpposmtilegen.util;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 
+import java.util.stream.IntStream;
+
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
  * Helper methods for converting points to tile locations.
@@ -32,37 +35,32 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @UtilityClass
 public class Tile {
-    public static final int TILES_PER_DEGREE = 64;
-    public static final int TILE_SIZE_POINT_SCALE = Point.PRECISION / TILES_PER_DEGREE;
+    private static final int TILES_PER_DEGREE_LEVEL0 = 64;
+    private static final int TILE_SIZE_POINT_SCALE_LEVEL0 = Point.PRECISION / TILES_PER_DEGREE_LEVEL0;
 
-    public static final int TX_OFFSET = 180 * TILES_PER_DEGREE;
-    public static final int TY_OFFSET = 90 * TILES_PER_DEGREE;
+    public static final int[] TILE_SIZE_POINT_SCALE = IntStream.range(0, MAX_LEVELS).map(lvl -> TILE_SIZE_POINT_SCALE_LEVEL0 * (1 << lvl)).toArray();
 
-    public static int point2tile(int pointCoordinate) {
-        return Math.floorDiv(pointCoordinate, TILE_SIZE_POINT_SCALE);
+    public static int point2tile(int level, int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, TILE_SIZE_POINT_SCALE[level]);
     }
 
-    public static int tile2point(int tileCoordinate) {
-        return tileCoordinate * TILE_SIZE_POINT_SCALE;
+    public static int tile2point(int level, int tileCoordinate) {
+        return tileCoordinate * TILE_SIZE_POINT_SCALE[level];
     }
 
-    public static long point2tile(int x, int y) {
-        return xy2tilePos(point2tile(x), point2tile(y));
+    public static long point2tile(int level, int x, int y) {
+        return xy2tilePos(point2tile(level, x), point2tile(level, y));
     }
 
     public static long xy2tilePos(int tileX, int tileY) {
-        tileX += TX_OFFSET;
-        tileY += TY_OFFSET;
-        checkArg(tileX >= 0 && tileX < 65536, "tileX: %d", tileX);
-        checkArg(tileY >= 0 && tileY < 65536, "tileY: %d", tileY);
-        return ((tileX & 0xFFFFL) << 16L) | (tileY & 0xFFFFL);
+        return Utils.interleaveBits(tileX, tileY);
     }
 
     public static int tileX(long tilePos) {
-        return toInt((tilePos >>> 16L) & 0xFFFF) - TX_OFFSET;
+        return Utils.uninterleaveX(tilePos);
     }
 
     public static int tileY(long tilePos) {
-        return toInt(tilePos & 0xFFFF) - TY_OFFSET;
+        return Utils.uninterleaveY(tilePos);
     }
 }

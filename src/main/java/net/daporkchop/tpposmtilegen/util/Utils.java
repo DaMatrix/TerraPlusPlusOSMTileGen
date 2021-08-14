@@ -55,7 +55,7 @@ public class Utils {
     });
 
     public static final double AVERAGE_DENSITY_LEVEL0 = 2409.331319429213d;
-    public static final int MAX_LEVELS = 17;
+    public static final int MAX_LEVELS = 18;
 
     public static double averageDensityAtLevel(int level) {
         //increase by factor of 2 with each level
@@ -116,5 +116,50 @@ public class Utils {
     public long u64(long val) {
         checkArg(val >= 0L);
         return val;
+    }
+
+    /**
+     * Interleaves the bits of 2 {@code int}s.
+     * <p>
+     * Based on <a href="https://graphics.stanford.edu/~seander/bithacks.html#InterleaveBMN">Bit Twiddling Hacks - Interleave bits by Binary Magic Numbers</a>.
+     *
+     * @return the interleaved bits
+     */
+    public static long interleaveBits(int i0, int i1) {
+        return spreadBits1(i0) | (spreadBits1(i1) << 1L);
+    }
+
+    private static long spreadBits1(long i) {
+        //clear upper bits
+        i &= (1L << 32L) - 1L;
+
+        //basically magic
+        i = (i | (i << 16L)) & 0x0000FFFF0000FFFFL;
+        i = (i | (i << 8L)) & 0x00FF00FF00FF00FFL;
+        i = (i | (i << 4L)) & 0x0F0F0F0F0F0F0F0FL;
+        i = (i | (i << 2L)) & 0x3333333333333333L;
+        i = (i | (i << 1L)) & 0x5555555555555555L;
+        return i;
+    }
+
+    public static int uninterleaveX(long packed) {
+        return (int) unspreadBits1(packed);
+    }
+
+    public static int uninterleaveY(long packed) {
+        return (int) unspreadBits1(packed >> 1L);
+    }
+
+    private static long unspreadBits1(long i) {
+        //clear useless bits
+        i &= 0x5555555555555555L;
+
+        //basically magic
+        i = (i | (i >> 1L)) & 0x3333333333333333L;
+        i = (i | (i >> 2L)) & 0x0F0F0F0F0F0F0F0FL;
+        i = (i | (i >> 4L)) & 0x00FF00FF00FF00FFL;
+        i = (i | (i >> 8L)) & 0x0000FFFF0000FFFFL;
+        i = (i | (i >> 16L)) & 0x00000000FFFFFFFFL;
+        return i;
     }
 }

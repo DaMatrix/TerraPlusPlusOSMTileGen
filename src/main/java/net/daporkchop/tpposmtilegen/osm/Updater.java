@@ -147,27 +147,15 @@ public class Updater {
         }
         logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 3: clear geometry intersections
+        //pass 3: convert geometry of all changed elements to GeoJSON and recompute relations
         for (long combinedId : changedIds) {
-            long[] arr = storage.intersectedTiles().get(access, combinedId);
-            if (arr != null) {
-                storage.intersectedTiles().delete(access, combinedId);
-
-                storage.tileContents().deleteElementFromTiles(access, LongArrayList.wrap(arr), combinedId);
-                storage.dirtyTiles().markDirty(access, LongArrayList.wrap(arr));
-            }
+            storage.convertToGeoJSONAndStoreInDB(access, combinedId, null, true);
         }
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 4: convert geometry of all changed elements to GeoJSON and recompute relations
-        for (long combinedId : changedIds) {
-            storage.convertToGeoJSONAndStoreInDB(access, combinedId, true);
-        }
-        logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
-
-        //pass 5: write updated tiles
+        //pass 4: write updated tiles
         storage.exportDirtyTiles(access);
-        logger.trace("pass 5: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+        logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {

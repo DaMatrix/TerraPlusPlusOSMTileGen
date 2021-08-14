@@ -28,6 +28,7 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.util.Persistent;
+import net.daporkchop.tpposmtilegen.util.Utils;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.nio.ByteBuffer;
@@ -106,7 +107,7 @@ public interface Geometry extends Persistent {
         }
     }
 
-    long[] listIntersectedTiles();
+    long[] listIntersectedTiles(int level);
 
     /**
      * Checks whether or not this geometry object should be stored externally.
@@ -131,6 +132,10 @@ public interface Geometry extends Persistent {
      * @return the simplified geometry, or {@code null} if it should be discarded
      */
     Geometry simplify(double targetPointDensity);
+
+    default Geometry simplifyTo(int targetLevel) {
+        return targetLevel == 0 ? this : this.simplify(Utils.averageDensityAtLevel(targetLevel));
+    }
 
     WeightedDouble averagePointDensity();
 }

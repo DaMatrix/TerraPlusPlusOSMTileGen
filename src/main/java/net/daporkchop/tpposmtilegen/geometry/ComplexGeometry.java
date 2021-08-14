@@ -113,12 +113,12 @@ public abstract class ComplexGeometry implements Geometry {
     public abstract Bounds2d computeObjectBounds();
 
     @Override
-    public final long[] listIntersectedTiles() {
+    public final long[] listIntersectedTiles(int level) {
         Bounds2d bounds = this.computeObjectBounds();
-        int tileMinX = point2tile(bounds.minX());
-        int tileMaxX = point2tile(bounds.maxX());
-        int tileMinY = point2tile(bounds.minY());
-        int tileMaxY = point2tile(bounds.maxY());
+        int tileMinX = point2tile(level, bounds.minX());
+        int tileMaxX = point2tile(level, bounds.maxX());
+        int tileMinY = point2tile(level, bounds.minY());
+        int tileMaxY = point2tile(level, bounds.maxY());
         int tileCount = (tileMaxX - tileMinX + 1) * (tileMaxY - tileMinY + 1);
 
         if (tileCount == 0) { //wtf?!?
@@ -134,11 +134,11 @@ public abstract class ComplexGeometry implements Geometry {
             }
             return arr;
         } else {
-            return this.listIntersectedTilesComplex(tileMinX, tileMaxX, tileMinY, tileMaxY, tileCount);
+            return this.listIntersectedTilesComplex(level, tileMinX, tileMaxX, tileMinY, tileMaxY, tileCount);
         }
     }
 
-    protected long[] listIntersectedTilesComplex(int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+    protected long[] listIntersectedTilesComplex(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
         long[] arr = new long[tileCount];
         for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
             for (int y = tileMinY; y <= tileMaxY; y++) {

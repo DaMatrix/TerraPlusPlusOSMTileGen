@@ -20,21 +20,11 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import io.netty.util.AsciiString;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EBiConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
-import java.nio.ByteBuffer;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -62,43 +52,7 @@ public class Test implements IMode {
         checkArg(args.length == 1, "Usage: test <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        //stupidly inefficient code to fix broken file names
         try (Storage storage = new Storage(src.toPath())) {
-            Ref<Matcher> regexCache = ThreadRef.regex(Pattern.compile("(/)(\\d{1,2})\\.json"));
-            Ref<StringBuffer> bufferCache = ThreadRef.late(StringBuffer::new);
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Fix json file names").slot("skipped").slot("modified").build()) {
-                storage.jsonStorage().forEachParallel(storage.db().read(), (id, buffer) -> {
-                    try {
-                        String replacedContent = this.replace(bufferCache, regexCache.get().reset(new AsciiString(buffer.array(), false)));
-                        if (replacedContent != null) {
-                            buffer = Geometry.toNioBuffer(replacedContent);
-                            storage.jsonStorage().put(storage.db().batch(), id, buffer);
-                            notifier.step(1);
-                        } else {
-                            notifier.step(0);
-                        }
-                    } catch (Exception e) {
-                        throw new RuntimeException(e);
-                    } finally {
-                        if (!buffer.hasArray()) {
-                            PUnsafe.pork_releaseBuffer(buffer);
-                        }
-                    }
-                });
-            }
         }
-    }
-
-    private String replace(@NonNull Ref<StringBuffer> bufCache, @NonNull Matcher matcher) {
-        if (matcher.find()) {
-            StringBuffer buf = bufCache.get();
-            buf.setLength(0);
-            do {
-                matcher.appendReplacement(buf, matcher.group(1) + String.format("%03d", Integer.parseUnsignedInt(matcher.group(2))) + ".json");
-            } while (matcher.find());
-            matcher.appendTail(buf);
-            return buf.toString();
-        }
-        return null;
     }
 }

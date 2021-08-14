@@ -228,7 +228,7 @@ public final class Database implements AutoCloseable {
                         ? RocksDB.openReadOnly(options, path.toString(), this.columns, columns)
                         : OptimisticTransactionDB.open(options, path.toString(), this.columns, columns);
             } catch (RocksDBException e) {
-                String s = e.getMessage().replace("You have to open all column families. Column families not opened: ", "");
+                String s = e.getMessage().replace("Column families not opened: ", "");
                 if (!this.readOnly && s.length() != e.getMessage().length()) {
                     for (String name : s.split(", ")) {
                         logger.warn("Deleting column family: %s", name);

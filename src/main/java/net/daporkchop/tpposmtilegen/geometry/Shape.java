@@ -110,7 +110,7 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    protected long[] listIntersectedTilesComplex(int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+    protected long[] listIntersectedTilesComplex(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
         //convert all loops into java.awt.Polygons
         PolygonRecycler recycler = POLYGON_RECYCLER.get();
         Polygon outerPoly = recycler.fromClosedLineString(this.outerLoop);
@@ -128,11 +128,12 @@ public final class Shape extends ComplexGeometry {
                 stream = stream.parallel();
             }
             stream.forEach(x -> {
+                        int tileSizePointScale = TILE_SIZE_POINT_SCALE[level];
                         for (int y = tileMinY; y <= tileMaxY; y++) {
                             ADD:
-                            if (outerPoly.intersects(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) {
+                            if (outerPoly.intersects(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale)) {
                                 for (Polygon innerPoly : innerPolys) {
-                                    if (innerPoly.contains(tile2point(x), tile2point(y), TILE_SIZE_POINT_SCALE, TILE_SIZE_POINT_SCALE)) { //tile is entirely contained within a hole
+                                    if (innerPoly.contains(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale)) { //tile is entirely contained within a hole
                                         break ADD;
                                     }
                                 }

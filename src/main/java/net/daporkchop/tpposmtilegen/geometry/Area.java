@@ -78,13 +78,13 @@ public class Area implements Geometry {
     }
 
     @Override
-    public long[] listIntersectedTiles() {
+    public long[] listIntersectedTiles(int level) {
         if (this.shapes.length == 1) { //only a single shape, so we don't need to aggregate intersected tiles from multiple child shapes
-            return this.shapes[0].listIntersectedTiles();
+            return this.shapes[0].listIntersectedTiles(level);
         } else {
             LongSet tilePositions = new LongOpenHashSet();
             for (Shape shape : this.shapes) {
-                tilePositions.addAll(LongArrayList.wrap(shape.listIntersectedTiles()));
+                tilePositions.addAll(LongArrayList.wrap(shape.listIntersectedTiles(level)));
             }
             return tilePositions.toLongArray();
         }

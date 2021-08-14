@@ -62,7 +62,7 @@ public class AssembleGeometry implements IMode {
             LongObjConsumer<Element> func = (id, element) -> {
                 int type = element.type();
                 try {
-                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), false);
+                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false);
                 } catch (Exception e) {
                     throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                 }

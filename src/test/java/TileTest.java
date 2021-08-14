@@ -20,8 +20,12 @@
 
 import org.junit.Test;
 
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.IntStream;
+
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
+import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
  * @author DaPorkchop_
@@ -29,14 +33,16 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 public class TileTest {
     @Test
     public void test() {
-        for (int tileX = -TX_OFFSET; tileX <= TX_OFFSET; tileX++) {
-            for (int tileY = -TY_OFFSET; tileY <= TY_OFFSET; tileY++) {
-                long tilePos = xy2tilePos(tileX, tileY);
-                int tx = tileX(tilePos);
-                checkState(tx == tileX, "%d -> x: %d (expected: %d)", tilePos, tx, tileX);
-                int ty = tileY(tilePos);
-                checkState(ty == tileY, "%d -> y: %d (expected: %d)", tilePos, ty, tileY);
-            }
-        }
+        IntStream.range(0, Integer.MAX_VALUE).parallel()
+                .forEach(i -> {
+                    ThreadLocalRandom r = ThreadLocalRandom.current();
+                    int tileX = r.nextInt();
+                    int tileY = r.nextInt();
+                    long tilePos = xy2tilePos(tileX, tileY);
+                    int tx = tileX(tilePos);
+                    checkState(tx == tileX, "%d -> x: %d (expected: %d)", tilePos, tx, tileX);
+                    int ty = tileY(tilePos);
+                    checkState(ty == tileY, "%d -> y: %d (expected: %d)", tilePos, ty, tileY);
+                });
     }
 }
