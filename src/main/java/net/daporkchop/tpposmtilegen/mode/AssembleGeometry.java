@@ -28,8 +28,6 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
-import java.nio.file.Path;
-import java.nio.file.Paths;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -57,27 +55,24 @@ public class AssembleGeometry implements IMode {
         checkArg(args.length == 1, "Usage: assemble_geometry <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (Storage storage = new Storage(src.toPath())) {
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
-                    .slot("nodes").slot("ways").slot("relations").slot("coastlines")
-                    .build()) {
-                LongObjConsumer<Element> func = (id, element) -> {
-                    int type = element.type();
-                    try {
-                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), false);
-                    } catch (Exception e) {
-                        throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
-                    }
-                    notifier.step(type);
-                };
+        try (Storage storage = new Storage(src.toPath());
+             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
+                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
+                     .build()) {
+            LongObjConsumer<Element> func = (id, element) -> {
+                int type = element.type();
+                try {
+                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), false);
+                } catch (Exception e) {
+                    throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
+                }
+                notifier.step(type);
+            };
 
-                storage.nodes().forEachParallel(storage.db().read(), func);
-                storage.ways().forEachParallel(storage.db().read(), func);
-                storage.relations().forEachParallel(storage.db().read(), func);
-                storage.coastlines().forEachParallel(storage.db().read(), func);
-            }
-
-            storage.db().flushWAL();
+            storage.nodes().forEachParallel(storage.db().read(), func);
+            storage.ways().forEachParallel(storage.db().read(), func);
+            storage.relations().forEachParallel(storage.db().read(), func);
+            storage.coastlines().forEachParallel(storage.db().read(), func);
         }
     }
 }

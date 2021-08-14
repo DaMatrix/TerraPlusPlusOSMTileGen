@@ -38,7 +38,7 @@ ext {
     nettyVersion = "4.1.36.Final"
     parallelpbfVersion = "d7793f3a0a1ed69464a60f450bf301a0b901098e"
     porklibVersion = "0.5.5-SNAPSHOT"
-    rocksdbVersion = "6.13.3"
+    rocksdbVersion = "6.20.3"
 }
 
 group "net.daporkchop"

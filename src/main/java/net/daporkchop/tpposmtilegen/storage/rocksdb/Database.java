@@ -63,6 +63,7 @@ public final class Database implements AutoCloseable {
     public static final ReadOptions READ_OPTIONS;
     public static final WriteOptions WRITE_OPTIONS;
     public static final WriteOptions SYNC_WRITE_OPTIONS;
+    public static final WriteOptions NOWAL_WRITE_OPTIONS;
     public static final FlushOptions FLUSH_OPTIONS;
 
     static {
@@ -118,6 +119,7 @@ public final class Database implements AutoCloseable {
         READ_OPTIONS = new ReadOptions();
         WRITE_OPTIONS = new WriteOptions();
         SYNC_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
+        NOWAL_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setDisableWAL(true);
 
         FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true).setAllowWriteStall(true);
     }
@@ -166,10 +168,6 @@ public final class Database implements AutoCloseable {
     }
 
     public void flush() throws Exception {
-        this.batch.flush();
-    }
-
-    public void flushWAL() throws Exception {
         logger.info("Flushing batched writes and WAL...");
         this.batch.flush();
         this.delegate.flush(FLUSH_OPTIONS, this.columns);
@@ -178,6 +176,7 @@ public final class Database implements AutoCloseable {
     @Override
     public void close() throws Exception {
         this.batch.close();
+        this.delegate.flush(FLUSH_OPTIONS, this.columns);
         this.columns.forEach(ColumnFamilyHandle::close);
         this.delegate.close();
     }

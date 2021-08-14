@@ -100,7 +100,7 @@ class FlushableWriteBatch implements DBAccess {
     public void flush() throws Exception {
         if (this.dirty) {
             try {
-                this.db.write(Database.WRITE_OPTIONS, this.batch);
+                this.db.write(Database.NOWAL_WRITE_OPTIONS, this.batch);
             } finally {
                 this.batch.clear();
                 this.dirty = false;
