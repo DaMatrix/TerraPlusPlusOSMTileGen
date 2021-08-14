@@ -29,6 +29,8 @@ import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -94,6 +96,20 @@ public class Area implements Geometry {
         for (Shape shape : this.shapes) {
             shape.toBytes(dst);
         }
+    }
+
+    @Override
+    public Area simplify(double targetPointDensity) {
+        //simplify each shape individually, discarding all shapes that discarded themselves and discarding ourself if no shapes remain
+        List<Shape> simplifiedShapes = new ArrayList<>(this.shapes.length);
+        for (Shape shape : this.shapes) {
+            Shape simplifiedShape = shape.simplify(targetPointDensity);
+            if (simplifiedShape != null) {
+                simplifiedShapes.add(simplifiedShape);
+            }
+        }
+
+        return simplifiedShapes.isEmpty() ? null : new Area(simplifiedShapes.toArray(new Shape[0]));
     }
 
     @Override

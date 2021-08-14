@@ -30,6 +30,8 @@ import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.awt.Polygon;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.stream.IntStream;
 
 import static java.lang.Math.*;
@@ -69,11 +71,13 @@ public final class Shape extends ComplexGeometry {
     protected final Point[][] innerLoops;
 
     public Shape(@NonNull Point[] outerLoop, @NonNull Point[][] innerLoops) {
-        checkArg(outerLoop.length >= 3, "outerLoop must contain at least 3 points! (found: %d)", outerLoop.length);
+        checkArg(outerLoop.length >= 4, "outerLoop must contain at least 4 points! (found: %d)", outerLoop.length);
+        checkArg(outerLoop[0].equals(outerLoop[outerLoop.length - 1]), "outerLoop must be a closed loop!");
         for (int i = 0; i < innerLoops.length; i++) {
             Point[] innerLoop = innerLoops[i];
             checkArg(innerLoop != null, "innerLoop[%d] is null!", i);
-            checkArg(innerLoop.length >= 3, "innerLoop[%d] must contain at least 3 points! (found: %d)", i, innerLoop.length);
+            checkArg(innerLoop.length >= 4, "innerLoop[%d] must contain at least 4 points! (found: %d)", i, innerLoop.length);
+            checkArg(innerLoop[0].equals(innerLoop[innerLoop.length - 1]), "innerLoop[%d] must be a closed loop!", i);
         }
 
         this.outerLoop = outerLoop;
@@ -172,6 +176,25 @@ public final class Shape extends ComplexGeometry {
         for (int i = 0; i < count; i++) {
             loop[i].toBytes(dst);
         }
+    }
+
+    @Override
+    public Shape simplify(double targetPointDensity) {
+        //simplify each loop individually, discarding the whole shape if the outer loop is discarded and silently discarding inner loops as needed
+        Point[] simplifiedOuterLoop = simplifyPointString(this.outerLoop, targetPointDensity, true);
+        if (simplifiedOuterLoop == null) {
+            return null;
+        }
+
+        List<Point[]> simplifiedInnerLoops = new ArrayList<>(this.innerLoops.length);
+        for (Point[] innerLoop : this.innerLoops) {
+            Point[] simplifiedInnerLoop = simplifyPointString(innerLoop, targetPointDensity, true);
+            if (simplifiedInnerLoop != null) {
+                simplifiedInnerLoops.add(simplifiedInnerLoop);
+            }
+        }
+
+        return new Shape(simplifiedOuterLoop, simplifiedInnerLoops.toArray(new Point[0][]));
     }
 
     @Override

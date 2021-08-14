@@ -125,11 +125,12 @@ public interface Geometry extends Persistent {
     void toGeoJSON(@NonNull StringBuilder dst);
 
     /**
+     * Simplifies this geometry so that it has at most the requested point density.
+     *
+     * @param targetPointDensity the maximum point density of the simplified geometry
      * @return the simplified geometry, or {@code null} if it should be discarded
      */
-    default Geometry simplify() {
-        return null; //TODO: remove this implementation
-    }
+    Geometry simplify(double targetPointDensity);
 
     WeightedDouble averagePointDensity();
 }

@@ -28,6 +28,8 @@ import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 
 import java.awt.Polygon;
 
+import static java.lang.Math.*;
+import static net.daporkchop.lib.common.math.PMath.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
@@ -35,6 +37,78 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  */
 public abstract class ComplexGeometry implements Geometry {
     protected static final Ref<PolygonRecycler> POLYGON_RECYCLER = ThreadRef.soft(PolygonRecycler::new);
+
+    protected static long sq(long l) {
+        return l * l;
+    }
+
+    protected static Point[] simplifyPointString(@NonNull Point[] inPoints, double targetPointDensity, boolean closed) {
+        double inLength = 0.0d;
+        double inDensity = 0.0d;
+        int inSegments = 0;
+
+        for (int i = 1; i < inPoints.length; i++) {
+            Point p0 = inPoints[i - 1];
+            Point p1 = inPoints[i];
+            long dx = p0.x() - p1.x();
+            long dy = p0.y() - p1.y();
+            if ((dx | dy) != 0) {
+                inLength += sqrt(dx * dx + dy * dy);
+                inSegments++;
+            }
+        }
+        if (inSegments == 0) { //there are no points?!? bruh
+            return null;
+        }
+        inDensity = inLength / inSegments;
+
+        if (inDensity >= targetPointDensity) { //already sufficiently sparse
+            return inPoints;
+        }
+
+        int outLength = ceilI(inLength / targetPointDensity);
+        if (outLength < (closed ? 4 : 2)) { //too few points would be emitted, discard outself
+            return null;
+        }
+
+        //generate exactly outLength points spaced exactly outDensity distance units apart on the original line
+        double outDensity = inLength / outLength;
+        Point[] outPoints = new Point[outLength];
+        outPoints[0] = inPoints[0];
+
+        Point inP0 = inPoints[0];
+        Point inP1 = inPoints[1];
+        double inTotalDist = sqrt(sq(inP0.x() - inP1.x()) + sq(inP0.y() - inP1.y()));
+        double inRemainingDist = inTotalDist;
+        int inIdx = 2;
+
+        for (int outIdx = 1; outIdx < outLength; outIdx++) {
+            double requestedDist = outDensity;
+
+            double d = min(inRemainingDist, requestedDist);
+            inRemainingDist -= d;
+            requestedDist -= d;
+
+            while (requestedDist > inRemainingDist) {
+                inP0 = inP1;
+                inP1 = inPoints[inIdx++];
+                inRemainingDist = inTotalDist = sqrt(sq(inP0.x() - inP1.x()) + sq(inP0.y() - inP1.y()));
+
+                d = min(inRemainingDist, requestedDist);
+                inRemainingDist -= d;
+                requestedDist -= d;
+            }
+
+            double f = 1.0d - inRemainingDist / inTotalDist;
+            outPoints[outIdx] = new Point(lerpI(inP0.x(), inP1.x(), f), lerpI(inP0.y(), inP1.y(), f));
+        }
+
+        if (closed) { //make sure the loop is closed
+            outPoints[outLength - 1] = outPoints[0];
+        }
+
+        return outPoints;
+    }
 
     public abstract Bounds2d computeObjectBounds();
 

@@ -129,6 +129,13 @@ public final class Line extends ComplexGeometry {
     }
 
     @Override
+    public Line simplify(double targetPointDensity) {
+        //simplify the single line string, discarding ourself if needed
+        Point[] simplifiedPoints = simplifyPointString(this.points, targetPointDensity, false);
+        return simplifiedPoints != null ? new Line(simplifiedPoints) : null;
+    }
+
+    @Override
     public WeightedDouble averagePointDensity() {
         double sum = 0.0d;
         long cnt = 0L;
