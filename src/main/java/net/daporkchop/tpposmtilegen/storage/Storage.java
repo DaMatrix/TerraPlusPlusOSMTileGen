@@ -106,7 +106,6 @@ public final class Storage implements AutoCloseable {
     protected ReferenceDB references;
 
     protected final TileDB[] tileContents = new TileDB[MAX_LEVELS];
-    protected final DirtyTracker[] dirtyTiles = new DirtyTracker[MAX_LEVELS];
     protected final LongArrayDB[] intersectedTiles = new LongArrayDB[MAX_LEVELS];
     protected final BlobDB[] jsonStorage = new BlobDB[MAX_LEVELS];
 
@@ -140,8 +139,7 @@ public final class Storage implements AutoCloseable {
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, (database, handle, descriptor) -> this.tileContents[lvl] = new TileDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("dirty_tiles@" + lvl, (database, handle, descriptor) -> this.dirtyTiles[lvl] = new DirtyTracker(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("json@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.jsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("json@" + lvl, (database, handle, descriptor) -> this.jsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         this.db = builder.build(root.resolve("db"), options);
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
@@ -207,9 +205,6 @@ public final class Storage implements AutoCloseable {
                 //no tiles should reference this element
                 this.tileContents[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
 
-                //all the tiles which previously referenced this element are now dirty, since the element has been removed
-                this.dirtyTiles[lvl].markDirty(access, LongArrayList.wrap(oldIntersected));
-
                 //the element's json data should be removed
                 this.jsonStorage[lvl].delete(access, combinedId);
                 this.files.delete(access, lvl + "/" + location);
@@ -227,7 +222,6 @@ public final class Storage implements AutoCloseable {
                 Arrays.sort(newIntersected);
                 int tileCount = newIntersected.length;
 
-                this.dirtyTiles[lvl].markDirty(access, LongArrayList.wrap(newIntersected));
                 this.tileContents[lvl].addElementToTiles(access, LongArrayList.wrap(newIntersected), combinedId);
                 this.intersectedTiles[lvl].put(access, combinedId, newIntersected);
 
@@ -261,84 +255,7 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void exportDirtyTiles(@NonNull DBAccess access) throws Exception {
-        long count = Stream.of(this.dirtyTiles).parallel().mapToLong(tracker -> {
-            try {
-                return tracker.count(access);
-            } catch (Exception e) {
-                throw new RuntimeException(e);
-            }
-        }).sum();
-
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Write dirty tiles")
-                .slot("tiles", count)
-                .build()) {
-            for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
-                this.dirtyTiles[lvl].forEachParallel(access, this.exportTile(access, lvl, notifier, !access.threadSafe()));
-            }
-        }
-    }
-
-    protected LongConsumer exportTile(@NonNull DBAccess access, int lvl, @NonNull ProgressNotifier notifier, boolean doLock) {
-        ReadWriteLock lock = new ReentrantReadWriteLock(true);
-        return tilePos -> {
-            String path = PStrings.fastFormat("%d/tile/%d/%d.json", lvl, Tile.tileX(tilePos), Tile.tileY(tilePos));
-
-            try {
-                LongList elements = new LongArrayList();
-                List<ByteBuffer> list;
-
-                if (doLock) {
-                    lock.readLock().lock();
-                }
-                try {
-                    this.tileContents[lvl].getElementsInTile(access, tilePos, elements);
-                    list = this.jsonStorage[lvl].getAll(access, elements);
-                } finally {
-                    if (doLock) {
-                        lock.readLock().unlock();
-                    }
-                }
-
-                //compute total size
-                int count = list.size();
-                int size = list.stream().mapToInt(ByteBuffer::remaining).sum();
-
-                byte[] merged = null;
-                if (count != 0) { //merge buffers
-                    merged = new byte[size];
-                    for (int i = 0, off = 0; i < count; i++) {
-                        ByteBuffer buf = list.get(i);
-                        list.set(i, null);
-                        int remaining = buf.remaining();
-                        buf.get(merged, off, remaining);
-                        off += remaining;
-                    }
-                }
-
-                if (doLock) {
-                    lock.writeLock().lock();
-                }
-                try {
-                    if (merged != null) {
-                        this.files.putHeap(access, path, ByteBuffer.wrap(merged));
-                    } else {
-                        this.files.delete(access, path);
-                    }
-                    this.dirtyTiles[lvl].unmarkDirty(access, tilePos);
-                } finally {
-                    if (doLock) {
-                        lock.writeLock().unlock();
-                    }
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("tile " + Tile.tileX(tilePos) + ' ' + Tile.tileY(tilePos), e);
-            }
-            notifier.step(0);
-        };
-    }
-
-    public byte[] getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
+    public ByteBuf getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
         long tilePos = Tile.xy2tilePos(tileX, tileY);
 
         LongList elements = new LongArrayList();
@@ -351,16 +268,11 @@ public final class Storage implements AutoCloseable {
         int count = list.size();
         int size = list.stream().mapToInt(ByteBuffer::remaining).sum();
 
-        byte[] merged = null;
+        ByteBuf merged = Unpooled.EMPTY_BUFFER;
         if (count != 0) { //merge buffers
-            merged = new byte[size];
-            for (int i = 0, off = 0; i < count; i++) {
-                ByteBuffer buf = list.get(i);
-                list.set(i, null);
-                int remaining = buf.remaining();
-                buf.get(merged, off, remaining);
-                off += remaining;
-            }
+            merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size);
+            list.forEach(merged::writeBytes);
+            list.clear();
         }
 
         return merged;
@@ -369,11 +281,6 @@ public final class Storage implements AutoCloseable {
     public void purge(boolean full) throws Exception {
         logger.info("Cleaning up... (this might take a while)");
         this.flush();
-
-        logger.trace("Clearing dirty tile markers...");
-        for (DirtyTracker tracker : this.dirtyTiles) {
-            tracker.clear();
-        }
 
         if (full) {
             logger.trace("Clearing tile assembly GeoJSON storage...");

@@ -63,7 +63,7 @@ public class Utils {
     public static final double POINT_DENSITY_LEVEL0_MEDIAN = 1519.78891284316d;
     public static final double POINT_DENSITY_LEVEL0_THIRD_QUARTILE = 2891.26581651644d;
 
-    public static final int MAX_LEVELS = 18;
+    public static final int MAX_LEVELS = 14;
 
     public static double minimumDensityAtLevel(int level) {
         //increase by factor of 2 with each level

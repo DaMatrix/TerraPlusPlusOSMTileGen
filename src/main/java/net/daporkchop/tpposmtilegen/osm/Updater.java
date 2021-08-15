@@ -152,10 +152,6 @@ public class Updater {
             storage.convertToGeoJSONAndStoreInDB(access, combinedId, null, true);
         }
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
-
-        //pass 4: write updated tiles
-        storage.exportDirtyTiles(access);
-        logger.trace("pass 4: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
     private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {

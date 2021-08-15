@@ -28,10 +28,14 @@ import io.netty.handler.codec.http.HttpHeaderValues;
 import io.netty.handler.codec.http.HttpMethod;
 import io.netty.handler.codec.http.HttpResponseStatus;
 import lombok.NonNull;
+import lombok.SneakyThrows;
 import net.daporkchop.lib.binary.oio.appendable.PAppendable;
 import net.daporkchop.lib.binary.oio.appendable.UTF8ByteBufAppendable;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.misc.string.PStrings;
+import net.daporkchop.lib.common.ref.Ref;
+import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.http.HttpHandler;
 import net.daporkchop.tpposmtilegen.http.HttpServer;
 import net.daporkchop.tpposmtilegen.http.Response;
@@ -39,8 +43,10 @@ import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
+import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
@@ -52,10 +58,12 @@ import java.util.List;
 import java.util.Scanner;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
+import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
  * @author DaPorkchop_
@@ -110,81 +118,117 @@ public class Serve implements IMode {
                 throw new HttpException(HttpResponseStatus.METHOD_NOT_ALLOWED);
             }
 
-            String path = request.uri().substring(1); //trim leading slash
-
-            Path filePath = this.customRoot.resolve(path);
-            if (!filePath.startsWith(this.customRoot)) {
-                throw new HttpException(HttpResponseStatus.BAD_REQUEST);
-            }
-            boolean fileExists = Files.isReadable(filePath);
-            if (fileExists && Files.isRegularFile(filePath)) {
-                if (path.endsWith(".html")) {
-                    response.contentType("text/html");
-                } else if (path.endsWith(".json")) {
-                    response.contentType("application/geo+json");
-                } else {
-                    response.contentType(HttpHeaderValues.TEXT_PLAIN);
+            String path = request.uri();
+            {
+                int paramIndex = path.indexOf('?');
+                if (paramIndex >= 0) { //trim url parameters
+                    path = path.substring(0, paramIndex);
                 }
 
-                try (FileChannel channel = FileChannel.open(filePath, StandardOpenOption.READ)) {
-                    int size = toInt(channel.size());
-                    ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size, size);
-                    while (buf.isWritable()) {
-                        buf.writeBytes(channel, buf.writableBytes());
+                path = path.substring(1); //trim leading slash
+                if (!path.isEmpty() && path.charAt(path.length() - 1) == '/') { //trim trailing slash
+                    path = path.substring(0, path.length() - 1);
+                }
+            }
+
+            if (path.isEmpty()) {
+                this.sendIndex(response, path, IntStream.range(0, MAX_LEVELS).mapToObj(i -> i + "/"));
+                return;
+            }
+
+            String[] split = path.split("/");
+
+            int level = Integer.parseUnsignedInt(split[0]);
+            if (split.length == 1) {
+                this.sendIndex(response, path, Stream.of("way/", "relation/", "coastline/", "tile/"));
+                return;
+            }
+
+            switch (split[1]) {
+                default:
+                    throw new IllegalStateException();
+                case "tile": {
+                    if (split.length == 2) {
+                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -180 * Point.PRECISION), Tile.point2tile(level, 180 * Point.PRECISION)).mapToObj(i -> i + "/"));
+                        return;
                     }
-                    response.body(buf).status(HttpResponseStatus.OK);
+
+                    int tileX = Integer.parseInt(split[2]);
+                    if (split.length == 3) {
+                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -90 * Point.PRECISION), Tile.point2tile(level, 90 * Point.PRECISION)).mapToObj(i -> i + ".json"));
+                        return;
+                    }
+
+                    checkArg(split.length == 4);
+                    checkArg(split[3].endsWith(".json"));
+                    int tileY = Integer.parseInt(split[3].substring(0, split[3].length() - ".json".length()));
+
+                    response.status(HttpResponseStatus.OK)
+                            .contentType("application/geo+json")
+                            .body(this.storage.getTile(this.access, tileX, tileY, level));
                     return;
                 }
-            }
-
-            ByteBuffer buffer = this.storage.files().get(this.access, path);
-            if (buffer == null) {
-                Matcher matcher = Pattern.compile("^(\\d+)/tile/(-?\\d+)/(-?\\d+)\\.json$").matcher(path);
-                if (matcher.matches()) {
-                    byte[] arr = this.storage.getTile(this.access, Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)), Integer.parseUnsignedInt(matcher.group(1)));
-                    if (arr != null) {
-                        buffer = ByteBuffer.wrap(arr);
+                case "way":
+                case "relation":
+                case "coastline": {
+                    if (split.length == 2) {
+                        this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> PStrings.fastFormat("%03d/", i)));
+                        return;
                     }
                 }
             }
 
-            if (buffer != null) {
-                response.contentType("application/geo+json")
-                        .status(HttpResponseStatus.OK)
-                        .body(Unpooled.wrappedBuffer(buffer));
+            checkIndex(1000, Integer.parseUnsignedInt(split[2]));
+            if ("coastline".equals(split[1])) {
+                if (split.length == 3) {
+                    this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> i + ".json"));
+                    return;
+                }
+
+                checkArg(split.length == 4);
+                checkArg(split[3].endsWith(".json"));
+                checkIndex(1000, Integer.parseUnsignedInt(split[3].substring(0, split[3].length() - ".json".length())));
             } else {
-                List<String> children = this.storage.files().listChildren(this.access, path);
-                if (children == null && !fileExists) {
-                    throw new HttpException(HttpResponseStatus.NOT_FOUND);
+                if (split.length == 3) {
+                    this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> PStrings.fastFormat("%03d/", i)));
+                    return;
                 }
 
-                if (fileExists) {
-                    if (children == null) {
-                        children = new ArrayList<>();
-                    }
-                    try (Stream<Path> paths = Files.list(filePath)) {
-                        paths.map(p -> {
-                            if (Files.isDirectory(p)) {
-                                return p.getFileName().toString() + '/';
-                            } else {
-                                return p.getFileName().toString();
-                            }
-                        }).forEach(children::add);
-                    }
+                checkIndex(1000, Integer.parseUnsignedInt(split[3]));
+                if (split.length == 4) {
+                    this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> PStrings.fastFormat("%03d.json", i)));
+                    return;
                 }
 
-                children.add(0, "../");
-                children.sort(String.CASE_INSENSITIVE_ORDER);
+                checkArg(split.length == 5);
+                checkArg(split[4].endsWith(".json"));
+                checkIndex(1000, Integer.parseUnsignedInt(split[4].substring(0, split[4].length() - ".json".length())));
+            }
 
-                ByteBuf body = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
-                response.contentType("text/html")
-                        .status(HttpResponseStatus.OK)
-                        .body(body);
-                try (PAppendable out = new UTF8ByteBufAppendable(body)) {
-                    out.appendFmt("<html><body><h1>Index of %s</h1><ul>", path.isEmpty() ? "/" : path);
-                    children.forEach((IOConsumer<String>) s -> out.appendFmt("<li><a href=\"%1$s\">%1$s</a></li>", s));
-                    out.appendLn("</ul></body></html>");
-                }
+            ByteBuffer val = this.storage.files().get(this.access, path);
+            if (val == null) {
+                response.status(HttpResponseStatus.NOT_FOUND);
+            } else {
+                response.status(HttpResponseStatus.OK)
+                        .contentType("application/geo+json")
+                        .body(Unpooled.wrappedBuffer(val));
+            }
+        }
+
+        @SneakyThrows(IOException.class)
+        private void sendIndex(@NonNull Response response, @NonNull String path, @NonNull Stream<String> values) {
+            ByteBuf body = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
+            response.contentType("text/html")
+                    .status(HttpResponseStatus.OK)
+                    .body(body);
+
+            try (PAppendable out = new UTF8ByteBufAppendable(body)) {
+                out.appendFmt("<html><body><h1>Index of %s</h1><ul>", '/' + path);
+
+                out.appendFmt("<li><a href=\"%1$s\">%1$s</a></li>", "../");
+                values.forEach((IOConsumer<String>) s -> out.appendFmt("<li><a href=\"%1$s\">%1$s</a></li>", s));
+
+                out.appendLn("</ul></body></html>");
             }
         }
 
