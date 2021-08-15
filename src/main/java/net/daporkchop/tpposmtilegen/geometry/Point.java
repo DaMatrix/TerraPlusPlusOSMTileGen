@@ -29,6 +29,7 @@ import lombok.Setter;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.util.regex.Matcher;
@@ -152,13 +153,28 @@ public final class Point implements Geometry {
     }
 
     @Override
-    public Geometry simplify(double targetPointDensity) {
-        return null; //we don't allow points to be simplified, they're only ever present at level 0
+    public Geometry simplifyTo(int targetLevel) {
+        return targetLevel == 0 ? this : null; //we don't allow points to be simplified, they're only ever present at level 0
     }
 
     @Override
     public WeightedDouble averagePointDensity() {
         return new WeightedDouble(0.0d, 0.0d);
+    }
+
+    @Override
+    public Bounds2d bounds() {
+        return Bounds2d.of(this.x, this.x, this.y, this.y);
+    }
+
+    public double distance(@NonNull Point other) {
+        return sqrt(this.distanceSq(other));
+    }
+
+    public double distanceSq(@NonNull Point other) {
+        double dx = this.x - other.x;
+        double dy = this.y - other.y;
+        return dx * dx + dy * dy;
     }
 
     @Override

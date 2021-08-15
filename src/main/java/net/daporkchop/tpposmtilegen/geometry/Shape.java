@@ -93,7 +93,7 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    public Bounds2d computeObjectBounds() {
+    public Bounds2d bounds() {
         int minX = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE;
         int minY = Integer.MAX_VALUE;
@@ -180,16 +180,20 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    public Shape simplify(double targetPointDensity) {
+    public Shape simplifyTo(int targetLevel) {
+        if (targetLevel == 0) {
+            return this;
+        }
+
         //simplify each loop individually, discarding the whole shape if the outer loop is discarded and silently discarding inner loops as needed
-        Point[] simplifiedOuterLoop = simplifyPointString(this.outerLoop, targetPointDensity, true);
+        Point[] simplifiedOuterLoop = simplifyVisvalingamWhyatt(this.outerLoop, targetLevel, true);
         if (simplifiedOuterLoop == null) {
             return null;
         }
 
         List<Point[]> simplifiedInnerLoops = new ArrayList<>(this.innerLoops.length);
         for (Point[] innerLoop : this.innerLoops) {
-            Point[] simplifiedInnerLoop = simplifyPointString(innerLoop, targetPointDensity, true);
+            Point[] simplifiedInnerLoop = simplifyVisvalingamWhyatt(innerLoop, targetLevel, true);
             if (simplifiedInnerLoop != null) {
                 simplifiedInnerLoops.add(simplifiedInnerLoop);
             }

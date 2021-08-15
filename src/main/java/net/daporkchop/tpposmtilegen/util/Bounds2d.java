@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2021 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -54,5 +54,28 @@ public final class Bounds2d {
 
     public boolean contains(int minX, int maxX, int minY, int maxY) {
         return this.minX <= minX && this.maxX >= maxX && this.minY <= minY && this.maxY >= maxY;
+    }
+
+    public boolean intersects(@NonNull Bounds2d other) {
+        return this.intersects(other.minX(), other.maxX(), other.minY(), other.maxY());
+    }
+
+    public boolean intersects(int minX, int maxX, int minY, int maxY) {
+        return this.minX <= maxX && this.maxX >= minX && this.minY <= maxY && this.maxY >= minY;
+    }
+
+    public Bounds2d union(@NonNull Bounds2d other) {
+        if (other.contains(this)) {
+            return other;
+        }
+        return this.union(other.minX(), other.maxX(), other.minY(), other.maxY());
+    }
+
+    public Bounds2d union(int minX, int maxX, int minY, int maxY) {
+        if (this.contains(minX, maxX, minY, maxY)) {
+            return this;
+        }
+
+        return of(min(this.minX, minX), max(this.maxX, maxX), min(this.minY, minY), max(this.maxY, maxY));
     }
 }

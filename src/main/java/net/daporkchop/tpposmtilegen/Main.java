@@ -44,6 +44,7 @@ import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Serve;
 import net.daporkchop.tpposmtilegen.mode.ServeWithUpdates;
 import net.daporkchop.tpposmtilegen.mode.Squash;
+import net.daporkchop.tpposmtilegen.mode.Stats;
 import net.daporkchop.tpposmtilegen.mode.Test;
 import net.daporkchop.tpposmtilegen.mode.Update;
 
@@ -78,6 +79,7 @@ public final class Main implements Runnable {
             new Serve(),
             new ServeWithUpdates(),
             new Squash(),
+            new Stats(),
             new Test(),
             new Update()
     ).collect(Collectors.toMap(IMode::name, PFunctions.identity()));

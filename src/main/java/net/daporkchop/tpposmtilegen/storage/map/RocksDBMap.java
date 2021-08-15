@@ -164,6 +164,9 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     if (PlatformInfo.IS_LITTLE_ENDIAN) {
                         key = Long.reverseBytes(key);
                     }
+                    if (false && key != 741724163L) {
+                        return;
+                    }
                     callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(v.value)));
                 });
     }

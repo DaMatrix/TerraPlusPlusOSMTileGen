@@ -338,6 +338,34 @@ public final class Storage implements AutoCloseable {
         };
     }
 
+    public byte[] getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
+        long tilePos = Tile.xy2tilePos(tileX, tileY);
+
+        LongList elements = new LongArrayList();
+        List<ByteBuffer> list;
+
+        this.tileContents[level].getElementsInTile(access, tilePos, elements);
+        list = this.jsonStorage[level].getAll(access, elements);
+
+        //compute total size
+        int count = list.size();
+        int size = list.stream().mapToInt(ByteBuffer::remaining).sum();
+
+        byte[] merged = null;
+        if (count != 0) { //merge buffers
+            merged = new byte[size];
+            for (int i = 0, off = 0; i < count; i++) {
+                ByteBuffer buf = list.get(i);
+                list.set(i, null);
+                int remaining = buf.remaining();
+                buf.get(merged, off, remaining);
+                off += remaining;
+            }
+        }
+
+        return merged;
+    }
+
     public void purge(boolean full) throws Exception {
         logger.info("Cleaning up... (this might take a while)");
         this.flush();

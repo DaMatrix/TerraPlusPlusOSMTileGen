@@ -21,23 +21,28 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.throwing.EFunction;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
-import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.util.Utils;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyMetaData;
 
 import java.io.File;
+import java.util.Comparator;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
  */
-public class AssembleGeometry implements IMode {
+public class Stats implements IMode {
     @Override
     public String name() {
-        return "assemble_geometry";
+        return "stats";
     }
 
     @Override
@@ -47,32 +52,21 @@ public class AssembleGeometry implements IMode {
 
     @Override
     public String help() {
-        return "Assembles and indexes all geometry elements.";
+        return "Prints index database statistics";
     }
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: assemble_geometry <index_dir>");
+        checkArg(args.length == 1, "Usage: test <index_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (Storage storage = new Storage(src.toPath());
-             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
-                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
-                     .build()) {
-            LongObjConsumer<Element> func = (id, element) -> {
-                int type = element.type();
-                try {
-                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false);
-                } catch (Exception e) {
-                    throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
-                }
-                notifier.step(type);
-            };
-
-            //storage.nodes().forEachParallel(storage.db().read(), func);
-            storage.ways().forEachParallel(storage.db().read(), func);
-            storage.relations().forEachParallel(storage.db().read(), func);
-            storage.coastlines().forEachParallel(storage.db().read(), func);
+        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true)) {
+            storage.db().columns().stream()
+                    .sorted(Comparator.comparing((EFunction<ColumnFamilyHandle, byte[]>) ColumnFamilyHandle::getName, Utils.BYTES_COMPARATOR))
+                    .forEach(handle -> {
+                        ColumnFamilyMetaData meta = storage.db().delegate().getColumnFamilyMetaData(handle);
+                        Logging.logger.info("%s: %s in %d files", new String(meta.name()), Utils.formatSize(meta.size()), meta.fileCount());
+                    });
         }
     }
 }

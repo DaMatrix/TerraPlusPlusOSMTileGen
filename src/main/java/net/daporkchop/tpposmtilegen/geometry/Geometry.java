@@ -27,6 +27,7 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 import net.daporkchop.tpposmtilegen.util.Utils;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
@@ -125,17 +126,9 @@ public interface Geometry extends Persistent {
 
     void toGeoJSON(@NonNull StringBuilder dst);
 
-    /**
-     * Simplifies this geometry so that it has at most the requested point density.
-     *
-     * @param targetPointDensity the maximum point density of the simplified geometry
-     * @return the simplified geometry, or {@code null} if it should be discarded
-     */
-    Geometry simplify(double targetPointDensity);
+    Geometry simplifyTo(int targetLevel);
 
-    default Geometry simplifyTo(int targetLevel) {
-        return targetLevel == 0 ? this : this.simplify(Utils.averageDensityAtLevel(targetLevel));
-    }
+    Bounds2d bounds();
 
     WeightedDouble averagePointDensity();
 }

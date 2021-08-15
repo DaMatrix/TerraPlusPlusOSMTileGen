@@ -26,9 +26,11 @@ import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
+import sun.security.util.ByteArrayLexOrder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.util.Comparator;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -54,12 +56,32 @@ public class Utils {
         }
     });
 
-    public static final double AVERAGE_DENSITY_LEVEL0 = 2409.331319429213d;
+    public static final Comparator<byte[]> BYTES_COMPARATOR = new ByteArrayLexOrder();
+
+    public static final double POINT_DENSITY_LEVEL0_AVERAGE = 2409.331319429213d;
+    public static final double POINT_DENSITY_LEVEL0_FIRST_QUARTILE = 927.067380381451d;
+    public static final double POINT_DENSITY_LEVEL0_MEDIAN = 1519.78891284316d;
+    public static final double POINT_DENSITY_LEVEL0_THIRD_QUARTILE = 2891.26581651644d;
+
     public static final int MAX_LEVELS = 18;
 
-    public static double averageDensityAtLevel(int level) {
+    public static double minimumDensityAtLevel(int level) {
         //increase by factor of 2 with each level
-        return AVERAGE_DENSITY_LEVEL0 * (1 << notNegative(level, "level"));
+        return POINT_DENSITY_LEVEL0_FIRST_QUARTILE * (1 << notNegative(level, "level"));
+    }
+
+    public static String formatSize(long bytes) {
+        if (bytes < 1L << 10L) {
+            return bytes + " B";
+        } else if (bytes < 1L << 20L) {
+            return String.format("%.2f KiB", (double) bytes / (1L << 10L));
+        } else if (bytes < 1L << 30L) {
+            return String.format("%.2f MiB", (double) bytes / (1L << 20L));
+        } else if (bytes < 1L << 40L) {
+            return String.format("%.2f GiB", (double) bytes / (1L << 30L));
+        } else {
+            return String.format("%.2f TiB", (double) bytes / (1L << 40L));
+        }
     }
 
     public void writeFully(@NonNull FileChannel dst, @NonNull ByteBuf src) throws IOException {

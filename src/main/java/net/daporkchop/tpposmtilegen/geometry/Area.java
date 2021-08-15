@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.util.ArrayList;
@@ -99,11 +100,15 @@ public class Area implements Geometry {
     }
 
     @Override
-    public Area simplify(double targetPointDensity) {
+    public Area simplifyTo(int targetLevel) {
+        if (targetLevel == 0) {
+            return this;
+        }
+
         //simplify each shape individually, discarding all shapes that discarded themselves and discarding ourself if no shapes remain
         List<Shape> simplifiedShapes = new ArrayList<>(this.shapes.length);
         for (Shape shape : this.shapes) {
-            Shape simplifiedShape = shape.simplify(targetPointDensity);
+            Shape simplifiedShape = shape.simplifyTo(targetLevel);
             if (simplifiedShape != null) {
                 simplifiedShapes.add(simplifiedShape);
             }
@@ -115,5 +120,10 @@ public class Area implements Geometry {
     @Override
     public WeightedDouble averagePointDensity() {
         return Stream.of(this.shapes).map(Shape::averagePointDensity).reduce(WeightedDouble::add).get();
+    }
+
+    @Override
+    public Bounds2d bounds() {
+        return Stream.of(this.shapes).map(Shape::bounds).reduce(Bounds2d::union).get();
     }
 }

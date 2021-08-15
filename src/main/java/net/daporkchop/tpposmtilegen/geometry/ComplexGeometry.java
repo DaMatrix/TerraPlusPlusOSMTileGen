@@ -21,15 +21,20 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.ref.Ref;
 import net.daporkchop.lib.common.ref.ThreadRef;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
+import net.daporkchop.tpposmtilegen.util.Utils;
 
 import java.awt.Polygon;
+import java.util.NavigableSet;
+import java.util.TreeSet;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.math.PMath.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Tile.*;
 
 /**
@@ -38,83 +43,141 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 public abstract class ComplexGeometry implements Geometry {
     protected static final Ref<PolygonRecycler> POLYGON_RECYCLER = ThreadRef.soft(PolygonRecycler::new);
 
-    protected static long sq(long l) {
-        return l * l;
-    }
+    protected static Point[] simplifyVisvalingamWhyatt(@NonNull Point[] inPoints, int targetLevel, boolean closed) {
+        double minimumDensity = Utils.minimumDensityAtLevel(targetLevel);
 
-    protected static Point[] simplifyPointString(@NonNull Point[] inPoints, double targetPointDensity, boolean closed) {
-        double inLength = 0.0d;
-        double inDensity = 0.0d;
-        int inSegments = 0;
+        @RequiredArgsConstructor
+        class Node implements Comparable<Node> {
+            @NonNull
+            final Point point;
+            final int idx;
 
-        for (int i = 1; i < inPoints.length; i++) {
-            Point p0 = inPoints[i - 1];
-            Point p1 = inPoints[i];
-            long dx = p0.x() - p1.x();
-            long dy = p0.y() - p1.y();
-            if ((dx | dy) != 0) {
-                inLength += sqrt(dx * dx + dy * dy);
-                inSegments++;
-            }
-        }
-        if (inSegments == 0) { //there are no points?!? bruh
-            return null;
-        }
-        inDensity = inLength / inSegments;
+            Node prev;
+            Node next;
 
-        if (inDensity >= targetPointDensity) { //already sufficiently sparse
-            return inPoints;
-        }
-
-        int outLength = ceilI(inLength / targetPointDensity);
-        if (outLength < (closed ? 4 : 2)) { //too few points would be emitted, discard outself
-            return null;
-        }
-
-        //generate exactly outLength points spaced exactly outDensity distance units apart on the original line
-        double outDensity = inLength / outLength;
-        Point[] outPoints = new Point[outLength];
-        outPoints[0] = inPoints[0];
-
-        Point inP0 = inPoints[0];
-        Point inP1 = inPoints[1];
-        double inTotalDist = sqrt(sq(inP0.x() - inP1.x()) + sq(inP0.y() - inP1.y()));
-        double inRemainingDist = inTotalDist;
-        int inIdx = 2;
-
-        for (int outIdx = 1; outIdx < outLength; outIdx++) {
-            double requestedDist = outDensity;
-
-            double d = min(inRemainingDist, requestedDist);
-            inRemainingDist -= d;
-            requestedDist -= d;
-
-            while (requestedDist > inRemainingDist) {
-                inP0 = inP1;
-                inP1 = inPoints[inIdx++];
-                inRemainingDist = inTotalDist = sqrt(sq(inP0.x() - inP1.x()) + sq(inP0.y() - inP1.y()));
-
-                d = min(inRemainingDist, requestedDist);
-                inRemainingDist -= d;
-                requestedDist -= d;
+            public boolean valid() {
+                return this.prev != null && this.next != null;
             }
 
-            double f = 1.0d - inRemainingDist / inTotalDist;
-            outPoints[outIdx] = new Point(lerpI(inP0.x(), inP1.x(), f), lerpI(inP0.y(), inP1.y(), f));
+            @Override
+            public int compareTo(Node o) {
+                checkState(this.valid());
+
+                int d = Double.compare(this.area(), o.area());
+                if (d == 0) {
+                    d = Integer.compare(this.idx, o.idx);
+                }
+                return d;
+            }
+
+            public double area() {
+                Point p0 = this.prev.point;
+                Point p1 = this.point;
+                Point p2 = this.next.point;
+
+                double x0 = p0.x();
+                double y0 = p0.y();
+                double x1 = p1.x();
+                double y1 = p1.y();
+                double x2 = p2.x();
+                double y2 = p2.y();
+
+                return 0.5d * abs(x0 * y1 + x1 * y2 + x2 * y0 - x0 * y2 - x1 * y0 - x2 * y1);
+            }
+
+            @Override
+            public String toString() {
+                return "node#" + this.idx + '@' + this.point + (this.valid() ? " area=" + this.area() : " (invalid)");
+            }
         }
 
-        if (closed) { //make sure the loop is closed
-            outPoints[outLength - 1] = outPoints[0];
+        NavigableSet<Node> nodeSet = new TreeSet<>();
+        Node head, tail;
+
+        {
+            Node[] nodes = new Node[inPoints.length];
+            for (int i = 0; i < inPoints.length; i++) {
+                nodes[i] = new Node(inPoints[i], i);
+            }
+            head = nodes[0];
+            tail = nodes[nodes.length - 1];
+
+            head.next = nodes[1];
+            tail.prev = nodes[nodes.length - 2];
+
+            for (int i = 1; i < nodes.length - 1; i++) {
+                nodes[i].prev = nodes[i - 1];
+                nodes[i].next = nodes[i + 1];
+            }
+
+            for (int i = 1; i < nodes.length - 1; i++) {
+                nodeSet.add(nodes[i]);
+            }
+        }
+
+        double totalLength = 0.0d;
+        double totalSegments = 0.0d;
+        for (int i = 1; i < inPoints.length; i++, totalSegments++) {
+            totalLength += inPoints[i - 1].distance(inPoints[i]);
+        }
+
+        int stopSize = nodeSet.size() >> targetLevel;
+        while (!nodeSet.isEmpty() && nodeSet.size() >= stopSize && totalLength / totalSegments < minimumDensity) {
+            Node node = nodeSet.pollFirst();
+
+            if (node.prev != head) {
+                checkState(nodeSet.remove(node.prev));
+            }
+            if (node.next != tail) {
+                checkState(nodeSet.remove(node.next));
+            }
+
+            totalLength -= node.point.distance(node.prev.point);
+            totalLength -= node.point.distance(node.next.point);
+            totalLength += node.prev.point.distance(node.next.point);
+            totalSegments--;
+
+            node.prev.next = node.next;
+            node.next.prev = node.prev;
+
+            if (node.prev != head) {
+                checkState(nodeSet.add(node.prev));
+            }
+            if (node.next != tail) {
+                checkState(nodeSet.add(node.next));
+            }
+
+            node.prev = node.next = null;
+        }
+
+        int outPointCount = nodeSet.size() + 2; //# of points remaining in set, plus 2 for head+tail
+
+        //determine whether or not to discard the line
+        if (closed) {
+            if (outPointCount < 4) { //not enough points remaining for a valid closed loop
+                return null;
+            }
+        } else {
+            if (outPointCount == 2) { //only 2 points remain (head and tail nodes, respectively)
+                double dist = head.point.distance(tail.point);
+                if (dist < minimumDensity) { //what remains of the line is too short, discard it
+                    return null;
+                }
+            }
+        }
+
+        Point[] outPoints = new Point[outPointCount];
+        int i = 0;
+        for (Node node = head; node != null; node = node.next) {
+            outPoints[i++] = node.point;
         }
 
         return outPoints;
     }
 
-    public abstract Bounds2d computeObjectBounds();
-
     @Override
     public final long[] listIntersectedTiles(int level) {
-        Bounds2d bounds = this.computeObjectBounds();
+        Bounds2d bounds = this.bounds();
         int tileMinX = point2tile(level, bounds.minX());
         int tileMaxX = point2tile(level, bounds.maxX());
         int tileMinY = point2tile(level, bounds.minY());

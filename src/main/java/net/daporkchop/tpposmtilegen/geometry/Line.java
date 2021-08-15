@@ -75,7 +75,7 @@ public final class Line extends ComplexGeometry {
     }
 
     @Override
-    public Bounds2d computeObjectBounds() {
+    public Bounds2d bounds() {
         int minX = Integer.MAX_VALUE;
         int maxX = Integer.MIN_VALUE;
         int minY = Integer.MAX_VALUE;
@@ -130,9 +130,13 @@ public final class Line extends ComplexGeometry {
     }
 
     @Override
-    public Line simplify(double targetPointDensity) {
+    public Line simplifyTo(int targetLevel) {
+        if (targetLevel == 0) {
+            return this;
+        }
+
         //simplify the single line string, discarding ourself if needed
-        Point[] simplifiedPoints = simplifyPointString(this.points, targetPointDensity, false);
+        Point[] simplifiedPoints = simplifyVisvalingamWhyatt(this.points, targetLevel, false);
         return simplifiedPoints != null ? new Line(simplifiedPoints) : null;
     }
 

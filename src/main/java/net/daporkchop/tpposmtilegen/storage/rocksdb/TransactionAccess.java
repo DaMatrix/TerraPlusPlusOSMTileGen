@@ -22,17 +22,16 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
 import org.rocksdb.Transaction;
-import sun.security.util.ByteArrayLexOrder;
 
 import java.nio.ByteBuffer;
 import java.util.Arrays;
-import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -40,7 +39,6 @@ import java.util.List;
  */
 @RequiredArgsConstructor
 final class TransactionAccess implements DBAccess {
-    private static final Comparator<byte[]> BYTES_COMPARATOR = new ByteArrayLexOrder();
 
     private static byte[] toByteArray(@NonNull ByteBuffer buf) {
         byte[] arr = new byte[buf.remaining()];
@@ -64,7 +62,7 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.transaction.getIterator(Database.READ_OPTIONS, columnFamilyHandle);
+        return this.transaction.getIterator(Database.READ_BULK_ITERATE_OPTIONS, columnFamilyHandle);
     }
 
     @Override
@@ -100,7 +98,7 @@ final class TransactionAccess implements DBAccess {
             for (iterator.seek(beginKey); iterator.isValid(); iterator.next()) {
                 byte[] key = iterator.key();
 
-                if (BYTES_COMPARATOR.compare(endKey, key) >= 0) {
+                if (Utils.BYTES_COMPARATOR.compare(endKey, key) >= 0) {
                     //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
                     return;
                 }

@@ -46,7 +46,6 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.CopyOnWriteArraySet;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -63,9 +62,10 @@ public final class Database implements AutoCloseable {
     public static final ColumnFamilyOptions COLUMN_OPTIONS_COMPACT;
 
     public static final ReadOptions READ_OPTIONS;
+    public static final ReadOptions READ_BULK_ITERATE_OPTIONS;
     public static final WriteOptions WRITE_OPTIONS;
-    public static final WriteOptions SYNC_WRITE_OPTIONS;
-    public static final WriteOptions NOWAL_WRITE_OPTIONS;
+    public static final WriteOptions WRITE_SYNC_OPTIONS;
+    public static final WriteOptions WRITE_NOWAL_OPTIONS;
     public static final FlushOptions FLUSH_OPTIONS;
 
     static {
@@ -119,15 +119,17 @@ public final class Database implements AutoCloseable {
                         .setAllowTrivialMove(true));
 
         READ_OPTIONS = new ReadOptions();
+        READ_BULK_ITERATE_OPTIONS = new ReadOptions(READ_OPTIONS).setFillCache(false).setReadaheadSize(tableSizeBase << 10L);
         WRITE_OPTIONS = new WriteOptions();
-        SYNC_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
-        NOWAL_WRITE_OPTIONS = new WriteOptions(WRITE_OPTIONS).setDisableWAL(true);
+        WRITE_SYNC_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
+        WRITE_NOWAL_OPTIONS = new WriteOptions(WRITE_OPTIONS).setDisableWAL(true);
 
         FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true).setAllowWriteStall(true);
     }
 
     @Getter
     private final RocksDB delegate;
+    @Getter
     private final List<ColumnFamilyHandle> columns;
     private final DBAccess batch;
     private final DBAccess readWriteBatch;
@@ -135,8 +137,12 @@ public final class Database implements AutoCloseable {
     @Getter
     private final DBAccess read;
 
-    private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush) {
+    @Getter
+    private final boolean readOnly;
+
+    private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, boolean autoFlush, boolean readOnly) {
         this.delegate = delegate;
+        this.readOnly = readOnly;
         this.columns = new CopyOnWriteArrayList<>(columns);
         this.batch = new ThreadLocalDBAccess(new CloseableThreadLocal<DBAccess>() {
             @Override
@@ -166,7 +172,7 @@ public final class Database implements AutoCloseable {
     public DBAccess newTransaction() {
         checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         OptimisticTransactionDB delegate = (OptimisticTransactionDB) this.delegate;
-        return new TransactionAccess(delegate, delegate.beginTransaction(SYNC_WRITE_OPTIONS));
+        return new TransactionAccess(delegate, delegate.beginTransaction(WRITE_SYNC_OPTIONS));
     }
 
     public void flush() throws Exception {
@@ -186,7 +192,11 @@ public final class Database implements AutoCloseable {
     @Override
     public void close() throws Exception {
         this.batch.close();
-        this.delegate.flush(FLUSH_OPTIONS, this.columns);
+
+        if (!this.readOnly) {
+            this.delegate.flush(FLUSH_OPTIONS, this.columns);
+        }
+
         this.columns.forEach(ColumnFamilyHandle::close);
         this.delegate.close();
     }
@@ -247,7 +257,7 @@ public final class Database implements AutoCloseable {
             }
 
             checkState(columns.size() == this.columns.size());
-            Database database = new Database(db, columns, this.autoFlush);
+            Database database = new Database(db, columns, this.autoFlush, this.readOnly);
 
             for (int i = 1; i < this.factories.size(); i++) {
                 this.factories.get(i).accept(database, columns.get(i), this.columns.get(i));

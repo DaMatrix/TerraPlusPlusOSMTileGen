@@ -50,7 +50,7 @@ final class ReadAccess implements DBAccess {
 
     @Override
     public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.db.newIterator(columnFamilyHandle);
+        return this.db.newIterator(columnFamilyHandle, Database.READ_BULK_ITERATE_OPTIONS);
     }
 
     @Override

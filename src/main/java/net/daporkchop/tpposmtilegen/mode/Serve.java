@@ -50,6 +50,8 @@ import java.nio.file.StandardOpenOption;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Scanner;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -136,6 +138,16 @@ public class Serve implements IMode {
             }
 
             ByteBuffer buffer = this.storage.files().get(this.access, path);
+            if (buffer == null) {
+                Matcher matcher = Pattern.compile("^(\\d+)/tile/(-?\\d+)/(-?\\d+)\\.json$").matcher(path);
+                if (matcher.matches()) {
+                    byte[] arr = this.storage.getTile(this.access, Integer.parseInt(matcher.group(2)), Integer.parseInt(matcher.group(3)), Integer.parseUnsignedInt(matcher.group(1)));
+                    if (arr != null) {
+                        buffer = ByteBuffer.wrap(arr);
+                    }
+                }
+            }
+
             if (buffer != null) {
                 response.contentType("application/geo+json")
                         .status(HttpResponseStatus.OK)
