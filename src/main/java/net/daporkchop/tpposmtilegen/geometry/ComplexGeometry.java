@@ -61,7 +61,7 @@ public abstract class ComplexGeometry implements Geometry {
 
             @Override
             public int compareTo(Node o) {
-                checkState(this.valid());
+                //checkState(this.valid());
 
                 int d = Double.compare(this.area(), o.area());
                 if (d == 0) {

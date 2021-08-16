@@ -40,6 +40,7 @@ import net.daporkchop.tpposmtilegen.http.HttpHandler;
 import net.daporkchop.tpposmtilegen.http.HttpServer;
 import net.daporkchop.tpposmtilegen.http.Response;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -178,8 +179,12 @@ public class Serve implements IMode {
                 }
             }
 
-            checkIndex(1000, Integer.parseUnsignedInt(split[2]));
+            int idPart = Integer.parseUnsignedInt(split[2]);
+            checkIndex(1000, idPart);
+            long id;
             if ("coastline".equals(split[1])) {
+                id = idPart * 1000L;
+
                 if (split.length == 3) {
                     this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> i + ".json"));
                     return;
@@ -187,14 +192,22 @@ public class Serve implements IMode {
 
                 checkArg(split.length == 4);
                 checkArg(split[3].endsWith(".json"));
-                checkIndex(1000, Integer.parseUnsignedInt(split[3].substring(0, split[3].length() - ".json".length())));
+
+                idPart = Integer.parseUnsignedInt(split[3].substring(0, split[3].length() - ".json".length()));
+                checkIndex(1000, idPart);
+                id += idPart;
             } else {
+                id = idPart * 1000000L;
+
                 if (split.length == 3) {
                     this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> PStrings.fastFormat("%03d/", i)));
                     return;
                 }
 
-                checkIndex(1000, Integer.parseUnsignedInt(split[3]));
+                idPart = Integer.parseUnsignedInt(split[3]);
+                checkIndex(1000, idPart);
+                id += idPart * 1000L;
+
                 if (split.length == 4) {
                     this.sendIndex(response, path, IntStream.range(0, 1000).mapToObj(i -> PStrings.fastFormat("%03d.json", i)));
                     return;
@@ -202,10 +215,16 @@ public class Serve implements IMode {
 
                 checkArg(split.length == 5);
                 checkArg(split[4].endsWith(".json"));
-                checkIndex(1000, Integer.parseUnsignedInt(split[4].substring(0, split[4].length() - ".json".length())));
+
+                idPart = Integer.parseUnsignedInt(split[4].substring(0, split[4].length() - ".json".length()));
+                checkIndex(1000, idPart);
+                id += idPart;
             }
 
-            ByteBuffer val = this.storage.files().get(this.access, path);
+            int type = Element.typeId(split[1]);
+            long combinedId = Element.addTypeToId(type, id);
+
+            ByteBuffer val = this.storage.externalJsonStorage()[level].get(this.access, combinedId);
             if (val == null) {
                 response.status(HttpResponseStatus.NOT_FOUND);
             } else {

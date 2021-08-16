@@ -20,10 +20,12 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
+import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongCollection;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
+import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -33,6 +35,12 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
+
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
+import java.util.function.Consumer;
+
+import static java.lang.Math.*;
 
 /**
  * Tracks which elements are contained in each tile.
@@ -49,23 +57,17 @@ public final class TileDB extends WrappedRocksDB {
         super(database, column, desc);
     }
 
-    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {
+    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId, @NonNull ByteBuf data) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
         }
 
-        ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-        byte[] key = recycler.get();
-        try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
-            for (int i = 0; i < size; i++) {
-                long tilePos = tilePositions.getLong(i);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos) : tilePos);
-                access.put(this.column, key, EMPTY_BYTE_ARRAY);
-            }
-        } finally {
-            recycler.release(key);
+        ByteBuffer key = DIRECT_BUFFER_RECYCLER_16.get().order(ByteOrder.BIG_ENDIAN);
+        key.putLong(8, combinedId);
+        for (int i = 0; i < size; i++) {
+            key.putLong(0, tilePositions.getLong(i));
+            access.put(this.column, (ByteBuffer) key.clear(), data.nioBuffer());
         }
     }
 
@@ -96,7 +98,7 @@ public final class TileDB extends WrappedRocksDB {
         try {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos) : tilePos);
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos + 1L) : tilePos + 1L);
+            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(incrementExact(tilePos)) : incrementExact(tilePos));
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             access.deleteRange(this.column, from, to);
         } finally {
@@ -105,14 +107,14 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongCollection dst) throws Exception {
+    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongObjConsumer<byte[]> callback) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
         try {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos) : tilePos);
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(tilePos + 1L) : tilePos + 1L);
+            PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(incrementExact(tilePos)) : incrementExact(tilePos));
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
                  ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
@@ -125,8 +127,11 @@ public final class TileDB extends WrappedRocksDB {
                         return;
                     }
 
-                    long val = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
-                    dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
+                    long combinedId = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
+                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
+                        combinedId = Long.reverseBytes(combinedId);
+                    }
+                    callback.accept(combinedId, iterator.value());
                 }
             }
         } finally {

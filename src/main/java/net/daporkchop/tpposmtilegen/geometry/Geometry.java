@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.geometry;
 import com.fasterxml.jackson.core.io.JsonStringEncoder;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufAllocator;
+import io.netty.buffer.UnpooledByteBufAllocator;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
@@ -71,15 +72,11 @@ public interface Geometry extends Persistent {
         dst.append('}').append('\n');
     }
 
-    static ByteBuffer createReference(@NonNull CharSequence location) {
-        int length = location.length();
-        ByteBuffer buffer = ByteBuffer.allocateDirect(_REFERENCE_PREFIX.length + length + _REFERENCE_SUFFIX.length);
-        buffer.put(_REFERENCE_PREFIX);
-        for (int i = 0; i < length; i++) {
-            char c = location.charAt(i);
-            buffer.put((byte) (c > 255 ? '?' : c));
-        }
-        buffer.put(_REFERENCE_SUFFIX).flip();
+    static ByteBuf createReference(@NonNull CharSequence location) {
+        ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer(_REFERENCE_PREFIX.length + location.length() + _REFERENCE_SUFFIX.length);
+        buffer.writeBytes(_REFERENCE_PREFIX);
+        buffer.writeCharSequence(location, StandardCharsets.US_ASCII);
+        buffer.writeBytes(_REFERENCE_SUFFIX);
         return buffer;
     }
 
@@ -120,7 +117,7 @@ public interface Geometry extends Persistent {
      * @return whether or not this geometry object should be stored externally
      */
     default boolean shouldStoreExternally(int tiles, int dataSize) {
-        return tiles > 1 //if the object is only present in a single tile, there's obviously no reason to store this object as a
+        return tiles > 1 //if the object is only present in a single tile, there's obviously no reason to store this object as an indirect reference
                && dataSize > 2048;
     }
 

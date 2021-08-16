@@ -24,6 +24,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import org.rocksdb.AccessHint;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -36,6 +37,7 @@ import org.rocksdb.Env;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.LRUCache;
 import org.rocksdb.OptimisticTransactionDB;
+import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -76,7 +78,9 @@ public final class Database implements AutoCloseable {
         int cacheShardBits = 7;
 
         DB_OPTIONS = new DBOptions()
-                .setEnv(Env.getDefault().setBackgroundThreads(CPU_COUNT))
+                .setEnv(Env.getDefault()
+                        .setBackgroundThreads(CPU_COUNT, Priority.HIGH)
+                        .setBackgroundThreads(CPU_COUNT, Priority.LOW))
                 .setIncreaseParallelism(CPU_COUNT)
                 .setMaxBackgroundJobs(CPU_COUNT)
                 .setMaxSubcompactions(CPU_COUNT)
@@ -84,6 +88,8 @@ public final class Database implements AutoCloseable {
                 .setCreateMissingColumnFamilies(true)
                 .setSkipStatsUpdateOnDbOpen(true)
                 .setCompactionReadaheadSize(tableSizeBase << 10L)
+                .setAccessHintOnCompactionStart(AccessHint.WILLNEED)
+                .setAllowFAllocate(true)
                 .setAllowConcurrentMemtableWrite(true)
                 .setKeepLogFileNum(2L)
                 .setMaxOpenFiles(-1)
@@ -97,34 +103,32 @@ public final class Database implements AutoCloseable {
         COLUMN_OPTIONS_FAST = new ColumnFamilyOptions()
                 .setMaxWriteBufferNumberToMaintain(-1)
                 .setMaxWriteBufferNumber(CPU_COUNT << 2)
-                .setMinWriteBufferNumberToMerge(1)
                 .setTargetFileSizeBase(tableSizeBase << 10L)
-                .setOptimizeFiltersForHits(true)
                 .setCompactionStyle(CompactionStyle.LEVEL)
                 .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
                 .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
-                        .setAllowTrivialMove(true));
-        COLUMN_OPTIONS_COMPACT = new ColumnFamilyOptions()
-                .setMaxWriteBufferNumberToMaintain(-1)
-                .setMaxWriteBufferNumber(CPU_COUNT << 2)
-                .setMinWriteBufferNumberToMerge(1)
-                .setTargetFileSizeBase(tableSizeBase << 10L)
+                        .setAllowTrivialMove(true))
+                .setOptimizeFiltersForHits(true);
+        COLUMN_OPTIONS_COMPACT = new ColumnFamilyOptions(COLUMN_OPTIONS_FAST)
+                .setCompressionType(CompressionType.ZSTD_COMPRESSION)
                 .setTableFormatConfig(new BlockBasedTableConfig()
                         .setBlockSize(dataBlockSize << 10L)
-                        .setBlockCache(new LRUCache((dataBlockSize << 11L) * (1L << (long) cacheShardBits), cacheShardBits)))
-                .setOptimizeFiltersForHits(true)
-                .setCompactionStyle(CompactionStyle.LEVEL)
-                .setCompressionType(CompressionType.ZSTD_COMPRESSION)
-                .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
-                        .setAllowTrivialMove(true));
+                        .setBlockCache(new LRUCache((dataBlockSize << 11L) * (1L << (long) cacheShardBits), cacheShardBits)));
 
         READ_OPTIONS = new ReadOptions();
-        READ_BULK_ITERATE_OPTIONS = new ReadOptions(READ_OPTIONS).setFillCache(false).setReadaheadSize(tableSizeBase << 10L);
-        WRITE_OPTIONS = new WriteOptions();
-        WRITE_SYNC_OPTIONS = new WriteOptions(WRITE_OPTIONS).setSync(true);
-        WRITE_NOWAL_OPTIONS = new WriteOptions(WRITE_OPTIONS).setDisableWAL(true);
+        READ_BULK_ITERATE_OPTIONS = new ReadOptions(READ_OPTIONS)
+                .setFillCache(false)
+                .setReadaheadSize(tableSizeBase << 10L);
 
-        FLUSH_OPTIONS = new FlushOptions().setWaitForFlush(true).setAllowWriteStall(true);
+        WRITE_OPTIONS = new WriteOptions();
+        WRITE_SYNC_OPTIONS = new WriteOptions(WRITE_OPTIONS)
+                .setSync(true);
+        WRITE_NOWAL_OPTIONS = new WriteOptions(WRITE_OPTIONS)
+                .setDisableWAL(true);
+
+        FLUSH_OPTIONS = new FlushOptions()
+                .setWaitForFlush(true)
+                .setAllowWriteStall(true);
     }
 
     @Getter

@@ -26,7 +26,6 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
@@ -35,8 +34,8 @@ import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
-import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
+import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
@@ -56,11 +55,8 @@ import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
-import net.daporkchop.tpposmtilegen.storage.special.DirtyTracker;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
-import net.daporkchop.tpposmtilegen.storage.special.StringToBlobDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
-import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
@@ -70,16 +66,13 @@ import org.rocksdb.OptimisticTransactionDB;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
-import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
-import java.util.List;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.LongConsumer;
+import java.util.Collections;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -105,11 +98,9 @@ public final class Storage implements AutoCloseable {
 
     protected ReferenceDB references;
 
-    protected final TileDB[] tileContents = new TileDB[MAX_LEVELS];
     protected final LongArrayDB[] intersectedTiles = new LongArrayDB[MAX_LEVELS];
-    protected final BlobDB[] jsonStorage = new BlobDB[MAX_LEVELS];
-
-    protected StringToBlobDB files;
+    protected final TileDB[] tileJsonStorage = new TileDB[MAX_LEVELS];
+    protected final BlobDB[] externalJsonStorage = new BlobDB[MAX_LEVELS];
 
     protected final Database db;
 
@@ -135,11 +126,10 @@ public final class Storage implements AutoCloseable {
                 .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
                 .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor))
-                .add("files", Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.files = new StringToBlobDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, (database, handle, descriptor) -> this.tileContents[lvl] = new TileDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("json@" + lvl, (database, handle, descriptor) -> this.jsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         this.db = builder.build(root.resolve("db"), options);
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
@@ -202,12 +192,11 @@ public final class Storage implements AutoCloseable {
                 //element should no longer intersect any tiles
                 this.intersectedTiles[lvl].delete(access, combinedId);
 
-                //no tiles should reference this element
-                this.tileContents[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+                //remove the element's json data from all tiles it previously intersected
+                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
 
-                //the element's json data should be removed
-                this.jsonStorage[lvl].delete(access, combinedId);
-                this.files.delete(access, lvl + "/" + location);
+                //delete element's external json data, if it was present
+                this.externalJsonStorage[lvl].delete(access, combinedId);
             } else { //if the element wasn't present at this level, it won't be at any other levels either
                 break;
             }
@@ -218,12 +207,10 @@ public final class Storage implements AutoCloseable {
         if (element != null && (geometry = element.toGeometry(this, access)) != null) {
             int lvl = 0;
             for (Geometry simplifiedGeometry; lvl < MAX_LEVELS && (simplifiedGeometry = geometry.simplifyTo(lvl)) != null; lvl++) {
-                long[] newIntersected = simplifiedGeometry.listIntersectedTiles(lvl);
-                Arrays.sort(newIntersected);
-                int tileCount = newIntersected.length;
+                long[] intersected = simplifiedGeometry.listIntersectedTiles(lvl);
+                Arrays.sort(intersected);
 
-                this.tileContents[lvl].addElementToTiles(access, LongArrayList.wrap(newIntersected), combinedId);
-                this.intersectedTiles[lvl].put(access, combinedId, newIntersected);
+                this.intersectedTiles[lvl].put(access, combinedId, intersected);
 
                 //encode geometry to GeoJSON
                 ByteBuf buffer;
@@ -238,15 +225,19 @@ public final class Storage implements AutoCloseable {
                 }
 
                 try {
-                    if (!simplifiedGeometry.shouldStoreExternally(tileCount, buffer.readableBytes())) {
+                    if (!simplifiedGeometry.shouldStoreExternally(intersected.length, buffer.readableBytes())) {
                         //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                        this.jsonStorage[lvl].put(access, combinedId, buffer.nioBuffer());
-                    } else { //element is referenced multiple times, store it in an external file
-                        this.files.put(access, lvl + "/" + location, buffer.nioBuffer());
+                        this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(intersected), combinedId, buffer);
+                    } else {
+                        //element is referenced multiple times, store it in an external file
+                        this.externalJsonStorage[lvl].put(access, combinedId, buffer.nioBuffer());
 
-                        ByteBuffer referenceBuffer = Geometry.createReference(location);
-                        this.jsonStorage[lvl].put(access, combinedId, referenceBuffer);
-                        PUnsafe.pork_releaseBuffer(referenceBuffer);
+                        ByteBuf referenceBuffer = Geometry.createReference(location);
+                        try {
+                            this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(intersected), combinedId, referenceBuffer);
+                        } finally {
+                            referenceBuffer.release();
+                        }
                     }
                 } finally {
                     buffer.release();
@@ -258,21 +249,22 @@ public final class Storage implements AutoCloseable {
     public ByteBuf getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
         long tilePos = Tile.xy2tilePos(tileX, tileY);
 
-        LongList elements = new LongArrayList();
-        List<ByteBuffer> list;
+        ByteBuf merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
+        this.tileJsonStorage[level].getElementsInTile(access, tilePos, (combinedId, json) -> {
+            checkArg(json.length != 0, "empty json data for %s %d", Element.typeName(Element.extractType(combinedId)), Element.extractId(combinedId));
+            merged.writeBytes(json);
+        });
 
-        this.tileContents[level].getElementsInTile(access, tilePos, elements);
-        list = this.jsonStorage[level].getAll(access, elements);
-
-        //compute total size
-        int count = list.size();
-        int size = list.stream().mapToInt(ByteBuffer::remaining).sum();
-
-        ByteBuf merged = Unpooled.EMPTY_BUFFER;
-        if (count != 0) { //merge buffers
-            merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size);
-            list.forEach(merged::writeBytes);
-            list.clear();
+        if (false) { //debug: display tile borders
+            StringBuilder builder = new StringBuilder();
+            Geometry.toGeoJSON(builder, new Line(new Point[]{
+                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level]),
+                    new Point((tileX + 1) * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level]),
+                    new Point((tileX + 1) * Tile.TILE_SIZE_POINT_SCALE[level], (tileY + 1) * Tile.TILE_SIZE_POINT_SCALE[level]),
+                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], (tileY + 1) * Tile.TILE_SIZE_POINT_SCALE[level]),
+                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level])
+            }), Collections.singletonMap("daporkchop", "tile_border"), tilePos);
+            merged.writeCharSequence(builder, StandardCharsets.UTF_8);
         }
 
         return merged;
@@ -283,18 +275,16 @@ public final class Storage implements AutoCloseable {
         this.flush();
 
         if (full) {
-            logger.trace("Clearing tile assembly GeoJSON storage...");
-            for (BlobDB db : this.jsonStorage) {
-                db.clear();
-            }
-            logger.trace("Clearing completed file storage...");
-            this.files.clear();
-            logger.trace("Clearing tile content index...");
-            for (TileDB db : this.tileContents) {
-                db.clear();
-            }
             logger.trace("Clearing geometry intersection index...");
             for (LongArrayDB db : this.intersectedTiles) {
+                db.clear();
+            }
+            logger.trace("Clearing per-tile GeoJSON storage...");
+            for (TileDB db : this.tileJsonStorage) {
+                db.clear();
+            }
+            logger.trace("Clearing external GeoJSON storage...");
+            for (BlobDB db : this.externalJsonStorage) {
                 db.clear();
             }
         }

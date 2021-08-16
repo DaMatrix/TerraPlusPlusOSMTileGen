@@ -56,6 +56,21 @@ public abstract class Element implements Persistent {
         }
     }
 
+    public static int typeId(@NonNull String typeName) {
+        switch (typeName) {
+            case "node":
+                return Node.TYPE;
+            case "way":
+                return Way.TYPE;
+            case "relation":
+                return Relation.TYPE;
+            case "coastline":
+                return Coastline.TYPE;
+            default:
+                throw new IllegalArgumentException(typeName);
+        }
+    }
+
     public static long addTypeToId(int type, long id) {
         return ((long) type << 62L) | id;
     }

@@ -41,7 +41,8 @@ public abstract class WrappedRocksDB {
     protected static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = ThreadRef.soft(() -> new ByteArrayRecycler(8));
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = ThreadRef.soft(() -> new ByteArrayRecycler(16));
-    protected static final Ref<ByteBuffer> DIRECT_KEY_BUFFER_CACHE = ThreadRef.late(() -> ByteBuffer.allocateDirect(8));
+    protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_8 = ThreadRef.late(() -> ByteBuffer.allocateDirect(8));
+    protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_16 = ThreadRef.late(() -> ByteBuffer.allocateDirect(16));
     protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::directBuffer);
 
     @NonNull

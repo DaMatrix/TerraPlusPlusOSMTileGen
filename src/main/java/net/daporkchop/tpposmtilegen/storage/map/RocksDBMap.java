@@ -26,7 +26,6 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
-import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
@@ -37,7 +36,6 @@ import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksIterator;
-import org.rocksdb.Snapshot;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
@@ -56,7 +54,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     }
 
     public void put(@NonNull DBAccess access, long key, @NonNull V value) throws Exception {
-        ByteBuffer keyBuffer = DIRECT_KEY_BUFFER_CACHE.get();
+        ByteBuffer keyBuffer = DIRECT_BUFFER_RECYCLER_8.get();
         ByteBuf buf = WRITE_BUFFER_CACHE.get();
 
         keyBuffer.clear();
