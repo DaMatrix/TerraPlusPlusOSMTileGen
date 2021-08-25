@@ -96,13 +96,13 @@ public final class Database implements AutoCloseable {
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true)
                 .setAdviseRandomOnOpen(true)
-                .setEnablePipelinedWrite(true);
+                .setEnablePipelinedWrite(true)
+                .setMaxOpenFiles(Integer.parseInt(System.getProperty("maxOpenFiles", "-1")));
         DB_OPTIONS_LITE = new DBOptions(DB_OPTIONS)
                 .setMaxOpenFiles(CPU_COUNT << 1);
 
         COLUMN_OPTIONS_FAST = new ColumnFamilyOptions()
-                .setMaxWriteBufferNumberToMaintain(-1)
-                .setMaxWriteBufferNumber(CPU_COUNT << 2)
+                .setMaxWriteBufferNumber(CPU_COUNT)
                 .setTargetFileSizeBase(tableSizeBase << 10L)
                 .setCompactionStyle(CompactionStyle.LEVEL)
                 .setCompressionType(CompressionType.SNAPPY_COMPRESSION)

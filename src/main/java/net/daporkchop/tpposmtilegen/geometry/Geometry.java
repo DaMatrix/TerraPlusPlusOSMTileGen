@@ -44,6 +44,9 @@ public interface Geometry extends Persistent {
     byte[] _REFERENCE_PREFIX = "{\"type\":\"Reference\",\"location\":\"".getBytes();
     byte[] _REFERENCE_SUFFIX = "\"}\n".getBytes();
 
+    byte[] _FEATURECOLLECTION_PREFIX = "{\"type\":\"FeatureCollection\",\"features\":[".getBytes();
+    byte[] _FEATURECOLLECTION_SUFFIX = "]}\n".getBytes();
+
     static void toGeoJSON(@NonNull StringBuilder dst, @NonNull Geometry geometry, @NonNull Map<String, String> tags, long combinedId) {
         dst.append("{\"type\":\"Feature\",\"geometry\":");
 
@@ -69,7 +72,7 @@ public interface Geometry extends Persistent {
                 .append('/')
                 .append(Element.extractId(combinedId)).append('"');
 
-        dst.append('}').append('\n');
+        dst.append('}');
     }
 
     static ByteBuf createReference(@NonNull CharSequence location) {

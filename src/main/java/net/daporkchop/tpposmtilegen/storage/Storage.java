@@ -249,23 +249,19 @@ public final class Storage implements AutoCloseable {
     public ByteBuf getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
         long tilePos = Tile.xy2tilePos(tileX, tileY);
 
-        ByteBuf merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer();
+        ByteBuf merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer()
+                .writeBytes(Geometry._FEATURECOLLECTION_PREFIX);
+        int startWriterIndex = merged.writerIndex();
+
         this.tileJsonStorage[level].getElementsInTile(access, tilePos, (combinedId, json) -> {
             checkArg(json.length != 0, "empty json data for %s %d", Element.typeName(Element.extractType(combinedId)), Element.extractId(combinedId));
-            merged.writeBytes(json);
+            merged.writeBytes(json).writeByte(',');
         });
 
-        if (false) { //debug: display tile borders
-            StringBuilder builder = new StringBuilder();
-            Geometry.toGeoJSON(builder, new Line(new Point[]{
-                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level]),
-                    new Point((tileX + 1) * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level]),
-                    new Point((tileX + 1) * Tile.TILE_SIZE_POINT_SCALE[level], (tileY + 1) * Tile.TILE_SIZE_POINT_SCALE[level]),
-                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], (tileY + 1) * Tile.TILE_SIZE_POINT_SCALE[level]),
-                    new Point(tileX * Tile.TILE_SIZE_POINT_SCALE[level], tileY * Tile.TILE_SIZE_POINT_SCALE[level])
-            }), Collections.singletonMap("daporkchop", "tile_border"), tilePos);
-            merged.writeCharSequence(builder, StandardCharsets.UTF_8);
+        if (merged.writerIndex() != startWriterIndex) {
+            merged.writerIndex(merged.writerIndex() - 1);
         }
+        merged.writeBytes(Geometry._FEATURECOLLECTION_SUFFIX);
 
         return merged;
     }
