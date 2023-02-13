@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -55,15 +55,13 @@ public class Update implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: update <index_dir>");
+        checkArg(args.length == 1 || args.length == 2, "Usage: update <index_dir> [lite=true]");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
+        boolean lite = args.length == 1 || Boolean.parseBoolean(args[1]);
 
-        try (DBOptions options = new DBOptions(Database.DB_OPTIONS)
-                        .setMaxOpenFiles(64)
-                        .setMaxFileOpeningThreads(1);
-                Storage storage = new Storage(src.toPath(), options);
-             DBAccess txn = storage.db().newTransaction();
-             Serve.Server server = new Serve.Server(8080, storage, txn)) {
+        try (DBOptions options = lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS;
+             Storage storage = new Storage(src.toPath(), options);
+             DBAccess txn = storage.db().newTransaction()) {
             Updater updater = new Updater(storage);
             try (Scanner scanner = new Scanner(System.in)) {
                 LOOP:

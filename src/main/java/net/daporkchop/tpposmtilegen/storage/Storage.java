@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -58,6 +58,7 @@ import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.Tile;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.DBOptions;
@@ -130,7 +131,9 @@ public final class Storage implements AutoCloseable {
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
-        this.db = builder.build(root.resolve("db"), options);
+        try (TimedOperation operation = new TimedOperation("Open DB")) {
+            this.db = builder.build(root.resolve("db"), options);
+        }
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
@@ -249,19 +252,27 @@ public final class Storage implements AutoCloseable {
     public ByteBuf getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
         long tilePos = Tile.xy2tilePos(tileX, tileY);
 
+        //TODO: make this use a FeatureCollection again
+
         ByteBuf merged = UnpooledByteBufAllocator.DEFAULT.ioBuffer()
                 .writeBytes(Geometry._FEATURECOLLECTION_PREFIX);
+        merged.clear();
+
         int startWriterIndex = merged.writerIndex();
 
         this.tileJsonStorage[level].getElementsInTile(access, tilePos, (combinedId, json) -> {
             checkArg(json.length != 0, "empty json data for %s %d", Element.typeName(Element.extractType(combinedId)), Element.extractId(combinedId));
-            merged.writeBytes(json).writeByte(',');
+            //merged.writeBytes(json).writeByte(',');
+            merged.writeBytes(json);
+            if (merged.getByte(merged.writerIndex() - 1) != '\n') {
+                merged.writeByte('\n');
+            }
         });
 
         if (merged.writerIndex() != startWriterIndex) {
             merged.writerIndex(merged.writerIndex() - 1);
         }
-        merged.writeBytes(Geometry._FEATURECOLLECTION_SUFFIX);
+        //merged.writeBytes(Geometry._FEATURECOLLECTION_SUFFIX);
 
         return merged;
     }

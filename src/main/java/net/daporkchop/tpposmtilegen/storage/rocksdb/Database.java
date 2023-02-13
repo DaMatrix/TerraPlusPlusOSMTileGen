@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -31,6 +31,7 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
+import org.rocksdb.CompressionOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
@@ -41,6 +42,8 @@ import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
+import org.rocksdb.TransactionDBOptions;
+import org.rocksdb.TxnDBWritePolicy;
 import org.rocksdb.WriteOptions;
 
 import java.nio.charset.StandardCharsets;
@@ -48,6 +51,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -59,6 +63,8 @@ import static net.daporkchop.lib.logging.Logging.*;
 public final class Database implements AutoCloseable {
     public static final DBOptions DB_OPTIONS;
     public static final DBOptions DB_OPTIONS_LITE;
+
+    public static final TransactionDBOptions TRANSACTION_DB_OPTIONS;
 
     public static final ColumnFamilyOptions COLUMN_OPTIONS_FAST;
     public static final ColumnFamilyOptions COLUMN_OPTIONS_COMPACT;
@@ -92,14 +98,16 @@ public final class Database implements AutoCloseable {
                 .setAllowFAllocate(true)
                 .setAllowConcurrentMemtableWrite(true)
                 .setKeepLogFileNum(2L)
-                .setMaxOpenFiles(-1)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true)
                 .setAdviseRandomOnOpen(true)
                 .setEnablePipelinedWrite(true)
-                .setMaxOpenFiles(Integer.parseInt(System.getProperty("maxOpenFiles", "-1")));
+                .setMaxOpenFiles(Integer.getInteger("maxOpenFiles", -1));
         DB_OPTIONS_LITE = new DBOptions(DB_OPTIONS)
                 .setMaxOpenFiles(CPU_COUNT << 1);
+
+        TRANSACTION_DB_OPTIONS = new TransactionDBOptions()
+                .setWritePolicy(TxnDBWritePolicy.WRITE_UNPREPARED);
 
         COLUMN_OPTIONS_FAST = new ColumnFamilyOptions()
                 .setMaxWriteBufferNumber(CPU_COUNT)
@@ -111,6 +119,11 @@ public final class Database implements AutoCloseable {
                 .setOptimizeFiltersForHits(true);
         COLUMN_OPTIONS_COMPACT = new ColumnFamilyOptions(COLUMN_OPTIONS_FAST)
                 .setCompressionType(CompressionType.ZSTD_COMPRESSION)
+                .setCompressionOptions(new CompressionOptions()
+                        .setEnabled(true)
+                        .setMaxDictBytes(64 << 10)
+                        .setZStdMaxTrainBytes(64 << 20)
+                        .setLevel(7))
                 .setTableFormatConfig(new BlockBasedTableConfig()
                         .setBlockSize(dataBlockSize << 10L)
                         .setBlockCache(new LRUCache((dataBlockSize << 11L) * (1L << (long) cacheShardBits), cacheShardBits)));
@@ -181,6 +194,26 @@ public final class Database implements AutoCloseable {
 
     public void flush() throws Exception {
         this.batch.flush();
+    }
+
+    public void clear(@NonNull List<? extends WrappedRocksDB> toClear) throws Exception {
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkArg(toClear.stream().allMatch(wrapper -> wrapper.database == this), "all wrappers must belong to this database instance!");
+
+        List<ColumnFamilyHandle> oldColumns = toClear.stream().map(wrapper -> wrapper.column).collect(Collectors.toList());
+        //noinspection SlowListContainsAll
+        checkState(this.columns.containsAll(oldColumns), "a wrapper contains a column family which doesn't exist?");
+        this.columns.removeAll(oldColumns);
+
+        this.flush();
+        this.delegate.dropColumnFamilies(oldColumns);
+        oldColumns.forEach(ColumnFamilyHandle::close);
+
+        List<ColumnFamilyHandle> newColumns = this.delegate.createColumnFamilies(toClear.stream().map(wrapper -> wrapper.desc).collect(Collectors.toList()));
+        this.columns.addAll(newColumns);
+        for (int i = 0; i < toClear.size(); i++) {
+            toClear.get(i).column = newColumns.get(i);
+        }
     }
 
     public ColumnFamilyHandle nukeAndReplaceColumnFamily(@NonNull ColumnFamilyHandle old, @NonNull ColumnFamilyDescriptor desc) throws Exception {

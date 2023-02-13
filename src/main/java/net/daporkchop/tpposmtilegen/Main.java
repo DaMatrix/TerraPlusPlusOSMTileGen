@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -34,9 +34,7 @@ import net.daporkchop.tpposmtilegen.mode.CreateSnapshot;
 import net.daporkchop.tpposmtilegen.mode.DigestCoastlines;
 import net.daporkchop.tpposmtilegen.mode.DigestPBF;
 import net.daporkchop.tpposmtilegen.mode.IMode;
-import net.daporkchop.tpposmtilegen.mode.PurgeCoastlines;
-import net.daporkchop.tpposmtilegen.mode.PurgeGeometry;
-import net.daporkchop.tpposmtilegen.mode.PurgeOSM;
+import net.daporkchop.tpposmtilegen.mode.Purge;
 import net.daporkchop.tpposmtilegen.mode.RecomputeReferences;
 import net.daporkchop.tpposmtilegen.mode.Serve;
 import net.daporkchop.tpposmtilegen.mode.ServeWithUpdates;
@@ -66,9 +64,7 @@ public final class Main implements Runnable {
             new CreateSnapshot(),
             new DigestCoastlines(),
             new DigestPBF(),
-            new PurgeCoastlines(),
-            new PurgeGeometry(),
-            new PurgeOSM(),
+            new Purge(),
             new RecomputeReferences(),
             new Serve(),
             new ServeWithUpdates(),
