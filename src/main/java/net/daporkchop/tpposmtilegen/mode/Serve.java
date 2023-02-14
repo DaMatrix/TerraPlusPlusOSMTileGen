@@ -42,6 +42,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
@@ -90,11 +91,11 @@ public class Serve implements IMode {
 
     static class Server implements HttpHandler, AutoCloseable {
         protected final Storage storage;
-        protected final DBAccess access;
+        protected final DBReadAccess access;
         protected final HttpServer server;
         protected final Path customRoot;
 
-        public Server(int port, @NonNull Storage storage, @NonNull DBAccess access) {
+        public Server(int port, @NonNull Storage storage, @NonNull DBReadAccess access) {
             this.storage = storage;
             this.access = access;
 

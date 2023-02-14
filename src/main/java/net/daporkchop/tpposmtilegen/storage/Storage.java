@@ -54,6 +54,8 @@ import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
@@ -142,7 +144,7 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void putNode(@NonNull DBAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
+    public void putNode(@NonNull DBWriteAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
         this.points.put(access, node.id(), point);
 
         if (!node.tags().isEmpty()) {
@@ -150,15 +152,15 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void putWay(@NonNull DBAccess access, @NonNull Way way) throws Exception {
+    public void putWay(@NonNull DBWriteAccess access, @NonNull Way way) throws Exception {
         this.ways.put(access, way.id(), way);
     }
 
-    public void putRelation(@NonNull DBAccess access, @NonNull Relation relation) throws Exception {
+    public void putRelation(@NonNull DBWriteAccess access, @NonNull Relation relation) throws Exception {
         this.relations.put(access, relation.id(), relation);
     }
 
-    public Element getElement(@NonNull DBAccess access, long combinedId) throws Exception {
+    public Element getElement(@NonNull DBReadAccess access, long combinedId) throws Exception {
         int type = Element.extractType(combinedId);
         long id = Element.extractId(combinedId);
         RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
@@ -241,7 +243,7 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public ByteBuf getTile(@NonNull DBAccess access, int tileX, int tileY, int level) throws Exception {
+    public ByteBuf getTile(@NonNull DBReadAccess access, int tileX, int tileY, int level) throws Exception {
         long tilePos = Tile.xy2tilePos(tileX, tileY);
 
         //TODO: make this use a FeatureCollection again

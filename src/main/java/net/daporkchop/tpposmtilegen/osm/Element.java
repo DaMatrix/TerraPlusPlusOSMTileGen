@@ -27,7 +27,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.util.Map;
@@ -104,7 +105,7 @@ public abstract class Element implements Persistent {
         this.tags = Persistent.readTags(src);
     }
 
-    public abstract void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception;
+    public abstract void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception;
 
-    public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception;
+    public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception;
 }

@@ -25,7 +25,8 @@ import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.util.Collections;
 import java.util.Map;
@@ -67,12 +68,12 @@ public final class Coastline extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
+    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
         //coastline isn't a real OpenStreetMap primitive type, so it has no references
     }
 
     @Override
-    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
+    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception {
         return this.area;
     }
 

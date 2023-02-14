@@ -33,7 +33,8 @@ import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.util.List;
 import java.util.Map;
@@ -94,12 +95,12 @@ public final class Way extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
+    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
         storage.references().addReferences(access, Node.TYPE, LongArrayList.wrap(this.nodes), addTypeToId(TYPE, this.id));
     }
 
     @Override
-    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
+    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception {
         int count = this.nodes.length;
         if (count < 2) { //less than 2 points -> it can't be a valid geometry
             return null;

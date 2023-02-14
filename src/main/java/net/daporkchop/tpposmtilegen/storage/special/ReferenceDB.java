@@ -30,6 +30,8 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
@@ -53,7 +55,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         super(database, column, desc);
     }
 
-    public void addReference(@NonNull DBAccess access, long id, long referent) throws Exception {
+    public void addReference(@NonNull DBWriteAccess access, long id, long referent) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
@@ -65,7 +67,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void addReferences(@NonNull DBAccess access, @NonNull LongList ids, long referentCombined) throws Exception {
+    public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList ids, long referentCombined) throws Exception {
         int size = ids.size();
         if (size == 0) {
             return;
@@ -85,7 +87,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void addReferences(@NonNull DBAccess access, int type, @NonNull LongList ids, long referentCombined) throws Exception {
+    public void addReferences(@NonNull DBWriteAccess access, int type, @NonNull LongList ids, long referentCombined) throws Exception {
         int size = ids.size();
         if (size == 0) {
             return;
@@ -105,7 +107,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteReference(@NonNull DBAccess access, long combinedId, long referentCombined) throws Exception {
+    public void deleteReference(@NonNull DBWriteAccess access, long combinedId, long referentCombined) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] key = recycler.get();
         try {
@@ -117,7 +119,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteReferencesTo(@NonNull DBAccess access, long combinedId) throws Exception {
+    public void deleteReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
@@ -133,7 +135,7 @@ public final class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void getReferencesTo(@NonNull DBAccess access, long combinedId, @NonNull LongList dst) throws Exception {
+    public void getReferencesTo(@NonNull DBReadAccess access, long combinedId, @NonNull LongList dst) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();

@@ -24,6 +24,8 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -53,27 +55,27 @@ public final class Database implements AutoCloseable {
     @Getter
     private final DatabaseConfig config;
 
-    private final DBAccess batch;
+    private final DBWriteAccess batch;
     private final DBAccess readWriteBatch;
 
     @Getter
-    private final DBAccess read;
+    private final DBReadAccess read;
 
     private Database(@NonNull RocksDB delegate, @NonNull List<ColumnFamilyHandle> columns, @NonNull DatabaseConfig config, boolean autoFlush) {
         this.delegate = delegate;
         this.config = config;
         this.columns = new CopyOnWriteArrayList<>(columns);
-        this.batch = new ThreadLocalDBAccess(new CloseableThreadLocal<DBAccess>() {
+        this.batch = new ThreadLocalDBWriteAccess(new CloseableThreadLocal<DBWriteAccess>() {
             @Override
-            protected DBAccess initialValue0() throws Exception {
+            protected DBWriteAccess initialValue0() throws Exception {
                 return autoFlush ? new AutoFlushingWriteBatch(config, delegate, 64L << 20L) : new FlushableWriteBatch(config, delegate);
             }
         });
-        this.readWriteBatch = new ReadWriteBatchAccess(config, this.batch, delegate);
-        this.read = new ReadAccess(config, delegate);
+        this.read = new DirectReadAccess(config, delegate);
+        this.readWriteBatch = new ReadWriteBatchAccess(this.read, this.batch);
     }
 
-    public DBAccess batch() {
+    public DBWriteAccess batch() {
         checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return this.batch;
     }
@@ -83,7 +85,7 @@ public final class Database implements AutoCloseable {
         return this.readWriteBatch;
     }
 
-    public DBAccess newNotAutoFlushingWriteBatch() {
+    public DBWriteAccess newNotAutoFlushingWriteBatch() {
         checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return new FlushableWriteBatch(this.config, this.delegate);
     }

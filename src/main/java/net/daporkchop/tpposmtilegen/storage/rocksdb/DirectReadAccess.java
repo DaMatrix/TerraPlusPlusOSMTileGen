@@ -22,87 +22,46 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
-import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.ReadOptions;
+import org.rocksdb.RocksDB;
 
-import java.nio.ByteBuffer;
 import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-final class ThreadLocalDBAccess implements DBAccess {
+final class DirectReadAccess implements DBReadAccess {
     @NonNull
-    protected final CloseableThreadLocal<DBAccess> delegate;
+    protected final DatabaseConfig config;
+    @NonNull
+    protected final RocksDB db;
 
     @Override
     public byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        return this.delegate.get().get(columnFamilyHandle, key);
+        return this.db.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
     }
 
     @Override
     public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
-        return this.delegate.get().multiGetAsList(columnFamilyHandleList, keys);
+        return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.delegate.get().iterator(columnFamilyHandle);
+        return new DBIterator.SimpleRocksIteratorWrapper(this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE)));
     }
 
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
-        return this.delegate.get().iterator(columnFamilyHandle, fromInclusive, toExclusive);
-    }
-
-    @Override
-    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.delegate.get().put(columnFamilyHandle, key, value);
-    }
-
-    @Override
-    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
-        this.delegate.get().put(columnFamilyHandle, key, value);
-    }
-
-    @Override
-    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.delegate.get().merge(columnFamilyHandle, key, value);
-    }
-
-    @Override
-    public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        this.delegate.get().delete(columnFamilyHandle, key);
-    }
-
-    @Override
-    public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
-        this.delegate.get().deleteRange(columnFamilyHandle, beginKey, endKey);
-    }
-
-    @Override
-    public long getDataSize() throws Exception {
-        return this.delegate.get().getDataSize();
-    }
-
-    @Override
-    public void flush() throws Exception {
-        this.delegate.forEach((EConsumer<DBAccess>) a -> a.flush());
-    }
-
-    @Override
-    public void clear() throws Exception {
-        this.delegate.forEach((EConsumer<DBAccess>) DBAccess::clear);
+        return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
     }
 
     @Override
     public void close() throws Exception {
-        this.delegate.close();
+        //no-op
     }
 
     @Override

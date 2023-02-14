@@ -26,6 +26,8 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
@@ -37,7 +39,7 @@ public final class DBLong extends WrappedRocksDB {
         super(database, column, desc);
     }
 
-    public void set(@NonNull DBAccess access, long value) throws Exception {
+    public void set(@NonNull DBWriteAccess access, long value) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] arr = recycler.get();
         try {
@@ -48,7 +50,7 @@ public final class DBLong extends WrappedRocksDB {
         }
     }
 
-    public long get(@NonNull DBAccess access) throws Exception {
+    public long get(@NonNull DBReadAccess access) throws Exception {
         byte[] arr = access.get(this.column, EMPTY_BYTE_ARRAY);
         long value = arr != null ? PUnsafe.getLong(arr, PUnsafe.ARRAY_BYTE_BASE_OFFSET) : -1L;
         return PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(value) : value;

@@ -22,85 +22,67 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
-import org.rocksdb.WriteBatch;
 
 import java.nio.ByteBuffer;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-class FlushableWriteBatch implements DBWriteAccess {
+final class ThreadLocalDBWriteAccess implements DBWriteAccess {
     @NonNull
-    protected final DatabaseConfig config;
-    @NonNull
-    protected final RocksDB db;
-    protected final WriteBatch batch = new WriteBatch();
-    protected boolean dirty = false;
+    protected final CloseableThreadLocal<DBWriteAccess> delegate;
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.batch.put(columnFamilyHandle, key, value);
-        this.dirty = true;
+        this.delegate.get().put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
-        this.batch.put(columnFamilyHandle, key, value);
-        this.dirty = true;
+        this.delegate.get().put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.batch.merge(columnFamilyHandle, key, value);
-        this.dirty = true;
+        this.delegate.get().merge(columnFamilyHandle, key, value);
     }
 
     @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        this.batch.delete(columnFamilyHandle, key);
-        this.dirty = true;
+        this.delegate.get().delete(columnFamilyHandle, key);
     }
 
     @Override
     public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
-        this.batch.deleteRange(columnFamilyHandle, beginKey, endKey);
-        this.dirty = true;
+        this.delegate.get().deleteRange(columnFamilyHandle, beginKey, endKey);
     }
 
     @Override
     public long getDataSize() throws Exception {
-        return this.batch.getDataSize();
+        return this.delegate.get().getDataSize();
     }
 
     @Override
     public void flush() throws Exception {
-        if (this.dirty) {
-            try {
-                this.db.write(this.config.writeOptions(DatabaseConfig.WriteType.NO_WAL), this.batch);
-            } finally {
-                this.batch.clear();
-                this.dirty = false;
-            }
-        }
+        this.delegate.forEach((EConsumer<DBWriteAccess>) DBWriteAccess::flush);
     }
 
     @Override
     public void clear() throws Exception {
-        if (this.dirty) {
-            this.batch.clear();
-            this.dirty = false;
-        }
+        this.delegate.forEach((EConsumer<DBWriteAccess>) DBWriteAccess::clear);
     }
 
     @Override
     public void close() throws Exception {
-        this.flush();
-
-        this.batch.close();
+        this.delegate.close();
     }
 
     @Override

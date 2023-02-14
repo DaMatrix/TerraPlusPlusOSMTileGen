@@ -31,6 +31,8 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
@@ -58,7 +60,7 @@ public final class TileDB extends WrappedRocksDB {
         super(database, column, desc);
     }
 
-    public void addElementToTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId, @NonNull ByteBuf data) throws Exception {
+    public void addElementToTiles(@NonNull DBWriteAccess access, @NonNull LongList tilePositions, long combinedId, @NonNull ByteBuf data) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
@@ -72,7 +74,7 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteElementFromTiles(@NonNull DBAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {
+    public void deleteElementFromTiles(@NonNull DBWriteAccess access, @NonNull LongList tilePositions, long combinedId) throws Exception {
         int size = tilePositions.size();
         if (size == 0) {
             return;
@@ -92,7 +94,7 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void clearTile(@NonNull DBAccess access, long tilePos) throws Exception {
+    public void clearTile(@NonNull DBWriteAccess access, long tilePos) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();
@@ -108,7 +110,7 @@ public final class TileDB extends WrappedRocksDB {
         }
     }
 
-    public void getElementsInTile(@NonNull DBAccess access, long tilePos, @NonNull LongObjConsumer<byte[]> callback) throws Exception {
+    public void getElementsInTile(@NonNull DBReadAccess access, long tilePos, @NonNull LongObjConsumer<byte[]> callback) throws Exception {
         ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
         byte[] from = recycler.get();
         byte[] to = recycler.get();

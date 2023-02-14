@@ -24,8 +24,9 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
 
 import java.nio.ByteBuffer;
@@ -37,74 +38,73 @@ import java.util.List;
 @RequiredArgsConstructor
 final class ReadWriteBatchAccess implements DBAccess {
     @NonNull
-    protected final DatabaseConfig config;
+    protected final DBReadAccess readDelegate;
     @NonNull
-    protected final DBAccess delegate;
-    @NonNull
-    protected final RocksDB db;
+    protected final DBWriteAccess writeDelegate;
 
     @Override
     public byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        return this.db.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
+        return this.readDelegate.get(columnFamilyHandle, key);
     }
 
     @Override
     public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
-        return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
+        return this.readDelegate.multiGetAsList(columnFamilyHandleList, keys);
     }
 
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return new DBIterator.SimpleRocksIteratorWrapper(this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE)));
+        return this.readDelegate.iterator(columnFamilyHandle);
     }
 
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
-        return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
+        return this.readDelegate.iterator(columnFamilyHandle, fromInclusive, toExclusive);
     }
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.delegate.put(columnFamilyHandle, key, value);
+        this.writeDelegate.put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
-        this.delegate.put(columnFamilyHandle, key, value);
+        this.writeDelegate.put(columnFamilyHandle, key, value);
     }
 
     @Override
     public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        this.delegate.merge(columnFamilyHandle, key, value);
+        this.writeDelegate.merge(columnFamilyHandle, key, value);
     }
 
     @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        this.delegate.delete(columnFamilyHandle, key);
+        this.writeDelegate.delete(columnFamilyHandle, key);
     }
 
     @Override
     public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
-        this.delegate.deleteRange(columnFamilyHandle, beginKey, endKey);
+        this.writeDelegate.deleteRange(columnFamilyHandle, beginKey, endKey);
     }
 
     @Override
     public long getDataSize() throws Exception {
-        return this.delegate.getDataSize();
+        return this.writeDelegate.getDataSize();
     }
 
     @Override
     public void flush() throws Exception {
-        this.delegate.flush();
+        this.writeDelegate.flush();
     }
 
     @Override
     public void clear() throws Exception {
-        this.delegate.clear();
+        this.writeDelegate.clear();
     }
 
     @Override
     public void close() throws Exception {
+        //no-op
     }
 
     @Override

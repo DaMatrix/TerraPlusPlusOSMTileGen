@@ -33,6 +33,7 @@ import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
@@ -114,7 +115,7 @@ public class DigestPBF implements IMode {
                         .onChangeset(changeset -> logger.info("changeset: %s", changeset))
                         .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                             Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
-                            DBAccess access = storage.db().batch();
+                            DBWriteAccess access = storage.db().batch();
                             storage.putNode(access, node, new Point(in.getLon(), in.getLat()));
                             node.computeReferences(access, storage);
 
@@ -128,7 +129,7 @@ public class DigestPBF implements IMode {
                             }
 
                             Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
-                            DBAccess access = storage.db().batch();
+                            DBWriteAccess access = storage.db().batch();
                             storage.putWay(access, way);
                             way.computeReferences(access, storage);
 
@@ -142,7 +143,7 @@ public class DigestPBF implements IMode {
                             }
 
                             Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
-                            DBAccess access = storage.db().batch();
+                            DBWriteAccess access = storage.db().batch();
                             storage.putRelation(access, relation);
                             relation.computeReferences(access, storage);
 

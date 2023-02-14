@@ -30,6 +30,7 @@ import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.io.FileNotFoundException;
 import java.time.Instant;
@@ -81,7 +82,7 @@ public class Updater {
             }
 
             logger.success("offsetting sequence number %d by 60 to be sure we have the right one -> %d", min, min - 60L);
-            try (DBAccess batch = storage.db().newNotAutoFlushingWriteBatch()) {
+            try (DBWriteAccess batch = storage.db().newNotAutoFlushingWriteBatch()) {
                 storage.sequenceNumber().set(batch, min - 60L);
             }
         } else if (storage.replicationTimestamp().get() < 0L) { //set timestamp
