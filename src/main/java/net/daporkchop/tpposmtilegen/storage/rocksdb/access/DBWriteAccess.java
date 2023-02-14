@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -18,40 +18,28 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.storage.rocksdb;
+package net.daporkchop.tpposmtilegen.storage.rocksdb.access;
 
+import lombok.NonNull;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
-import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
-public interface DBAccess extends AutoCloseable {
-    //read
-
-    byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception;
-
-    List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception;
-
-    RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception;
-
-    RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle, ReadOptions options) throws Exception;
-
+public interface DBWriteAccess extends DBBaseAccess {
     //write
 
-    void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception;
+    void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception;
 
-    void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception;
+    void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception;
 
-    void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception;
+    void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception;
 
-    void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception;
+    void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception;
 
-    void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception;
+    void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception;
 
     //misc
 
@@ -60,8 +48,4 @@ public interface DBAccess extends AutoCloseable {
     void flush() throws Exception;
 
     void clear() throws Exception;
-
-    void close() throws Exception;
-
-    boolean threadSafe();
 }

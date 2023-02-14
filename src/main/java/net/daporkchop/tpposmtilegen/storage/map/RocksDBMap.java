@@ -28,9 +28,10 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -131,7 +132,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     }
 
     public void forEach(@NonNull DBAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
-        try (RocksIterator itr = access.iterator(this.column)) {
+        try (DBIterator itr = access.iterator(this.column)) {
             for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                 long key = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
                 if (PlatformInfo.IS_LITTLE_ENDIAN) {
@@ -151,7 +152,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
 
         Threading.<ValueWithKey>iterateParallel(2 * CPU_COUNT,
                 c -> {
-                    try (RocksIterator itr = access.iterator(this.column)) {
+                    try (DBIterator itr = access.iterator(this.column)) {
                         for (itr.seekToFirst(); itr.isValid(); itr.next()) {
                             c.accept(new ValueWithKey(itr.key(), itr.value()));
                         }

@@ -22,6 +22,8 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
@@ -33,6 +35,8 @@ import org.rocksdb.Transaction;
 import java.nio.ByteBuffer;
 import java.util.Arrays;
 import java.util.List;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * @author DaPorkchop_
@@ -53,59 +57,101 @@ final class TransactionAccess implements DBAccess {
     protected final Transaction transaction;
 
     @Override
-    public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+    public byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         return this.transaction.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
     }
 
     @Override
-    public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
+    public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
         return this.transaction.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override
-    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.transaction.getIterator(this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE), columnFamilyHandle);
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
+        return new DBIterator.SimpleRocksIteratorWrapper(this.transaction.getIterator(this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE), columnFamilyHandle));
     }
 
     @Override
-    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle, ReadOptions options) throws Exception {
-        return this.transaction.getIterator(options, columnFamilyHandle);
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+        Slice fromInclusiveSlice = null;
+        Slice toExclusiveSlice = null;
+        ReadOptions readOptions = null;
+        try {
+            fromInclusiveSlice = new Slice(fromInclusive);
+            toExclusiveSlice = new Slice(toExclusive);
+            readOptions = new ReadOptions(this.config.readOptions(DatabaseConfig.ReadType.GENERAL))
+                    .setIterateLowerBound(fromInclusiveSlice)
+                    .setIterateUpperBound(toExclusiveSlice);
+
+            byte[] fromInclusiveClone = fromInclusive.clone();
+            byte[] toExclusiveClone = toExclusive.clone();
+            return new DBIterator.SimpleRangedRocksIteratorWrapper(this.transaction.getIterator(readOptions, columnFamilyHandle), readOptions, fromInclusiveSlice, toExclusiveSlice) {
+                @Override
+                public void seekToFirst() {
+                    this.seekCeil(fromInclusiveClone);
+                }
+
+                @Override
+                public void seekToLast() {
+                    this.seekFloor(toExclusiveClone);
+
+                    if (Arrays.equals(toExclusiveClone, this.key())) { //seek back by one
+                        this.prev();
+                    }
+                }
+
+                @Override
+                public boolean isValid() {
+                    //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
+                    return super.isValid()
+                           && Utils.BYTES_COMPARATOR.compare(fromInclusiveClone, this.key()) <= 0
+                           && Utils.BYTES_COMPARATOR.compare(toExclusiveClone, this.key()) > 0;
+                }
+            };
+        } catch (Exception e) {
+            if (readOptions != null) {
+                readOptions.close();
+            }
+            if (toExclusiveSlice != null) {
+                toExclusiveSlice.close();
+            }
+            if (fromInclusiveSlice != null) {
+                fromInclusiveSlice.close();
+            }
+            throw e;
+        }
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.transaction.put(columnFamilyHandle, key, value);
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         this.put(columnFamilyHandle, toByteArray(key), toByteArray(value));
     }
 
     @Override
-    public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.transaction.merge(columnFamilyHandle, key, value);
     }
 
     @Override
-    public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+    public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.transaction.delete(columnFamilyHandle, key);
     }
 
     @Override
-    public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
-        try (Slice toSlice = new Slice(endKey);
-             ReadOptions options = new ReadOptions(this.config.readOptions(DatabaseConfig.ReadType.GENERAL)).setIterateUpperBound(toSlice);
-             RocksIterator iterator = this.transaction.getIterator(options, columnFamilyHandle)) {
-            for (iterator.seek(beginKey); iterator.isValid(); iterator.next()) {
+    public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
+        try (DBIterator iterator = this.iterator(columnFamilyHandle, beginKey, endKey)) {
+            for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                 byte[] key = iterator.key();
 
-                if (Utils.BYTES_COMPARATOR.compare(endKey, key) >= 0) {
-                    //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
-                    return;
-                }
+                checkState(Utils.BYTES_COMPARATOR.compare(beginKey, key) <= 0, "before beginKey");
+                checkState(Utils.BYTES_COMPARATOR.compare(endKey, key) > 0, "exceeding endKey");
 
-                this.transaction.delete(columnFamilyHandle, key);
+                this.transaction.delete(columnFamilyHandle, iterator.key());
             }
         }
     }

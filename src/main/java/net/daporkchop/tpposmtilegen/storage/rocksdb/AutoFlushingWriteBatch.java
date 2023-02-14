@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
+import lombok.NonNull;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
 
@@ -42,31 +43,31 @@ class AutoFlushingWriteBatch extends FlushableWriteBatch {
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         super.put(columnFamilyHandle, key, value);
         this.checkFlush();
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         super.put(columnFamilyHandle, key, value);
         this.checkFlush();
     }
 
     @Override
-    public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         super.merge(columnFamilyHandle, key, value);
         this.checkFlush();
     }
 
     @Override
-    public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+    public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         super.delete(columnFamilyHandle, key);
         this.checkFlush();
     }
 
     @Override
-    public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
+    public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
         super.deleteRange(columnFamilyHandle, beginKey, endKey);
         this.checkFlush();
     }

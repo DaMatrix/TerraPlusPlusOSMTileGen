@@ -24,11 +24,12 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.Singular;
 import lombok.With;
 import net.daporkchop.lib.common.util.PValidation;
 import org.rocksdb.AccessHint;
 import org.rocksdb.BlockBasedTableConfig;
+import org.rocksdb.BloomFilter;
+import org.rocksdb.Cache;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
@@ -47,7 +48,7 @@ import org.rocksdb.WriteOptions;
 
 import java.util.Arrays;
 import java.util.Collections;
-import java.util.Map;
+import java.util.EnumMap;
 import java.util.Objects;
 import java.util.function.UnaryOperator;
 
@@ -67,43 +68,60 @@ public final class DatabaseConfig {
     public static final DatabaseConfig RO_GENERAL;
     public static final DatabaseConfig RO_LITE;
 
-    private static final long tableSizeBase = 65536L;
-    private static final long dataBlockSize = 1024L;
-    private static final int cacheShardBits = 7;
+    private static final long TABLE_SIZE_BASE_KIB = 65536L;
 
     static {
         RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
 
+        @Getter
+        class ColumnFamilySettings {
+            private final long dataBlockSizeBytes;
+            private final int cacheShardBits;
+
+            private final Cache blockCache;
+
+            public ColumnFamilySettings(long dataBlockSizeKib, int cacheShardBits) {
+                this.dataBlockSizeBytes = dataBlockSizeKib << 10L;
+                this.cacheShardBits = cacheShardBits;
+
+                this.blockCache = new LRUCache((dataBlockSizeKib << 11L) * (1L << (long) cacheShardBits), cacheShardBits);
+            }
+        }
+
+        EnumMap<ColumnFamilyType, ColumnFamilySettings> dataBlockSizes = new EnumMap<>(ColumnFamilyType.class);
+        dataBlockSizes.put(ColumnFamilyType.FAST, new ColumnFamilySettings(4L, 15));
+        dataBlockSizes.put(ColumnFamilyType.COMPACT, new ColumnFamilySettings(1024L, 7));
+
         RW_GENERAL = builder()
                 .readOnly(false)
                 .dbOptions(new DBOptions()
-                        .setEnv(Env.getDefault()
-                                .setBackgroundThreads(CPU_COUNT, Priority.HIGH)
-                                .setBackgroundThreads(CPU_COUNT, Priority.LOW))
-                        .setIncreaseParallelism(CPU_COUNT)
-                        .setMaxBackgroundJobs(CPU_COUNT)
-                        .setMaxSubcompactions(CPU_COUNT)
-                        .setCreateIfMissing(true)
-                        .setCreateMissingColumnFamilies(true)
-                        .setSkipStatsUpdateOnDbOpen(true)
-                        .setCompactionReadaheadSize(tableSizeBase << 10L)
-                        .setAccessHintOnCompactionStart(AccessHint.WILLNEED)
-                        .setAllowFAllocate(true)
-                        .setAllowConcurrentMemtableWrite(true)
-                        .setKeepLogFileNum(16L)
-                        .setAllowMmapReads(true)
-                        .setAllowMmapWrites(true)
-                        .setAdviseRandomOnOpen(true)
-                        .setEnablePipelinedWrite(true)
-                        .setMaxOpenFiles(Integer.getInteger("maxOpenFiles", -1))
+                                .setEnv(Env.getDefault()
+                                        .setBackgroundThreads(CPU_COUNT, Priority.HIGH)
+                                        .setBackgroundThreads(CPU_COUNT, Priority.LOW))
+                                .setIncreaseParallelism(CPU_COUNT)
+                                .setMaxBackgroundJobs(CPU_COUNT)
+                                .setMaxSubcompactions(CPU_COUNT)
+                                .setCreateIfMissing(true)
+                                .setCreateMissingColumnFamilies(true)
+                                .setSkipStatsUpdateOnDbOpen(true)
+                                .setCompactionReadaheadSize(TABLE_SIZE_BASE_KIB << 10L)
+                                .setAccessHintOnCompactionStart(AccessHint.WILLNEED)
+                                .setAllowFAllocate(true)
+                                .setAllowConcurrentMemtableWrite(true)
+                                .setKeepLogFileNum(16L)
+                                .setAllowMmapReads(true)
+                                .setAllowMmapWrites(true)
+                                .setAdviseRandomOnOpen(true)
+                                .setEnablePipelinedWrite(true)
+                                .setMaxOpenFiles(Integer.getInteger("maxOpenFiles", -1))
                         //.setWriteBufferManager(new WriteBufferManager(1L << 30L, new LRUCache(1L << 30L)))
                 )
                 .transactionDBOptions(new TransactionDBOptions()
                         .setWritePolicy(TxnDBWritePolicy.WRITE_UNPREPARED)
                 )
-                .columnFamilyOptions(ColumnType.FAST, new ColumnFamilyOptions()
+                .columnFamilyOptions(ColumnFamilyType.FAST, new ColumnFamilyOptions()
                         .setMaxWriteBufferNumber(CPU_COUNT)
-                        .setTargetFileSizeBase(tableSizeBase << 10L)
+                        .setTargetFileSizeBase(TABLE_SIZE_BASE_KIB << 10L)
                         .setCompactionStyle(CompactionStyle.LEVEL)
                         //we don't use compression for level 0, as training the zstd dictionary for it takes so long that it causes rocksdb to eat up my whole 96GiB of RAM
                         .setCompressionPerLevel(Arrays.asList(CompressionType.NO_COMPRESSION, CompressionType.ZSTD_COMPRESSION))
@@ -115,8 +133,11 @@ public final class DatabaseConfig {
                         .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
                                 .setAllowTrivialMove(true))
                         .setOptimizeFiltersForHits(true)
+                        .setTableFormatConfig(new BlockBasedTableConfig()
+                                .setBlockSize(dataBlockSizes.get(ColumnFamilyType.FAST).dataBlockSizeBytes)
+                                .setBlockCache(dataBlockSizes.get(ColumnFamilyType.FAST).blockCache))
                 )
-                .columnFamilyOptionsBasedOn(ColumnType.COMPACT, ColumnType.FAST, baseOptions -> new ColumnFamilyOptions(baseOptions)
+                .columnFamilyOptionsBasedOn(ColumnFamilyType.COMPACT, ColumnFamilyType.FAST, baseOptions -> new ColumnFamilyOptions(baseOptions)
                         .setCompressionPerLevel(Collections.singletonList(CompressionType.ZSTD_COMPRESSION))
                         .setCompressionOptions(new CompressionOptions()
                                 .setEnabled(true)
@@ -124,14 +145,14 @@ public final class DatabaseConfig {
                                 .setZStdMaxTrainBytes(64 << 20)
                                 .setLevel(7))
                         .setTableFormatConfig(new BlockBasedTableConfig()
-                                .setBlockSize(dataBlockSize << 10L)
-                                .setBlockCache(new LRUCache((dataBlockSize << 11L) * (1L << (long) cacheShardBits), cacheShardBits)))
+                                .setBlockSize(dataBlockSizes.get(ColumnFamilyType.COMPACT).dataBlockSizeBytes)
+                                .setBlockCache(dataBlockSizes.get(ColumnFamilyType.COMPACT).blockCache))
                 )
                 .readOptions(ReadType.GENERAL, new ReadOptions()
                 )
                 .readOptionsBasedOn(ReadType.BULK_ITERATE, ReadType.GENERAL, baseOptions -> new ReadOptions(baseOptions)
                         .setFillCache(false)
-                        .setReadaheadSize(tableSizeBase << 10L)
+                        .setReadaheadSize(TABLE_SIZE_BASE_KIB << 10L)
                 )
                 .writeOptions(WriteType.GENERAL, new WriteOptions()
                 )
@@ -165,30 +186,46 @@ public final class DatabaseConfig {
     @NonNull
     @Getter(AccessLevel.NONE)
     @With(AccessLevel.NONE)
-    @Singular("columnFamilyOptions")
-    private final Map<ColumnType, ColumnFamilyOptions> columnFamilyOptionsByType;
+    @Builder.ObtainVia(method = "columnFamilyOptionsByType")
+    private final EnumMap<ColumnFamilyType, ColumnFamilyOptions> columnFamilyOptionsByType;
 
     @NonNull
     @Getter(AccessLevel.NONE)
     @With(AccessLevel.NONE)
-    @Singular("readOptions")
-    private final Map<ReadType, ReadOptions> readOptionsByType;
+    @Builder.ObtainVia(method = "readOptionsByType")
+    private final EnumMap<ReadType, ReadOptions> readOptionsByType;
 
     @NonNull
     @Getter(AccessLevel.NONE)
     @With(AccessLevel.NONE)
-    @Singular("writeOptions")
-    private final Map<WriteType, WriteOptions> writeOptionsByType;
+    @Builder.ObtainVia(method = "writeOptionsByType")
+    private final EnumMap<WriteType, WriteOptions> writeOptionsByType;
 
     @NonNull
     @Getter(AccessLevel.NONE)
     @With(AccessLevel.NONE)
-    @Singular("flushOptions")
-    private final Map<FlushType, FlushOptions> flushOptionsByType;
+    @Builder.ObtainVia(method = "flushOptionsByType")
+    private final EnumMap<FlushType, FlushOptions> flushOptionsByType;
 
     private final boolean readOnly;
 
-    public ColumnFamilyOptions columnFamilyOptions(@NonNull ColumnType type) {
+    private EnumMap<ColumnFamilyType, ColumnFamilyOptions> columnFamilyOptionsByType() {
+        return new EnumMap<>(this.columnFamilyOptionsByType);
+    }
+
+    private EnumMap<ReadType, ReadOptions> readOptionsByType() {
+        return new EnumMap<>(this.readOptionsByType);
+    }
+
+    private EnumMap<WriteType, WriteOptions> writeOptionsByType() {
+        return new EnumMap<>(this.writeOptionsByType);
+    }
+
+    private EnumMap<FlushType, FlushOptions> flushOptionsByType() {
+        return new EnumMap<>(this.flushOptionsByType);
+    }
+
+    public ColumnFamilyOptions columnFamilyOptions(@NonNull DatabaseConfig.ColumnFamilyType type) {
         return Objects.requireNonNull(this.columnFamilyOptionsByType.get(type), type.name());
     }
 
@@ -207,7 +244,7 @@ public final class DatabaseConfig {
     /**
      * @author DaPorkchop_
      */
-    public enum ColumnType {
+    public enum ColumnFamilyType {
         FAST,
         COMPACT,
     }
@@ -237,24 +274,60 @@ public final class DatabaseConfig {
     }
 
     public static class DatabaseConfigBuilder {
-        public DatabaseConfigBuilder columnFamilyOptionsBasedOn(@NonNull ColumnType key, @NonNull ColumnType base, @NonNull UnaryOperator<ColumnFamilyOptions> mapper) {
-            PValidation.checkArg(this.columnFamilyOptionsByType$key.contains(base), "base %s '%s' isn't present", ColumnType.class.getTypeName(), base);
-            return this.columnFamilyOptions(key, mapper.apply(this.columnFamilyOptionsByType$value.get(this.columnFamilyOptionsByType$key.lastIndexOf(base))));
+        public DatabaseConfigBuilder columnFamilyOptions(@NonNull DatabaseConfig.ColumnFamilyType key, @NonNull ColumnFamilyOptions value) {
+            //noinspection ConstantValue
+            if (this.columnFamilyOptionsByType == null) {
+                this.columnFamilyOptionsByType(new EnumMap<>(ColumnFamilyType.class));
+            }
+            this.columnFamilyOptionsByType.put(key, value);
+            return this;
+        }
+
+        public DatabaseConfigBuilder readOptions(@NonNull ReadType key, @NonNull ReadOptions value) {
+            //noinspection ConstantValue
+            if (this.readOptionsByType == null) {
+                this.readOptionsByType(new EnumMap<>(ReadType.class));
+            }
+            this.readOptionsByType.put(key, value);
+            return this;
+        }
+
+        public DatabaseConfigBuilder writeOptions(@NonNull WriteType key, @NonNull WriteOptions value) {
+            //noinspection ConstantValue
+            if (this.writeOptionsByType == null) {
+                this.writeOptionsByType(new EnumMap<>(WriteType.class));
+            }
+            this.writeOptionsByType.put(key, value);
+            return this;
+        }
+
+        public DatabaseConfigBuilder flushOptions(@NonNull FlushType key, @NonNull FlushOptions value) {
+            //noinspection ConstantValue
+            if (this.flushOptionsByType == null) {
+                this.flushOptionsByType(new EnumMap<>(FlushType.class));
+            }
+            this.flushOptionsByType.put(key, value);
+            return this;
+        }
+
+        public DatabaseConfigBuilder columnFamilyOptionsBasedOn(@NonNull DatabaseConfig.ColumnFamilyType key, @NonNull DatabaseConfig.ColumnFamilyType base, @NonNull UnaryOperator<ColumnFamilyOptions> mapper) {
+            PValidation.checkArg(this.columnFamilyOptionsByType.containsKey(base), "base %s '%s' isn't present", ColumnFamilyType.class.getTypeName(), base);
+            return this.columnFamilyOptions(key, mapper.apply(this.columnFamilyOptionsByType.get(base)));
         }
 
         public DatabaseConfigBuilder readOptionsBasedOn(@NonNull ReadType key, @NonNull ReadType base, @NonNull UnaryOperator<ReadOptions> mapper) {
-            PValidation.checkArg(this.readOptionsByType$key.contains(base), "base %s '%s' isn't present", ReadType.class.getTypeName(), base);
-            return this.readOptions(key, mapper.apply(this.readOptionsByType$value.get(this.readOptionsByType$key.lastIndexOf(base))));
+            PValidation.checkArg(this.readOptionsByType.containsKey(base), "base %s '%s' isn't present", ReadType.class.getTypeName(), base);
+            return this.readOptions(key, mapper.apply(this.readOptionsByType.get(base)));
         }
 
         public DatabaseConfigBuilder writeOptionsBasedOn(@NonNull WriteType key, @NonNull WriteType base, @NonNull UnaryOperator<WriteOptions> mapper) {
-            PValidation.checkArg(this.writeOptionsByType$key.contains(base), "base %s '%s' isn't present", WriteType.class.getTypeName(), base);
-            return this.writeOptions(key, mapper.apply(this.writeOptionsByType$value.get(this.writeOptionsByType$key.lastIndexOf(base))));
+            PValidation.checkArg(this.writeOptionsByType.containsKey(base), "base %s '%s' isn't present", WriteType.class.getTypeName(), base);
+            return this.writeOptions(key, mapper.apply(this.writeOptionsByType.get(base)));
         }
 
         public DatabaseConfigBuilder flushOptionsBasedOn(@NonNull FlushType key, @NonNull FlushType base, @NonNull UnaryOperator<FlushOptions> mapper) {
-            PValidation.checkArg(this.flushOptionsByType$key.contains(base), "base %s '%s' isn't present", FlushType.class.getTypeName(), base);
-            return this.flushOptions(key, mapper.apply(this.flushOptionsByType$value.get(this.flushOptionsByType$key.lastIndexOf(base))));
+            PValidation.checkArg(this.flushOptionsByType.containsKey(base), "base %s '%s' isn't present", FlushType.class.getTypeName(), base);
+            return this.flushOptions(key, mapper.apply(this.flushOptionsByType.get(base)));
         }
     }
 }

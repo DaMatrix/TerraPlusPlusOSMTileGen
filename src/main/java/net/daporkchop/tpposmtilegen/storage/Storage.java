@@ -35,7 +35,6 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.geometry.Line;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
@@ -52,7 +51,7 @@ import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
@@ -62,19 +61,16 @@ import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
-import org.rocksdb.DBOptions;
 import org.rocksdb.OptimisticTransactionDB;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.URL;
 import java.nio.channels.FileChannel;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
-import java.util.Collections;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -125,8 +121,8 @@ public final class Storage implements AutoCloseable {
                 .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         try (TimedOperation operation = new TimedOperation("Open DB")) {
             this.db = builder.build(root.resolve("db"));
         }

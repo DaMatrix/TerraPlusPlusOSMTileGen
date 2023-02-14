@@ -22,10 +22,11 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
-import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -43,47 +44,47 @@ final class ReadWriteBatchAccess implements DBAccess {
     protected final RocksDB db;
 
     @Override
-    public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+    public byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         return this.db.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
     }
 
     @Override
-    public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
+    public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
         return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override
-    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE));
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
+        return new DBIterator.SimpleRocksIteratorWrapper(this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE)));
     }
 
     @Override
-    public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle, ReadOptions options) throws Exception {
-        return this.db.newIterator(columnFamilyHandle, options);
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+        return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.delegate.put(columnFamilyHandle, key, value);
     }
 
     @Override
-    public void put(ColumnFamilyHandle columnFamilyHandle, ByteBuffer key, ByteBuffer value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         this.delegate.put(columnFamilyHandle, key, value);
     }
 
     @Override
-    public void merge(ColumnFamilyHandle columnFamilyHandle, byte[] key, byte[] value) throws Exception {
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.delegate.merge(columnFamilyHandle, key, value);
     }
 
     @Override
-    public void delete(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
+    public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.delegate.delete(columnFamilyHandle, key);
     }
 
     @Override
-    public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
+    public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
         this.delegate.deleteRange(columnFamilyHandle, beginKey, endKey);
     }
 

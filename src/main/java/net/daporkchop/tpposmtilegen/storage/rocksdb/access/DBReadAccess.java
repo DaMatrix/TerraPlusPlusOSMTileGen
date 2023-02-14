@@ -18,53 +18,25 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm;
+package net.daporkchop.tpposmtilegen.storage.rocksdb.access;
 
-import io.netty.buffer.ByteBuf;
-import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ReadOptions;
 
-import java.util.Map;
+import java.util.List;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
-@Setter
-@ToString(callSuper = true)
-public final class Node extends Element {
-    public static final int TYPE = 0;
+public interface DBReadAccess extends DBBaseAccess {
+    //read
 
-    public Node(long id, Map<String, String> tags) {
-        super(id, tags);
-    }
+    byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception;
 
-    public Node(long id, ByteBuf data) {
-        super(id, data);
-    }
+    List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception;
 
-    public Node tags(@NonNull Map<String, String> tags) {
-        super.tags = tags;
-        return this;
-    }
+    DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception;
 
-    @Override
-    public int type() {
-        return TYPE;
-    }
-
-    @Override
-    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
-        //a node doesn't reference anything
-    }
-
-    @Override
-    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
-        return storage.points().get(access, this.id);
-    }
+    DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception;
 }

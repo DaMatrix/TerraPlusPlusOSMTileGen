@@ -28,12 +28,15 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * Tracks references between elements.
@@ -139,16 +142,13 @@ public final class ReferenceDB extends WrappedRocksDB {
             PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-            try (Slice toSlice = new Slice(to);
-                 ReadOptions options = new ReadOptions(this.database.config().readOptions(DatabaseConfig.ReadType.GENERAL)).setIterateUpperBound(toSlice);
-                 RocksIterator iterator = access.iterator(this.column, options)) {
-                for (iterator.seek(from); iterator.isValid(); iterator.next()) {
+            try (DBIterator iterator = access.iterator(this.column, from, to)) {
+                for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                     byte[] key = iterator.key();
 
-                    if (PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET) != PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET)) {
-                        //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
-                        return;
-                    }
+                    //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
+                    checkState(PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET) == PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET), "%d != %d",
+                            PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET), PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET));
 
                     long val = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
                     dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);

@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -153,15 +154,15 @@ public final class Database implements AutoCloseable {
 
         public Builder(@NonNull DatabaseConfig config) {
             this.config = config;
-            this.columns.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, this.config.columnFamilyOptions(DatabaseConfig.ColumnType.FAST)));
+            this.columns.add(new ColumnFamilyDescriptor(RocksDB.DEFAULT_COLUMN_FAMILY, this.config.columnFamilyOptions(DatabaseConfig.ColumnFamilyType.FAST)));
             this.factories.add(null);
         }
 
         public Builder add(@NonNull String name, @NonNull Factory factory) {
-            return this.add(name, DatabaseConfig.ColumnType.FAST, factory);
+            return this.add(name, DatabaseConfig.ColumnFamilyType.FAST, factory);
         }
 
-        public Builder add(@NonNull String name, @NonNull DatabaseConfig.ColumnType type, @NonNull Factory factory) {
+        public Builder add(@NonNull String name, @NonNull DatabaseConfig.ColumnFamilyType type, @NonNull Factory factory) {
             this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(type)));
             this.factories.add(factory);
             return this;
@@ -181,7 +182,7 @@ public final class Database implements AutoCloseable {
                 if (!this.config.readOnly() && s.length() != e.getMessage().length()) {
                     for (String name : s.split(", ")) {
                         logger.warn("Deleting column family: %s", name);
-                        this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(DatabaseConfig.ColumnType.FAST)));
+                        this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(DatabaseConfig.ColumnFamilyType.FAST)));
                     }
                     db = OptimisticTransactionDB.open(this.config.dbOptions(), path.toString(), this.columns, columns);
                     while (columns.size() > this.factories.size()) {

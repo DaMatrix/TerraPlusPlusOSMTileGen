@@ -18,53 +18,14 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.osm;
-
-import io.netty.buffer.ByteBuf;
-import lombok.Getter;
-import lombok.NonNull;
-import lombok.Setter;
-import lombok.ToString;
-import net.daporkchop.tpposmtilegen.geometry.Geometry;
-import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
-
-import java.util.Map;
+package net.daporkchop.tpposmtilegen.storage.rocksdb.access;
 
 /**
  * @author DaPorkchop_
  */
-@Getter
-@Setter
-@ToString(callSuper = true)
-public final class Node extends Element {
-    public static final int TYPE = 0;
-
-    public Node(long id, Map<String, String> tags) {
-        super(id, tags);
-    }
-
-    public Node(long id, ByteBuf data) {
-        super(id, data);
-    }
-
-    public Node tags(@NonNull Map<String, String> tags) {
-        super.tags = tags;
-        return this;
-    }
-
+public interface DBBaseAccess extends AutoCloseable {
     @Override
-    public int type() {
-        return TYPE;
-    }
+    void close() throws Exception;
 
-    @Override
-    public void computeReferences(@NonNull DBAccess access, @NonNull Storage storage) throws Exception {
-        //a node doesn't reference anything
-    }
-
-    @Override
-    public Geometry toGeometry(@NonNull Storage storage, @NonNull DBAccess access) throws Exception {
-        return storage.points().get(access, this.id);
-    }
+    boolean threadSafe();
 }
