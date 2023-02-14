@@ -49,6 +49,8 @@ import org.rocksdb.WriteOptions;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.stream.Collectors;
@@ -97,12 +99,13 @@ public final class Database implements AutoCloseable {
                 .setAccessHintOnCompactionStart(AccessHint.WILLNEED)
                 .setAllowFAllocate(true)
                 .setAllowConcurrentMemtableWrite(true)
-                .setKeepLogFileNum(2L)
+                .setKeepLogFileNum(16L)
                 .setAllowMmapReads(true)
                 .setAllowMmapWrites(true)
                 .setAdviseRandomOnOpen(true)
                 .setEnablePipelinedWrite(true)
                 .setMaxOpenFiles(Integer.getInteger("maxOpenFiles", -1));
+                //.setWriteBufferManager(new WriteBufferManager(1L << 30L, new LRUCache(1L << 30L)));
         DB_OPTIONS_LITE = new DBOptions(DB_OPTIONS)
                 .setMaxOpenFiles(CPU_COUNT << 1);
 
@@ -113,12 +116,18 @@ public final class Database implements AutoCloseable {
                 .setMaxWriteBufferNumber(CPU_COUNT)
                 .setTargetFileSizeBase(tableSizeBase << 10L)
                 .setCompactionStyle(CompactionStyle.LEVEL)
-                .setCompressionType(CompressionType.SNAPPY_COMPRESSION)
+                //we don't use compression for level 0, as training the zstd dictionary for it takes so long that it causes rocksdb to eat up my whole 96GiB of RAM
+                .setCompressionPerLevel(Arrays.asList(CompressionType.NO_COMPRESSION, CompressionType.ZSTD_COMPRESSION))
+                .setCompressionOptions(new CompressionOptions()
+                        .setEnabled(true)
+                        .setMaxDictBytes(64 << 10)
+                        .setZStdMaxTrainBytes(64 << 20)
+                        .setLevel(0))
                 .setCompactionOptionsUniversal(new CompactionOptionsUniversal()
                         .setAllowTrivialMove(true))
                 .setOptimizeFiltersForHits(true);
         COLUMN_OPTIONS_COMPACT = new ColumnFamilyOptions(COLUMN_OPTIONS_FAST)
-                .setCompressionType(CompressionType.ZSTD_COMPRESSION)
+                .setCompressionPerLevel(Collections.singletonList(CompressionType.ZSTD_COMPRESSION))
                 .setCompressionOptions(new CompressionOptions()
                         .setEnabled(true)
                         .setMaxDictBytes(64 << 10)

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -37,8 +37,8 @@ import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.io.File;
-import java.io.FileInputStream;
 import java.io.InputStream;
+import java.nio.file.Files;
 import java.util.Collections;
 import java.util.List;
 import java.util.Scanner;
@@ -62,7 +62,8 @@ public class DigestPBF implements IMode {
 
     @Override
     public String help() {
-        return "Creates a new index from a full OSM planet file.";
+        return "Creates a new index from a full OSM planet file.\n"
+               + "Any existing OSM data will be purged before the import is started.";
     }
 
     @Override
@@ -81,70 +82,74 @@ public class DigestPBF implements IMode {
 
         PFiles.ensureDirectoryExists(dst);
 
-        try (Storage storage = new Storage(dst.toPath());
-             InputStream is = new FileInputStream(src);
-             CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
-             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
-                     .slot("nodes").slot("ways").slot("relations")
-                     .build()) {
-            new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
-                    .setThreadFactory(threadFactory)
-                    .onHeader((EConsumer<Header>) header -> {
-                        logger.info("PBF header: %s", header);
-                        if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
-                            logger.error("\"%s\" doesn't contain a replication timestamp or sequence number!", src);
-                            System.exit(1);
-                        }
+        try (Storage storage = new Storage(dst.toPath())) {
+            //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
+            Purge.purge(storage, Purge.DataType.osm);
 
-                        if (header.getReplicationSequenceNumber() != null) {
-                            storage.sequenceNumber().set(storage.db().batch(), header.getReplicationSequenceNumber());
-                        }
-                        if (header.getReplicationTimestamp() != null) {
-                            storage.replicationTimestamp().set(header.getReplicationTimestamp());
-                        }
-                        if (header.getReplicationBaseUrl() != null) {
-                            storage.setReplicationBaseUrl(header.getReplicationBaseUrl());
-                        }
-                    })
-                    .onBoundBox(bb -> logger.info("bounding box: %s", bb))
-                    .onChangeset(changeset -> logger.info("changeset: %s", changeset))
-                    .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
-                        Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
-                        DBAccess access = storage.db().batch();
-                        storage.putNode(access, node, new Point(in.getLon(), in.getLat()));
-                        node.computeReferences(access, storage);
+            try (InputStream is = Files.newInputStream(src.toPath());
+                 CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
+                 ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
+                         .slot("nodes").slot("ways").slot("relations")
+                         .build()) {
+                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
+                        .setThreadFactory(threadFactory)
+                        .onHeader((EConsumer<Header>) header -> {
+                            logger.info("PBF header: %s", header);
+                            if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
+                                logger.error("\"%s\" doesn't contain a replication timestamp or sequence number!", src);
+                                System.exit(1);
+                            }
 
-                        notifier.step(Node.TYPE);
-                    })
-                    .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
-                        List<Long> nodesList = in.getNodes();
-                        long[] nodesArray = new long[nodesList.size()];
-                        for (int i = 0; i < nodesArray.length; i++) {
-                            nodesArray[i] = nodesList.get(i);
-                        }
+                            if (header.getReplicationSequenceNumber() != null) {
+                                storage.sequenceNumber().set(storage.db().batch(), header.getReplicationSequenceNumber());
+                            }
+                            if (header.getReplicationTimestamp() != null) {
+                                storage.replicationTimestamp().set(header.getReplicationTimestamp());
+                            }
+                            if (header.getReplicationBaseUrl() != null) {
+                                storage.setReplicationBaseUrl(header.getReplicationBaseUrl());
+                            }
+                        })
+                        .onBoundBox(bb -> logger.info("bounding box: %s", bb))
+                        .onChangeset(changeset -> logger.info("changeset: %s", changeset))
+                        .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
+                            Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
+                            DBAccess access = storage.db().batch();
+                            storage.putNode(access, node, new Point(in.getLon(), in.getLat()));
+                            node.computeReferences(access, storage);
 
-                        Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
-                        DBAccess access = storage.db().batch();
-                        storage.putWay(access, way);
-                        way.computeReferences(access, storage);
+                            notifier.step(Node.TYPE);
+                        })
+                        .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
+                            List<Long> nodesList = in.getNodes();
+                            long[] nodesArray = new long[nodesList.size()];
+                            for (int i = 0; i < nodesArray.length; i++) {
+                                nodesArray[i] = nodesList.get(i);
+                            }
 
-                        notifier.step(Way.TYPE);
-                    })
-                    .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
-                        List<RelationMember> memberList = in.getMembers();
-                        Relation.Member[] membersArray = new Relation.Member[memberList.size()];
-                        for (int i = 0; i < membersArray.length; i++) {
-                            membersArray[i] = new Relation.Member(memberList.get(i));
-                        }
+                            Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
+                            DBAccess access = storage.db().batch();
+                            storage.putWay(access, way);
+                            way.computeReferences(access, storage);
 
-                        Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
-                        DBAccess access = storage.db().batch();
-                        storage.putRelation(access, relation);
-                        relation.computeReferences(access, storage);
+                            notifier.step(Way.TYPE);
+                        })
+                        .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
+                            List<RelationMember> memberList = in.getMembers();
+                            Relation.Member[] membersArray = new Relation.Member[memberList.size()];
+                            for (int i = 0; i < membersArray.length; i++) {
+                                membersArray[i] = new Relation.Member(memberList.get(i));
+                            }
 
-                        notifier.step(Relation.TYPE);
-                    })
-                    .parse();
+                            Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
+                            DBAccess access = storage.db().batch();
+                            storage.putRelation(access, relation);
+                            relation.computeReferences(access, storage);
+
+                            notifier.step(Relation.TYPE);
+                        })
+                        .parse();
+            }
         }
     }
 }
