@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -36,6 +36,8 @@ import java.util.List;
  */
 @RequiredArgsConstructor
 class FlushableWriteBatch implements DBAccess {
+    @NonNull
+    protected final DatabaseConfig config;
     @NonNull
     protected final RocksDB db;
     protected final WriteBatch batch = new WriteBatch();
@@ -100,7 +102,7 @@ class FlushableWriteBatch implements DBAccess {
     public void flush() throws Exception {
         if (this.dirty) {
             try {
-                this.db.write(Database.WRITE_NOWAL_OPTIONS, this.batch);
+                this.db.write(this.config.writeOptions(DatabaseConfig.WriteType.NO_WAL), this.batch);
             } finally {
                 this.batch.clear();
                 this.dirty = false;

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -23,17 +23,12 @@ package net.daporkchop.tpposmtilegen.mode;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import org.rocksdb.Checkpoint;
-import org.rocksdb.DBOptions;
-import org.rocksdb.RocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 
 import java.io.File;
-import java.nio.file.Path;
 import java.nio.file.Paths;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -59,7 +54,7 @@ public class CreateSnapshot implements IMode {
         checkArg(args.length == 2, "Usage: create_snapshot <index_dir> <snapshot_dir>");
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
-        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE, true)) {
+        try (Storage storage = new Storage(src.toPath(), DatabaseConfig.RO_LITE)) {
             storage.createSnapshot(Paths.get(args[1]));
         }
     }

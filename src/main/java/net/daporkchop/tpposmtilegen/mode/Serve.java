@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -44,6 +44,7 @@ import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.Tile;
 
 import java.io.File;
@@ -91,7 +92,7 @@ public class Serve implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (Storage storage = new Storage(src.toPath(), lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS, false);
+        try (Storage storage = new Storage(src.toPath(), lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              Server server = new Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             new Scanner(System.in).nextLine();
         }

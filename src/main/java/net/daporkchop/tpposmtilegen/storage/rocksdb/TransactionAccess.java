@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -39,12 +39,14 @@ import java.util.List;
  */
 @RequiredArgsConstructor
 final class TransactionAccess implements DBAccess {
-
     private static byte[] toByteArray(@NonNull ByteBuffer buf) {
         byte[] arr = new byte[buf.remaining()];
         buf.get(arr);
         return arr;
     }
+
+    @NonNull
+    protected final DatabaseConfig config;
     @NonNull
     protected final OptimisticTransactionDB db;
     @NonNull
@@ -52,17 +54,17 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
-        return this.transaction.get(columnFamilyHandle, Database.READ_OPTIONS, key);
+        return this.transaction.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
     }
 
     @Override
     public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
-        return Arrays.asList(this.transaction.multiGet(Database.READ_OPTIONS, columnFamilyHandleList, keys.toArray(new byte[0][])));
+        return this.transaction.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override
     public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.transaction.getIterator(Database.READ_BULK_ITERATE_OPTIONS, columnFamilyHandle);
+        return this.transaction.getIterator(this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE), columnFamilyHandle);
     }
 
     @Override
@@ -93,7 +95,7 @@ final class TransactionAccess implements DBAccess {
     @Override
     public void deleteRange(ColumnFamilyHandle columnFamilyHandle, byte[] beginKey, byte[] endKey) throws Exception {
         try (Slice toSlice = new Slice(endKey);
-             ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
+             ReadOptions options = new ReadOptions(this.config.readOptions(DatabaseConfig.ReadType.GENERAL)).setIterateUpperBound(toSlice);
              RocksIterator iterator = this.transaction.getIterator(options, columnFamilyHandle)) {
             for (iterator.seek(beginKey); iterator.isValid(); iterator.next()) {
                 byte[] key = iterator.key();

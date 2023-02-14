@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -36,21 +36,23 @@ import java.util.List;
 @RequiredArgsConstructor
 final class ReadAccess implements DBAccess {
     @NonNull
+    protected final DatabaseConfig config;
+    @NonNull
     protected final RocksDB db;
 
     @Override
     public byte[] get(ColumnFamilyHandle columnFamilyHandle, byte[] key) throws Exception {
-        return this.db.get(columnFamilyHandle, Database.READ_OPTIONS, key);
+        return this.db.get(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key);
     }
 
     @Override
     public List<byte[]> multiGetAsList(List<ColumnFamilyHandle> columnFamilyHandleList, List<byte[]> keys) throws Exception {
-        return this.db.multiGetAsList(columnFamilyHandleList, keys);
+        return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override
     public RocksIterator iterator(ColumnFamilyHandle columnFamilyHandle) throws Exception {
-        return this.db.newIterator(columnFamilyHandle, Database.READ_BULK_ITERATE_OPTIONS);
+        return this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE));
     }
 
     @Override

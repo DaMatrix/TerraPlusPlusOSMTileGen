@@ -25,8 +25,7 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import org.rocksdb.DBOptions;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 
 import java.io.File;
 import java.util.Scanner;
@@ -59,8 +58,7 @@ public class Update implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
         boolean lite = args.length == 1 || Boolean.parseBoolean(args[1]);
 
-        try (DBOptions options = lite ? Database.DB_OPTIONS_LITE : Database.DB_OPTIONS;
-             Storage storage = new Storage(src.toPath(), options);
+        try (Storage storage = new Storage(src.toPath(), lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              DBAccess txn = storage.db().newTransaction()) {
             Updater updater = new Updater(storage);
             try (Scanner scanner = new Scanner(System.in)) {

@@ -24,6 +24,7 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
@@ -91,7 +92,7 @@ public class Purge implements IMode {
             types = Arrays.stream(args, 1, args.length).map(DataType::valueOf).distinct().toArray(DataType[]::new);
         }
 
-        try (Storage storage = new Storage(src.toPath(), Database.DB_OPTIONS_LITE)) {
+        try (Storage storage = new Storage(src.toPath(), DatabaseConfig.RW_LITE)) {
             purge(storage, types);
         }
     }

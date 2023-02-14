@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -26,6 +26,7 @@ import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -139,7 +140,7 @@ public final class ReferenceDB extends WrappedRocksDB {
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
             PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
             try (Slice toSlice = new Slice(to);
-                 ReadOptions options = new ReadOptions(Database.READ_OPTIONS).setIterateUpperBound(toSlice);
+                 ReadOptions options = new ReadOptions(this.database.config().readOptions(DatabaseConfig.ReadType.GENERAL)).setIterateUpperBound(toSlice);
                  RocksIterator iterator = access.iterator(this.column, options)) {
                 for (iterator.seek(from); iterator.isValid(); iterator.next()) {
                     byte[] key = iterator.key();

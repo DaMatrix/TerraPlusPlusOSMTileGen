@@ -54,6 +54,7 @@ import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
@@ -108,19 +109,14 @@ public final class Storage implements AutoCloseable {
     protected final Path root;
 
     public Storage(@NonNull Path root) throws Exception {
-        this(root, Database.DB_OPTIONS);
+        this(root, DatabaseConfig.RW_GENERAL);
     }
 
-    public Storage(@NonNull Path root, @NonNull DBOptions options) throws Exception {
-        this(root, options, false);
-    }
-
-    public Storage(@NonNull Path root, @NonNull DBOptions options, boolean readOnly) throws Exception {
+    public Storage(@NonNull Path root, @NonNull DatabaseConfig config) throws Exception {
         this.root = root;
 
-        Database.Builder builder = new Database.Builder()
+        Database.Builder builder = new Database.Builder(config)
                 .autoFlush(true)
-                .readOnly(readOnly)
                 .add("nodes", (database, handle, descriptor) -> this.nodes = new NodeDB(database, handle, descriptor))
                 .add("points", (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
@@ -129,10 +125,10 @@ public final class Storage implements AutoCloseable {
                 .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor))
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, Database.COLUMN_OPTIONS_COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         try (TimedOperation operation = new TimedOperation("Open DB")) {
-            this.db = builder.build(root.resolve("db"), options);
+            this.db = builder.build(root.resolve("db"));
         }
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
@@ -340,7 +336,7 @@ public final class Storage implements AutoCloseable {
             this.flush();
 
             this.db.delegate().flushWal(true);
-            this.db.delegate().flush(Database.FLUSH_OPTIONS);
+            this.db.delegate().flush(this.db.config().flushOptions(DatabaseConfig.FlushType.GENERAL));
             this.db.delegate().flushWal(true);
         }
 
