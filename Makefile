@@ -1,3 +1,11 @@
+#prevent make from using default rules for compiling .o files, which is stupid
+MAKEFLAGS += --no-builtin-rules
+MAKEFLAGS += --no-builtin-variables
+.SUFFIXES:
+
+#this seems to make it possible to use functions to compute prerequisites
+.SECONDEXPANSION:
+
 export SHELL		:=	/bin/bash
 
 export NPROC		:=	$(shell nproc)
@@ -7,19 +15,54 @@ export TOPDIR		:=	$(CURDIR)
 export TOOLCHAINS	:=	$(CURDIR)/toolchain
 export COMMONSRC	:=	$(CURDIR)/src/main/native
 
-#export LDFLAGS		:=	$(CFLAGS) -Wl,--gc-sections
-export LDFLAGS		:=	$(CFLAGS) -shared
+export CP			:=	cp --reflink=auto
+
+#export CC			:=	gcc
+#export CXX			:=	g++
+#export LD			:=	g++
+export CC			:=	clang
+export CXX			:=	clang++
+export LD			:=	clang++
 
 ifndef NATIVES_DEBUG
-#export CFLAGS		:=	-shared -Ofast -ffast-math -fPIC -ffunction-sections -fdata-sections
-export CFLAGS		:=	-Ofast -ffast-math -fPIC
+export CFLAGS		:=	-O3 -ffast-math
 export BUILD_TYPE	:=	release
 else
-export CFLAGS		:=	-fPIC -DNATIVES_DEBUG
+export CFLAGS		:=	-DNATIVES_DEBUG
 export BUILD_TYPE	:=	debug
 endif
-export CXXFLAGS		:=	$(CFLAGS)
 $(info natives: building for $(BUILD_TYPE))
+
+export CFLAGS		:=	$(CFLAGS) -fPIC
+export CFLAGS		:=	$(CFLAGS) -MMD
+#export CFLAGS		:=	$(CFLAGS) -DROCKSDB_LITE
+
+export CXXFLAGS		:= $(CFLAGS) $(CXXFLAGS) -std=c++20
+export CXXFLAGS		:= $(CXXFLAGS) -fno-implement-inlines -fvisibility=hidden -fvisibility-inlines-hidden
+export CXXFLAGS		:= $(CXXFLAGS) -I$(JAVA_HOME)/include -I$(JAVA_HOME)/include/linux
+export CXXFLAGS		:= $(CXXFLAGS) -I.
+
+#for proper linking with rocksdb
+export CXXFLAGS		:= $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
+export CXXFLAGS		:= $(CXXFLAGS) -fno-rtti
+
+export CXXFLAGS		:= $(CXXFLAGS) -ffunction-sections -fdata-sections
+#export CXXFLAGS		:= $(CXXFLAGS) -fno-function-sections -fno-data-sections
+
+export LDFLAGS		:= $(LDFLAGS) -shared
+#export LDFLAGS		:= $(LDFLAGS) -Wl,--gc-sections
+export LDFLAGS		:= $(LDFLAGS) -Wl,-s
+
+export LDFLAGS		:= $(LDFLAGS) -fuse-ld=lld
+export LDFLAGS		:= $(LDFLAGS) -Wl,-O3 -Wl,--icf=all
+export LDFLAGS		:= $(LDFLAGS) -Wl,-x
+#export LDFLAGS		:= $(LDFLAGS) -static-libstdc++
+
+export LDFLAGS		:= $(LDFLAGS) -Wl,--warn-common
+#export LDFLAGS		:= $(LDFLAGS) -Wl,--print-map
+#export LDFLAGS		:= $(LDFLAGS) -Wl,--print-gc-sections
+
+export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/docker-build -Wl,-l:librocksdbjni-linux64.so
 
 export INCLUDES		:=	$(JAVA_HOME)include $(JAVA_HOME)include/linux
 
@@ -29,7 +72,7 @@ export ARCH_TASKS	:=	$(foreach arch,$(ARCHS),build.$(arch))
 export MODULES		:=	native
 
 export LIB_URL_BASE	:=	https://cloud.daporkchop.net/programs/source/
-export LIBS			:=	libosmium-2.15.6.tar.gz
+export LIBS			:=	libosmium-2.15.6.tar.gz rocksdb-7.7.3.tar.gz
 
 .PHONY: build clean .FORCE
 

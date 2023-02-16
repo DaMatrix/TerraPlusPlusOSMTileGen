@@ -1,7 +1,7 @@
 #include "tpposmtilegen_common.h"
 
-#include "osmium/area/assembler.hpp"
-#include "osmium/builder/attr.hpp"
+#include <osmium/area/assembler.hpp>
+#include <osmium/builder/attr.hpp>
 
 using namespace osmium::builder::attr;
 

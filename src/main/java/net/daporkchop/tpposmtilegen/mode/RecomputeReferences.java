@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -26,6 +26,7 @@ import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
 import java.io.File;
 import java.nio.file.Path;
@@ -58,7 +59,9 @@ public class RecomputeReferences implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath())) {
-            storage.references().clear();
+            try (TimedOperation clearOperation = new TimedOperation("Clear references")) {
+                storage.references().clear();
+            }
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
