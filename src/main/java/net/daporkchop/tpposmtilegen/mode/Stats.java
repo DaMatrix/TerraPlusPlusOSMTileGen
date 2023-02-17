@@ -60,7 +60,7 @@ public class Stats implements IMode {
         File src = PFiles.assertDirectoryExists(new File(args[0]));
 
         try (Storage storage = new Storage(src.toPath(), DatabaseConfig.RO_LITE)) {
-            storage.db().columns().stream()
+            storage.db().columns().keySet().stream()
                     .sorted(Comparator.comparing((EFunction<ColumnFamilyHandle, byte[]>) ColumnFamilyHandle::getName, Utils.BYTES_COMPARATOR))
                     .forEach(handle -> {
                         ColumnFamilyMetaData meta = storage.db().delegate().getColumnFamilyMetaData(handle);

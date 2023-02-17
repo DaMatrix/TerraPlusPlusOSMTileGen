@@ -24,6 +24,7 @@ import lombok.NonNull;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
+import java.util.Collection;
 
 /**
  * @author DaPorkchop_
@@ -48,4 +49,11 @@ public interface DBWriteAccess extends DBBaseAccess {
     void flush() throws Exception;
 
     void clear() throws Exception;
+
+    /**
+     * @author DaPorkchop_
+     */
+    interface BulkFlushable<SELF extends BulkFlushable<SELF>> extends DBWriteAccess {
+        void bulkFlush(@NonNull Collection<SELF> toFlush) throws Exception;
+    }
 }

@@ -37,8 +37,12 @@ import org.rocksdb.CompressionOptions;
 import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
+import org.rocksdb.EnvOptions;
+import org.rocksdb.ExternalFileIngestionInfo;
 import org.rocksdb.FlushOptions;
+import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.LRUCache;
+import org.rocksdb.Options;
 import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -50,6 +54,7 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Objects;
+import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -166,6 +171,15 @@ public final class DatabaseConfig {
                         .setWaitForFlush(true)
                         .setAllowWriteStall(true)
                 )
+                .ingestOptions(IngestType.COPY, new IngestExternalFileOptions()
+                        .setMoveFiles(false)
+                        .setWriteGlobalSeqno(false)
+                )
+                .ingestOptionsBasedOn(IngestType.MOVE, IngestType.COPY, baseOptions -> new IngestExternalFileOptions(baseOptions.moveFiles(), baseOptions.snapshotConsistency(), baseOptions.allowGlobalSeqNo(), baseOptions.allowBlockingFlush())
+                        .setIngestBehind(baseOptions.ingestBehind())
+                        .setWriteGlobalSeqno(baseOptions.writeGlobalSeqno())
+                        .setMoveFiles(true)
+                )
                 .build();
 
         RW_LITE = RW_GENERAL.toBuilder()
@@ -207,7 +221,16 @@ public final class DatabaseConfig {
     @Builder.ObtainVia(method = "flushOptionsByType")
     private final EnumMap<FlushType, FlushOptions> flushOptionsByType;
 
+    @NonNull
+    @Getter(AccessLevel.NONE)
+    @With(AccessLevel.NONE)
+    @Builder.ObtainVia(method = "ingestOptionsByType")
+    private final EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType;
+
     private final boolean readOnly;
+
+    @Getter(lazy = true)
+    private final EnvOptions envOptions = new EnvOptions(this.dbOptions);
 
     private EnumMap<ColumnFamilyType, ColumnFamilyOptions> columnFamilyOptionsByType() {
         return new EnumMap<>(this.columnFamilyOptionsByType);
@@ -225,6 +248,10 @@ public final class DatabaseConfig {
         return new EnumMap<>(this.flushOptionsByType);
     }
 
+    private EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType() {
+        return new EnumMap<>(this.ingestOptionsByType);
+    }
+
     public ColumnFamilyOptions columnFamilyOptions(@NonNull DatabaseConfig.ColumnFamilyType type) {
         return Objects.requireNonNull(this.columnFamilyOptionsByType.get(type), type.name());
     }
@@ -239,6 +266,10 @@ public final class DatabaseConfig {
 
     public FlushOptions flushOptions(@NonNull FlushType type) {
         return Objects.requireNonNull(this.flushOptionsByType.get(type), type.name());
+    }
+
+    public IngestExternalFileOptions ingestOptions(@NonNull IngestType type) {
+        return Objects.requireNonNull(this.ingestOptionsByType.get(type), type.name());
     }
 
     /**
@@ -271,6 +302,14 @@ public final class DatabaseConfig {
      */
     public enum FlushType {
         GENERAL,
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    public enum IngestType {
+        COPY,
+        MOVE,
     }
 
     public static class DatabaseConfigBuilder {
@@ -310,6 +349,15 @@ public final class DatabaseConfig {
             return this;
         }
 
+        public DatabaseConfigBuilder ingestOptions(@NonNull IngestType key, @NonNull IngestExternalFileOptions value) {
+            //noinspection ConstantValue
+            if (this.ingestOptionsByType == null) {
+                this.ingestOptionsByType(new EnumMap<>(IngestType.class));
+            }
+            this.ingestOptionsByType.put(key, value);
+            return this;
+        }
+
         public DatabaseConfigBuilder columnFamilyOptionsBasedOn(@NonNull DatabaseConfig.ColumnFamilyType key, @NonNull DatabaseConfig.ColumnFamilyType base, @NonNull UnaryOperator<ColumnFamilyOptions> mapper) {
             PValidation.checkArg(this.columnFamilyOptionsByType.containsKey(base), "base %s '%s' isn't present", ColumnFamilyType.class.getTypeName(), base);
             return this.columnFamilyOptions(key, mapper.apply(this.columnFamilyOptionsByType.get(base)));
@@ -328,6 +376,11 @@ public final class DatabaseConfig {
         public DatabaseConfigBuilder flushOptionsBasedOn(@NonNull FlushType key, @NonNull FlushType base, @NonNull UnaryOperator<FlushOptions> mapper) {
             PValidation.checkArg(this.flushOptionsByType.containsKey(base), "base %s '%s' isn't present", FlushType.class.getTypeName(), base);
             return this.flushOptions(key, mapper.apply(this.flushOptionsByType.get(base)));
+        }
+
+        public DatabaseConfigBuilder ingestOptionsBasedOn(@NonNull IngestType key, @NonNull IngestType base, @NonNull UnaryOperator<IngestExternalFileOptions> mapper) {
+            PValidation.checkArg(this.ingestOptionsByType.containsKey(base), "base %s '%s' isn't present", IngestType.class.getTypeName(), base);
+            return this.ingestOptions(key, mapper.apply(this.ingestOptionsByType.get(base)));
         }
     }
 }

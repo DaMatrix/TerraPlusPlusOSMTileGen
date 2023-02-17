@@ -30,7 +30,10 @@ import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayList;
 import java.util.List;
+
+import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
  * @author DaPorkchop_
@@ -72,7 +75,16 @@ final class ThreadLocalDBWriteAccess implements DBWriteAccess {
 
     @Override
     public void flush() throws Exception {
-        this.delegate.forEach((EConsumer<DBWriteAccess>) DBWriteAccess::flush);
+        List<DBWriteAccess> instances = new ArrayList<>();
+        this.delegate.forEach(instances::add);
+
+        if (instances.stream().anyMatch(DBWriteAccess.BulkFlushable.class::isInstance)) {
+            //do a bulk flush! (we quietly assume that all instances are of the same type)
+            ((DBWriteAccess.BulkFlushable<?>) instances.get(0)).bulkFlush(uncheckedCast(instances));
+        } else {
+            //we can't do a bulk flush, so we'll resort to flushing each instance individually
+            instances.forEach((EConsumer<DBWriteAccess>) DBWriteAccess::flush);
+        }
     }
 
     @Override

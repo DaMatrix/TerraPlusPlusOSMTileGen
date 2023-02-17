@@ -29,6 +29,8 @@ import org.rocksdb.WriteBatch;
 
 import java.nio.ByteBuffer;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
+
 /**
  * @author DaPorkchop_
  */
@@ -106,5 +108,56 @@ class FlushableWriteBatch implements DBWriteAccess {
     @Override
     public boolean threadSafe() {
         return true;
+    }
+
+    /**
+     * Wrapper around a RocksDB {@link WriteBatch} with the ability to auto-flush upon writing more than a given amount of data.
+     *
+     * @author DaPorkchop_
+     */
+    public static class AutoFlushing extends FlushableWriteBatch {
+        protected final long threshold;
+
+        public AutoFlushing(DatabaseConfig config, RocksDB db, long threshold) {
+            super(config, db);
+
+            this.threshold = positive(threshold, "threshold");
+        }
+
+        @Override
+        public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+            super.put(columnFamilyHandle, key, value);
+            this.checkFlush();
+        }
+
+        @Override
+        public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+            super.put(columnFamilyHandle, key, value);
+            this.checkFlush();
+        }
+
+        @Override
+        public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+            super.merge(columnFamilyHandle, key, value);
+            this.checkFlush();
+        }
+
+        @Override
+        public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
+            super.delete(columnFamilyHandle, key);
+            this.checkFlush();
+        }
+
+        @Override
+        public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
+            super.deleteRange(columnFamilyHandle, beginKey, endKey);
+            this.checkFlush();
+        }
+
+        protected void checkFlush() throws Exception {
+            if (this.batch.getDataSize() >= this.threshold) {
+                this.flush();
+            }
+        }
     }
 }
