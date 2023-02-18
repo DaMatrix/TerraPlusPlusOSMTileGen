@@ -152,7 +152,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             final byte[] value;
         }
 
-        Threading.<ValueWithKey>iterateParallel(2 * CPU_COUNT,
+        Threading.<ValueWithKey>iterateParallel(32 * CPU_COUNT,
                 c -> {
                     try (DBIterator itr = access.iterator(this.column)) {
                         for (itr.seekToFirst(); itr.isValid(); itr.next()) {

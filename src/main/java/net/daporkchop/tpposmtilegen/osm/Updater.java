@@ -49,11 +49,14 @@ public class Updater {
     protected final ChangesetState globalState;
 
     public Updater(@NonNull Storage storage) throws Exception {
-        this.globalState = storage.getChangesetState();
+        this.globalState = storage.getLatestChangesetState();
+
+        storage.sequenceNumber().set(storage.db().batch(), -1L);
+        storage.db().batch().flush();
 
         long sequenceNumber = storage.sequenceNumber().get(storage.db().read());
         if (sequenceNumber < 0L) { //compute sequence number
-            logger.info("attempting to compute sequence number from timestamp...");
+            logger.info("attempting to compute sequence number from timestamp %s...", Instant.ofEpochSecond(storage.replicationTimestamp().get()));
 
             long replicationTimestamp = storage.replicationTimestamp().get();
             checkState(replicationTimestamp >= 0L, "no replication info!");
@@ -116,7 +119,10 @@ public class Updater {
         //pass 1: find all elements affected by this change, and write out modified elements
         LongSet changedIds = new LongOpenHashSet();
         for (Changeset.Entry entry : changeset.entries()) {
+            int originalSize = entry.elements().size();
             entry.elements().removeIf(element -> !element.timestamp().isAfter(now));
+            logger.info("processing %d/%d changes", entry.elements().size(), originalSize);
+
             switch (entry.op()) {
                 case CREATE:
                     for (Changeset.Element element : entry.elements()) {

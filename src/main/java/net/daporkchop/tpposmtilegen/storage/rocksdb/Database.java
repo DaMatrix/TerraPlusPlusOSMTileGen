@@ -32,6 +32,8 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.MergeOperator;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.RocksDB;
 import org.rocksdb.RocksDBException;
@@ -241,8 +243,21 @@ public final class Database implements AutoCloseable {
             return this.add(name, DatabaseConfig.ColumnFamilyType.FAST, factory);
         }
 
+        public Builder add(@NonNull String name, @NonNull Factory factory, MergeOperator mergeOperator) {
+            return this.add(name, DatabaseConfig.ColumnFamilyType.FAST, factory, mergeOperator);
+        }
+
         public Builder add(@NonNull String name, @NonNull DatabaseConfig.ColumnFamilyType type, @NonNull Factory factory) {
-            this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(type)));
+            return this.add(name, type, factory, null);
+        }
+
+        public Builder add(@NonNull String name, @NonNull DatabaseConfig.ColumnFamilyType type, @NonNull Factory factory, MergeOperator mergeOperator) {
+            if (mergeOperator != null) {
+                this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), new ColumnFamilyOptions(this.config.columnFamilyOptions(type))
+                        .setMergeOperator(mergeOperator)));
+            } else {
+                this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(type)));
+            }
             this.factories.add(factory);
             return this;
         }

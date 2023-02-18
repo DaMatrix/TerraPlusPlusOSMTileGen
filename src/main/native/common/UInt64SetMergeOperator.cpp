@@ -152,14 +152,17 @@ public:
 
             DEBUG_MSG("merge: existing value: " << collection_to_string(state));
 
+            std::vector<uint64le> tmp(state.size());
             for (const auto& operand : merge_in.operand_list) {
+                DEBUG_MSG("merge: operand size is " << operand.size());
+
                 const operand_t& op = *reinterpret_cast<const operand_t*>(operand.data());
                 op.validate(operand.size());
 
                 DEBUG_MSG("merge: operand: add " << collection_to_string(op.add()) << ", del " << collection_to_string(op.del()));
 
                 //delete
-                std::vector<uint64le> tmp(state.size());
+                tmp.clear();
                 set_difference(state, op.del(), tmp);
 
                 //add
@@ -214,9 +217,11 @@ public:
     }
 
     bool PartialMerge(const rocksdb::Slice& key, const rocksdb::Slice& left_operand, const rocksdb::Slice& right_operand, std::string* new_value, rocksdb::Logger* logger) const override {
+        DEBUG_MSG("partialmerge: left_operand size is " << left_operand.size());
         const operand_t& lop = *reinterpret_cast<const operand_t*>(left_operand.data());
         lop.validate(left_operand.size());
 
+        DEBUG_MSG("partialmerge: right_operand size is " << right_operand.size());
         const operand_t& rop = *reinterpret_cast<const operand_t*>(right_operand.data());
         rop.validate(right_operand.size());
 
@@ -248,12 +253,34 @@ public:
         const operand_t& op = *reinterpret_cast<const operand_t*>(&(*new_value)[0]);
         op.validate(new_value->size());
 
-        DEBUG_MSG("partialmerge: result: add " << collection_to_string(op.add()) << ", del " << collection_to_string(op.del()));
+        DEBUG_MSG("partialmerge: result: add " << collection_to_string(op.add()) << ", del " << collection_to_string(op.del()) << " new_value->size()=" << new_value->size());
         return true;
     }
 
     /*bool PartialMergeMulti(const rocksdb::Slice& key, const std::deque<rocksdb::Slice>& operand_list, std::string* new_value, rocksdb::Logger* logger) const override {
-        return false;
+        DEBUG_MSG("partialmergemulti: " << operand_list.size() << " operands");
+
+        if (operand_list.size() == 1) {
+            return false;
+        }
+
+        rocksdb::Slice temp_slice(operand_list[0]);
+
+        for (size_t i = 1; i < operand_list.size(); ++i) {
+            auto& operand = operand_list[i];
+            std::string temp_value;
+            if (!PartialMerge(key, temp_slice, operand, &temp_value, logger)) {
+                return false;
+            }
+            std::swap(temp_value, *new_value);
+            temp_slice = rocksdb::Slice(*new_value);
+        }
+
+        return true;
+    }
+
+    bool AllowSingleOperand() const override {
+        return true;
     }*/
 
     const char* Name() const override {

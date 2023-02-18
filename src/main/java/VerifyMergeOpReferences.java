@@ -18,50 +18,36 @@
  *
  */
 
-package net.daporkchop.tpposmtilegen.mode;
-
-import lombok.NonNull;
-import net.daporkchop.lib.common.misc.file.PFiles;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
 import java.io.File;
-import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.time.Instant;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
  */
-public class RecomputeReferences implements IMode {
-    @Override
-    public String name() {
-        return "recompute_references";
-    }
+public class VerifyMergeOpReferences {
+    public static void main(String... args) throws Exception {
+        logger.redirectStdOut().enableANSI()
+                .addFile(new File("logs/" + Instant.now() + ".log"), LogAmount.DEBUG)
+                .setLogAmount(LogAmount.DEBUG);
 
-    @Override
-    public String synopsis() {
-        return "<index_dir>";
-    }
-
-    @Override
-    public String help() {
-        return "Recomputes references between all elements.";
-    }
-
-    @Override
-    public void run(@NonNull String... args) throws Exception {
-        checkArg(args.length == 1, "Usage: recompute_references <index_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
-
-        try (Storage storage = new Storage(src.toPath())) {
-            try (TimedOperation clearOperation = new TimedOperation("Clear references")) {
-                storage.references().clear();
-            }
+        try (Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
+             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet"), DatabaseConfig.RO_GENERAL)) {
+            long properVersion = properStorage.sequenceNumber().get(properStorage.db().read());
+            long testVersion = testStorage.sequenceNumber().get(testStorage.db().read());
+            checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
@@ -69,18 +55,23 @@ public class RecomputeReferences implements IMode {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        element.computeReferences(storage.db().batch(), storage);
+                        LongList properReferences = new LongArrayList();
+                        LongList testReferences = new LongArrayList();
+                        properStorage.references().getReferencesTo(properStorage.db().read(), Element.addTypeToId(type, id), properReferences);
+                        testStorage.references().getReferencesTo(testStorage.db().read(), Element.addTypeToId(type, id), testReferences);
+                        if (!properReferences.equals(testReferences)) {
+                            throw new IllegalStateException(properReferences + " != " + testReferences);
+                        }
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }
                     notifier.step(type);
                 };
 
-                //commented out because nodes don't reference anything
                 //storage.nodes().forEachParallel(storage.db().read(), func);
-                storage.ways().forEachParallel(storage.db().read(), func);
-                storage.relations().forEachParallel(storage.db().read(), func);
-                storage.coastlines().forEachParallel(storage.db().read(), func);
+                properStorage.ways().forEachParallel(properStorage.db().read(), func);
+                properStorage.relations().forEachParallel(properStorage.db().read(), func);
+                properStorage.coastlines().forEachParallel(properStorage.db().read(), func);
             }
         }
     }

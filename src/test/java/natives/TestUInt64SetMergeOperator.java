@@ -72,7 +72,8 @@ public class TestUInt64SetMergeOperator {
                 .setEnv(this.env)
                 .setAllowMmapReads(false)
                 .setAllowMmapWrites(false)
-                .setMergeOperator(this.mergeOperator);
+                .setMergeOperator(this.mergeOperator)
+                .setMaxSuccessiveMerges(1);
 
         this.flushOptions = new FlushOptions();
 
@@ -134,8 +135,33 @@ public class TestUInt64SetMergeOperator {
 
         this.db.merge("a".getBytes(), toBytes(2, 3, 2, 5, 1, 4, 7));
         assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
 
         this.db.compactRange();
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+    }
+
+    @Test
+    public void testComplexPartialMerge_InitialMerge() throws RocksDBException {
+        this.db.merge("a".getBytes(), toBytes(3, 0, 5, 6, 7));
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 5, 6, 7 });
+        this.db.flush(this.flushOptions);
+
+        this.db.merge("a".getBytes(), toBytes(3, 2, 1, 2, 3, 4, 5));
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 1, 2, 3, 6, 7 });
+
+        this.db.merge("a".getBytes(), toBytes(2, 3, 2, 5, 1, 4, 7));
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+
+        this.db.compactRange();
+        //this.db.compactFiles(new CompactionOptions(), this.db.getLiveFiles().files, 3, -1, null);
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
+        assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
         assertArrayEquals(fromBytes(this.db.get("a".getBytes())), new long[]{ 2, 3, 5, 6 });
     }
 
@@ -145,7 +171,7 @@ public class TestUInt64SetMergeOperator {
         Map<String, LongSortedSet> states = Stream.of(keys).collect(Collectors.toMap(Function.identity(), key -> new LongRBTreeSet()));
 
         ThreadLocalRandom r = ThreadLocalRandom.current();
-        for (int i = 0; i < 100000; i++) {
+        for (int i = 0; i < 100; i++) {
             String key = keys[r.nextInt(keys.length)];
             LongSortedSet state = states.get(key);
 

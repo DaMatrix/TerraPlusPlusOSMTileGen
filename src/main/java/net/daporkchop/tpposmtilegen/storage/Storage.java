@@ -36,6 +36,7 @@ import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -117,6 +118,17 @@ public final class Storage implements AutoCloseable {
     public Storage(@NonNull Path root, @NonNull DatabaseConfig config) throws Exception {
         this.root = root;
 
+        boolean legacy;
+        if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
+            || "/media/daporkchop/data/switzerland".equals(root.toString())) {
+            legacy = false;
+        } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())) {
+            legacy = true;
+        } else {
+            throw new IllegalArgumentException(root.toString());
+        }
+
         Database.Builder builder = new Database.Builder(config)
                 .autoFlush(true)
                 .add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor))
@@ -125,7 +137,7 @@ public final class Storage implements AutoCloseable {
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
                 .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
-                .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor))
+                .add("references", (database, handle, descriptor) -> this.references = legacy ? new ReferenceDB.Legacy(database, handle, descriptor) : new ReferenceDB(database, handle, descriptor), legacy ? null : UInt64SetMergeOperator.INSTANCE)
                 .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
@@ -355,7 +367,7 @@ public final class Storage implements AutoCloseable {
         Files.write(this.root.resolve("replication_base_url.txt"), baseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
-    public ChangesetState getChangesetState() throws Exception {
+    public ChangesetState getLatestChangesetState() throws Exception {
         return this.getReplicationDataObject("state.txt", false, ChangesetState::new);
     }
 

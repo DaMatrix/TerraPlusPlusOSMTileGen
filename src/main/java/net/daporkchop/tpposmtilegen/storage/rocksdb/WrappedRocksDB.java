@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -41,6 +41,7 @@ public abstract class WrappedRocksDB {
     protected static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = ThreadRef.soft(() -> new ByteArrayRecycler(8));
     protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = ThreadRef.soft(() -> new ByteArrayRecycler(16));
+    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_24 = ThreadRef.soft(() -> new ByteArrayRecycler(24));
     protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_8 = ThreadRef.late(() -> ByteBuffer.allocateDirect(8));
     protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_16 = ThreadRef.late(() -> ByteBuffer.allocateDirect(16));
     protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::directBuffer);

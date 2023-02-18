@@ -24,8 +24,8 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 
 import java.io.File;
 import java.util.Scanner;
@@ -65,23 +65,95 @@ public class Update implements IMode {
                 LOOP:
                 while (true) {
                     String command = scanner.nextLine();
-                    switch (command) {
-                        case "rollback":
-                            txn.clear();
-                            logger.info("Rolled back changes.");
+                    String[] split = command.split(" ");
+                    switch (split[0]) {
+                        case "h":
+                        case "help":
+                        case "?":
+                            logger.info("Available commands:\n"
+                                        + "  'info'\n"
+                                        + "  'update'\n"
+                                        + "  'update_to <target_sequence_number>'\n"
+                                        + "  'commit'\n"
+                                        + "  'rollback'\n"
+                                        + "  'stop'");
+                            break;
+                        case "info":
+                            if (split.length != 1) {
+                                logger.warn("command '%s' expects no arguments", split[0]);
+                                break;
+                            }
+
+                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumber().get(storage.db().read())));
+                            logger.info("Current state:  %s (%s)",
+                                    storage.getChangesetState(storage.sequenceNumber().get(txn)),
+                                    storage.sequenceNumber().get(txn) == storage.sequenceNumber().get(storage.db().read()) ? "no changes" : "uncommitted");
+                            logger.info("Latest state:   %s", storage.getLatestChangesetState());
                             break;
                         case "update":
+                            if (split.length != 1) {
+                                logger.warn("command '%s' expects no arguments", split[0]);
+                                break;
+                            }
+
                             logger.info("update result: %b", updater.update(storage, txn));
                             break;
-                        case "stop":
-                            break LOOP;
+                        case "update_to": {
+                            if (split.length != 2) {
+                                logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
+                                break;
+                            }
+
+                            long targetSequenceNumber;
+                            try {
+                                targetSequenceNumber = Long.parseLong(split[1]);
+                            } catch (NumberFormatException e) {
+                                logger.warn("unparseable sequence number: %s", split[1]);
+                                break;
+                            }
+
+                            if (storage.sequenceNumber().get(txn) >= targetSequenceNumber) {
+                                logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!", storage.sequenceNumber().get(txn), targetSequenceNumber);
+                                break;
+                            }
+
+                            do {
+                                if (!updater.update(storage, txn)) {
+                                    logger.warn("updater returned false, sequence number %d isn't available yet! stopping at %d", targetSequenceNumber, storage.sequenceNumber().get(txn));
+                                    break;
+                                }
+                            } while (storage.sequenceNumber().get(txn) < targetSequenceNumber);
+                            logger.info("update_to %d: done.", targetSequenceNumber);
+                            break;
+                        }
                         case "commit":
+                            if (split.length != 1) {
+                                logger.warn("command '%s' expects no arguments", split[0]);
+                                break;
+                            }
+
                             logger.info("Committing...");
                             txn.flush();
                             logger.success("Committed.");
                             break;
+                        case "rollback":
+                            if (split.length != 1) {
+                                logger.warn("command '%s' expects no arguments", split[0]);
+                                break;
+                            }
+
+                            txn.clear();
+                            logger.info("Rolled back changes.");
+                            break;
+                        case "stop":
+                            if (split.length != 1) {
+                                logger.warn("command '%s' expects no arguments", split[0]);
+                                break;
+                            }
+
+                            break LOOP;
                         default:
-                            logger.error("Unknown command: %s", command);
+                            logger.error("Unknown command: '%s'", command);
                     }
                 }
             }
