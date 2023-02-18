@@ -41,8 +41,12 @@ import java.util.Map;
 public final class Node extends Element {
     public static final int TYPE = 0;
 
-    public Node(long id, Map<String, String> tags) {
-        super(id, tags);
+    public Node(long id, Map<String, String> tags, int version, boolean visible) {
+        super(id, tags, version, visible);
+    }
+
+    public Node(@NonNull com.wolt.osm.parallelpbf.entity.Node node) {
+        super(node);
     }
 
     public Node(long id, ByteBuf data) {

@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
+import com.wolt.osm.parallelpbf.entity.OsmEntity;
 import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
@@ -31,6 +32,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
+import java.util.Collections;
 import java.util.Map;
 
 /**
@@ -38,7 +40,6 @@ import java.util.Map;
  *
  * @author DaPorkchop_
  */
-@RequiredArgsConstructor
 @Getter
 @ToString
 public abstract class Element implements Persistent {
@@ -85,9 +86,20 @@ public abstract class Element implements Persistent {
     }
 
     protected final long id;
-
-    @NonNull
     protected Map<String, String> tags;
+    protected int version;
+    protected boolean visible;
+
+    public Element(long id, @NonNull Map<String, String> tags, int version, boolean visible) {
+        this.id = id;
+        this.tags = tags;
+        this.version = version;
+        this.visible = visible;
+    }
+
+    public Element(@NonNull OsmEntity entity) {
+        this(entity.getId(), entity.getTags().isEmpty() ? Collections.emptyMap() : entity.getTags(), entity.getInfo().getVersion(), entity.getInfo().isVisible());
+    }
 
     public Element(long id, @NonNull ByteBuf data) {
         this.id = id;
@@ -98,10 +110,14 @@ public abstract class Element implements Persistent {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
+        dst.writeInt(this.version);
+        dst.writeBoolean(this.visible);
         Persistent.writeTags(dst, this.tags);
     }
 
     protected void fromBytes(@NonNull ByteBuf src) {
+        this.version = src.readInt();
+        this.visible = src.readBoolean();
         this.tags = Persistent.readTags(src);
     }
 

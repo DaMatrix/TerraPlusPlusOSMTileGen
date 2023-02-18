@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -34,6 +34,7 @@ import lombok.NonNull;
 import lombok.Setter;
 import lombok.ToString;
 
+import java.io.BufferedInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.time.Instant;
@@ -43,15 +44,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.zip.GZIPInputStream;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
+
 /**
  * @author DaPorkchop_
  */
 @Getter
 @ToString
 public final class Changeset {
+    private static final XmlMapper XML_MAPPER = new XmlMapper();
+
     public static Changeset parse(@NonNull ByteBuf buf) throws IOException {
-        try (InputStream in = new GZIPInputStream(new ByteBufInputStream(buf))) {
-            return new XmlMapper().readValue(in, Changeset.class);
+        try (InputStream in = new BufferedInputStream(new GZIPInputStream(new ByteBufInputStream(buf)))) {
+            return XML_MAPPER.readValue(in, Changeset.class);
         }
     }
 
@@ -88,16 +93,19 @@ public final class Changeset {
 
         @JsonSetter("node")
         private void node(Node node) {
+            checkArg(node.version() >= 0, "node doesn't have a version! %s", node);
             this.elements.add(node);
         }
 
         @JsonSetter("way")
         private void way(Way way) {
+            checkArg(way.version() >= 0, "way doesn't have a version! %s", way);
             this.elements.add(way);
         }
 
         @JsonSetter("relation")
         private void relation(Relation relation) {
+            checkArg(relation.version() >= 0, "relation doesn't have a version! %s", relation);
             this.elements.add(relation);
         }
     }
@@ -107,6 +115,9 @@ public final class Changeset {
     public static abstract class Element {
         @JsonProperty
         protected long id;
+
+        @JsonProperty
+        protected int version = -1;
 
         protected Instant timestamp;
 
@@ -121,11 +132,6 @@ public final class Changeset {
 
         @JsonSetter("changeset")
         private void changeset(String changeset) {
-            //discard
-        }
-
-        @JsonSetter("version")
-        private void version(String version) {
             //discard
         }
 

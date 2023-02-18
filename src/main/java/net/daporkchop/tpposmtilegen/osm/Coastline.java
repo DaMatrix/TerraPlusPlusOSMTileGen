@@ -41,7 +41,7 @@ public final class Coastline extends Element {
     protected Area area;
 
     public Coastline(long id, @NonNull Area area) {
-        super(id, TAGS);
+        super(id, TAGS, 0, true);
 
         this.area = area;
     }

@@ -113,6 +113,18 @@ public final class Database implements AutoCloseable {
         return this.batch;
     }
 
+    /**
+     * Creates a new batched write operation which is managed by the caller.
+     * <p>
+     * The returned {@link DBWriteAccess} <strong>must</strong> be explicitly closed by the caller.
+     *
+     * @return a new batched write operation
+     */
+    public DBWriteAccess beginLocalBatch() {
+        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        return new FlushableWriteBatch(this.config, this.delegate);
+    }
+
     public DBAccess readWriteBatch() {
         checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
         return this.readWriteBatch;

@@ -159,23 +159,25 @@ public class Updater {
         long id = element.id();
         long combinedId = Element.addTypeToId(element.type(), id);
 
+        /*checkArg();
+
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
 
             storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
             if (!changedNode.tags().isEmpty()) {
-                storage.nodes().put(access, id, new Node(id, changedNode.tags()));
+                storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version()));
             }
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), changedWay.refs().toLongArray()));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
 
             Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), members));
-        }
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), members));
+        }*/
 
         //this will force the element's tile intersections and references to be re-computed
         changedIds.add(combinedId);
@@ -185,7 +187,7 @@ public class Updater {
         long id = element.id();
         long combinedId = Element.addTypeToId(element.type(), id);
 
-        if (element instanceof Changeset.Node) {
+        /*if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
             Point point = storage.points().get(access, id);
             if (point == null) {
@@ -198,7 +200,7 @@ public class Updater {
             if (changedNode.tags().isEmpty()) {
                 storage.nodes().delete(access, id);
             } else {
-                storage.nodes().put(access, id, new Node(id, changedNode.tags()));
+                storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version()));
             }
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
@@ -220,7 +222,7 @@ public class Updater {
                 storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.refs().toLongArray()));
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), changedWay.refs().toLongArray()));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation relation = storage.relations().get(access, id);
@@ -243,8 +245,8 @@ public class Updater {
                 storage.references().deleteReference(access, ref, combinedId);
             }
 
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), newMembers));
-        }
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), newMembers));
+        }*/
 
         //this will force the element's tile intersections and references to be re-computed
         changedIds.add(combinedId);

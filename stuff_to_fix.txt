@@ -1,0 +1,5 @@
+- Nodes are now always stored in the storage, even if they have no tags
+  (this is to make sure that the version number is always stored)
+  - maybe re-unify Node and Point?
+- updater is totally broken now
+- db format version numbering

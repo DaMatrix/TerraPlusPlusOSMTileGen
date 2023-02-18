@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import com.wolt.osm.parallelpbf.entity.Header;
+import com.wolt.osm.parallelpbf.entity.OsmEntity;
 import com.wolt.osm.parallelpbf.entity.RelationMember;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
@@ -40,9 +41,14 @@ import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import java.io.File;
 import java.io.InputStream;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.Scanner;
+import java.util.concurrent.atomic.LongAdder;
+import java.util.function.Consumer;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -74,10 +80,14 @@ public class DigestPBF implements IMode {
         File dst = new File(args[1]);
 
         if (PFiles.checkDirectoryExists(dst)) {
-            logger.warn("destination folder already exists. proceed? [true/false]");
-            if (!Boolean.parseBoolean(new Scanner(System.in).nextLine())) {
-                logger.info("Abort.");
-                return;
+            try (Stream<Path> stream = Files.list(dst.toPath())) {
+                if (stream.findAny().isPresent()) {
+                    logger.warn("destination folder already exists. proceed? [true/false]");
+                    if (!Boolean.parseBoolean(new Scanner(System.in).nextLine())) {
+                        logger.info("Abort.");
+                        return;
+                    }
+                }
             }
         }
 
@@ -115,33 +125,21 @@ public class DigestPBF implements IMode {
                         .onBoundBox(bb -> logger.info("bounding box: %s", bb))
                         .onChangeset(changeset -> logger.info("changeset: %s", changeset))
                         .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
-                            Node node = new Node(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags());
+                            Node node = new Node(in);
                             storage.putNode(storage.db().sstBatch(), node, new Point(in.getLon(), in.getLat()));
                             node.computeReferences(storage.db().batch(), storage);
 
                             notifier.step(Node.TYPE);
                         })
                         .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
-                            List<Long> nodesList = in.getNodes();
-                            long[] nodesArray = new long[nodesList.size()];
-                            for (int i = 0; i < nodesArray.length; i++) {
-                                nodesArray[i] = nodesList.get(i);
-                            }
-
-                            Way way = new Way(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), nodesArray);
+                            Way way = new Way(in);
                             storage.putWay(storage.db().sstBatch(), way);
                             way.computeReferences(storage.db().batch(), storage);
 
                             notifier.step(Way.TYPE);
                         })
                         .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
-                            List<RelationMember> memberList = in.getMembers();
-                            Relation.Member[] membersArray = new Relation.Member[memberList.size()];
-                            for (int i = 0; i < membersArray.length; i++) {
-                                membersArray[i] = new Relation.Member(memberList.get(i));
-                            }
-
-                            Relation relation = new Relation(in.getId(), in.getTags().isEmpty() ? Collections.emptyMap() : in.getTags(), membersArray);
+                            Relation relation = new Relation(in);
                             storage.putRelation(storage.db().sstBatch(), relation);
                             relation.computeReferences(storage.db().batch(), storage);
 

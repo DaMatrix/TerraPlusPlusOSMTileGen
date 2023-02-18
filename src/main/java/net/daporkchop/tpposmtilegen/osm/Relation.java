@@ -59,10 +59,20 @@ public final class Relation extends Element {
     @NonNull
     protected Member[] members;
 
-    public Relation(long id, Map<String, String> tags, @NonNull Member[] members) {
-        super(id, tags);
+    public Relation(long id, Map<String, String> tags, int version, boolean visible, @NonNull Member[] members) {
+        super(id, tags, version, visible);
 
         this.members = members;
+    }
+
+    public Relation(@NonNull com.wolt.osm.parallelpbf.entity.Relation relation) {
+        super(relation);
+
+        List<RelationMember> memberList = relation.getMembers();
+        this.members = new Member[memberList.size()];
+        for (int i = 0; i < this.members.length; i++) {
+            this.members[i] = new Relation.Member(memberList.get(i));
+        }
     }
 
     public Relation(long id, ByteBuf data) {

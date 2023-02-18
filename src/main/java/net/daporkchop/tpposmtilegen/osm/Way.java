@@ -53,10 +53,20 @@ public final class Way extends Element {
     @NonNull
     protected long[] nodes;
 
-    public Way(long id, Map<String, String> tags, @NonNull long[] nodes) {
-        super(id, tags);
+    public Way(long id, Map<String, String> tags, int version, boolean visible, @NonNull long[] nodes) {
+        super(id, tags, version, visible);
 
         this.nodes = nodes;
+    }
+
+    public Way(@NonNull com.wolt.osm.parallelpbf.entity.Way way) {
+        super(way);
+
+        List<Long> nodesList = way.getNodes();
+        this.nodes = new long[nodesList.size()];
+        for (int i = 0; i < this.nodes.length; i++) {
+            this.nodes[i] = nodesList.get(i);
+        }
     }
 
     public Way(long id, ByteBuf data) {

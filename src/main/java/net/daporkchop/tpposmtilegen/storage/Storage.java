@@ -57,6 +57,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
+import net.daporkchop.tpposmtilegen.storage.special.DBProperties;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.Tile;
@@ -92,6 +93,9 @@ public final class Storage implements AutoCloseable {
     protected CoastlineDB coastlines;
     protected final Int2ObjectMap<RocksDBMap<? extends Element>> elementsByType = new Int2ObjectOpenHashMap<>();
 
+    protected DBProperties properties;
+    protected DBProperties.LongProperty versionNumberProperty;
+
     protected DBLong sequenceNumber;
     protected final OffHeapAtomicLong replicationTimestamp;
     protected String replicationBaseUrl;
@@ -115,6 +119,7 @@ public final class Storage implements AutoCloseable {
 
         Database.Builder builder = new Database.Builder(config)
                 .autoFlush(true)
+                .add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor))
                 .add("nodes", (database, handle, descriptor) -> this.nodes = new NodeDB(database, handle, descriptor))
                 .add("points", (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
@@ -128,6 +133,8 @@ public final class Storage implements AutoCloseable {
         try (TimedOperation operation = new TimedOperation("Open DB")) {
             this.db = builder.build(root.resolve("db"));
         }
+
+        this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
 
         this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
 
@@ -146,10 +153,7 @@ public final class Storage implements AutoCloseable {
 
     public void putNode(@NonNull DBWriteAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
         this.points.put(access, node.id(), point);
-
-        if (!node.tags().isEmpty()) {
-            this.nodes.put(access, node.id(), node);
-        }
+        this.nodes.put(access, node.id(), node);
     }
 
     public void putWay(@NonNull DBWriteAccess access, @NonNull Way way) throws Exception {
