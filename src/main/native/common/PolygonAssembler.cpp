@@ -16,25 +16,43 @@ static jmethodID ctor_point;
 
 static osmium::area::Assembler::config_type assembler_config;
 
-jobject toShape(JNIEnv *env, jobjectArray outerLoop, std::vector<jobjectArray> &innerLoops) {
+static jobject toShape(JNIEnv *env, jobjectArray outerLoop, std::vector<jobjectArray> &innerLoops) {
+    pushLocalFrame(env, 2);
+
     jobjectArray innerLoopsArray = env->NewObjectArray(innerLoops.size(), c_point_array, nullptr);
     for (int i = 0; i < innerLoops.size(); i++) {
         env->SetObjectArrayElement(innerLoopsArray, i, innerLoops[i]);
     }
 
-    return env->NewObject(c_shape, ctor_shape, outerLoop, innerLoopsArray);
+    return popLocalFrame(env, env->NewObject(c_shape, ctor_shape, outerLoop, innerLoopsArray));
 }
 
-jobjectArray toPointArray(JNIEnv *env, const osmium::NodeRefList &nodes) {
+static jobjectArray toPointArray(JNIEnv *env, const osmium::NodeRefList &nodes) {
+    pushLocalFrame(env, 2);
+
     jobjectArray array = env->NewObjectArray(nodes.size(), c_point, nullptr);
     for (int i = 0; i < nodes.size(); i++) {
         jobject point = env->NewObject(c_point, ctor_point, nodes[i].x(), nodes[i].y());
         env->SetObjectArrayElement(array, i, point);
+        env->DeleteLocalRef(point);
     }
-    return array;
+    return popLocalFrame(env, array);
 }
 
 jobject toArea(JNIEnv *env, const osmium::Area &area) {
+    jint num_outer_loops = 1;
+    jint num_inner_loops = 0;
+    jint num_shapes = 0;
+    for (const auto &item : area) {
+        if (item.type() == osmium::item_type::outer_ring) {
+            num_shapes++;
+        } else if (item.type() == osmium::item_type::inner_ring) {
+            num_inner_loops++;
+        }
+    }
+
+    pushLocalFrame(env, num_inner_loops + num_inner_loops + num_shapes + 1 + 1);
+
     std::vector<jobject> shapes;
 
     jobjectArray outerLoop;
@@ -50,11 +68,11 @@ jobject toArea(JNIEnv *env, const osmium::Area &area) {
                 innerLoops.clear();
             }
             outerLoop = toPointArray(env, static_cast<const osmium::OuterRing &>(item));
-            ++num_rings;
-            ++num_polygons;
+            num_rings++;
+            num_polygons++;
         } else if (item.type() == osmium::item_type::inner_ring) {
             innerLoops.push_back(toPointArray(env, static_cast<const osmium::InnerRing &>(item)));
-            ++num_rings;
+            num_rings++;
         }
     }
 
@@ -70,7 +88,7 @@ jobject toArea(JNIEnv *env, const osmium::Area &area) {
         env->SetObjectArrayElement(shapesArray, i, shapes[i]);
     }
 
-    return env->NewObject(c_area, ctor_area, shapesArray);
+    return popLocalFrame(env, env->NewObject(c_area, ctor_area, shapesArray));
 }
 
 extern "C" {

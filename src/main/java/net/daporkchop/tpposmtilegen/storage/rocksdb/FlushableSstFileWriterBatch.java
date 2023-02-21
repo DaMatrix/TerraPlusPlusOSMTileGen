@@ -27,16 +27,17 @@ import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.BulkFlushable;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Options;
 import org.rocksdb.SstFileWriter;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Collections;
 import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Map;
@@ -47,7 +48,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<FlushableSstFileWriterBatch> {
+class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<FlushableSstFileWriterBatch> {
     protected final DatabaseConfig config;
     protected final Database database;
 
@@ -183,8 +184,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
         protected SstFileWriter writer;
         protected long dataSize;
 
-        protected byte[] lastKey;
-
         public ColumnState(@NonNull ColumnFamilyHandle column) {
             this.column = column;
 
@@ -198,7 +197,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
         @Override
         public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
             checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
-            this.acceptKey(key);
             this.getOpenWriter().put(key, value);
             this.dataSize += OPERATION_OVERHEAD + key.length + value.length;
         }
@@ -208,7 +206,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
             checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
             int keyRemaining = key.remaining();
             int valueRemaining = value.remaining();
-            this.acceptKey(key);
             this.getOpenWriter().put(key, value);
             this.dataSize += OPERATION_OVERHEAD + keyRemaining + valueRemaining;
         }
@@ -216,7 +213,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
         @Override
         public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
             checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
-            this.acceptKey(key);
             this.getOpenWriter().merge(key, value);
             this.dataSize += OPERATION_OVERHEAD + key.length + value.length;
         }
@@ -224,7 +220,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
         @Override
         public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
             checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
-            this.acceptKey(key);
             this.getOpenWriter().delete(key);
             this.dataSize += OPERATION_OVERHEAD + key.length;
         }
@@ -232,29 +227,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
         @Override
         public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
             throw new UnsupportedOperationException();
-        }
-
-        protected void acceptKey(@NonNull byte[] key) {
-            if (this.lastKey == null) {
-                this.lastKey = key.clone();
-            } else if (this.lastKey.length == key.length) {
-                checkArg(Memory.memcmp(this.lastKey, 0, key, 0, key.length) < 0, "keys must be inserted in strictly lexicographic order!");
-                System.arraycopy(key, 0, this.lastKey, 0, key.length);
-            } else {
-                throw new UnsupportedOperationException();
-            }
-        }
-
-        protected void acceptKey(@NonNull ByteBuffer key) {
-            if (this.lastKey == null) {
-                this.lastKey = new byte[key.remaining()];
-                key.slice().get(this.lastKey);
-            } else if (this.lastKey.length == key.remaining()) {
-                checkArg(Memory.memcmp(this.lastKey, 0, key, key.remaining()) < 0, "keys must be inserted in strictly lexicographic order!");
-                key.slice().get(this.lastKey);
-            } else {
-                throw new UnsupportedOperationException();
-            }
         }
 
         @Override
@@ -275,9 +247,8 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
             checkState(this.currentFilePath == null, "path already exists!");
 
             this.dataSize = 0L;
-            this.lastKey = null;
 
-            this.currentFilePath = FlushableSstFileWriterBatch.this.database.assignTmpSstFilePath();
+            this.currentFilePath = FlushableSstFileWriterBatch.this.database.assignTmpSstFilePath(new String(this.column.getName(), StandardCharsets.UTF_8));
             try {
                 checkState(!PFiles.checkFileExists(this.currentFilePath.toFile()), "file '%s' already exists!", this.currentFilePath);
                 PFiles.ensureFileExists(this.currentFilePath.toFile());
@@ -327,8 +298,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
                     Files.delete(this.currentFilePath);
                     FlushableSstFileWriterBatch.this.database.returnTmpSstFilePath(this.currentFilePath);
                     this.currentFilePath = null;
-                } finally {
-                    this.lastKey = null;
                 }
             }
         }
@@ -344,7 +313,6 @@ class FlushableSstFileWriterBatch implements DBWriteAccess.BulkFlushable<Flushab
                     Files.delete(this.currentFilePath);
                     FlushableSstFileWriterBatch.this.database.returnTmpSstFilePath(this.currentFilePath);
                     this.currentFilePath = null;
-                    this.lastKey = null;
                 }
             }
         }

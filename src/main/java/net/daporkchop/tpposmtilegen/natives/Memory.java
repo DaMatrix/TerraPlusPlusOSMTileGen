@@ -137,4 +137,19 @@ public class Memory {
             throw new BufferUnderflowException();
         }
     }
+
+    public enum Usage {
+        MADV_NORMAL,
+        MADV_RANDOM,
+        MADV_SEQUENTIAL,
+        MADV_WILLNEED,
+        MADV_DONTNEED,
+        MADV_REMOVE,
+    }
+
+    private static native void madvise0(long addr, long size, int usage);
+
+    public static void madvise(long addr, long size, @NonNull Memory.Usage usage) {
+        madvise0(addr, size, usage.ordinal());
+    }
 }

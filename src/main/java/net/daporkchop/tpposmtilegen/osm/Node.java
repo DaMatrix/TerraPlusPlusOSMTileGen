@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.osm;
 import io.netty.buffer.ByteBuf;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
@@ -36,7 +35,6 @@ import java.util.Map;
  * @author DaPorkchop_
  */
 @Getter
-@Setter
 @ToString(callSuper = true)
 public final class Node extends Element {
     public static final int TYPE = 0;

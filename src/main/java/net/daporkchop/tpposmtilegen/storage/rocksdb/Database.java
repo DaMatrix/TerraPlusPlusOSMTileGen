@@ -21,7 +21,6 @@
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
-import it.unimi.dsi.fastutil.objects.ObjectRBTreeSet;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
@@ -77,7 +76,7 @@ public final class Database implements AutoCloseable {
     private final Path path;
 
     private final Path tmpSstDirectoryPath;
-    private final Set<Path> activeTmpSstFiles = new ObjectRBTreeSet<>();
+    private final Set<Path> activeTmpSstFiles = new TreeSet<>();
 
     private Database(@NonNull RocksDB delegate, @NonNull Map<ColumnFamilyHandle, ColumnFamilyDescriptor> columns, @NonNull DatabaseConfig config, boolean autoFlush, @NonNull Path path) {
         this.delegate = delegate;
@@ -101,7 +100,7 @@ public final class Database implements AutoCloseable {
             @Override
             protected DBWriteAccess initialValue0() throws Exception {
                 return autoFlush
-                        ? new FlushableSstFileWriterBatch.AutoFlushing(config, Database.this, 64L << 20L)
+                        ? new FlushableSstFileWriterBatch.AutoFlushing(config, Database.this, 128L << 20L)
                         : new FlushableSstFileWriterBatch(config, Database.this);
             }
         });
@@ -111,7 +110,7 @@ public final class Database implements AutoCloseable {
     }
 
     public DBWriteAccess batch() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.batch;
     }
 
@@ -123,27 +122,27 @@ public final class Database implements AutoCloseable {
      * @return a new batched write operation
      */
     public DBWriteAccess beginLocalBatch() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return new FlushableWriteBatch(this.config, this.delegate);
     }
 
     public DBAccess readWriteBatch() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.readWriteBatch;
     }
 
     public DBWriteAccess sstBatch() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.sstBatch;
     }
 
     public DBWriteAccess newNotAutoFlushingWriteBatch() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return new FlushableWriteBatch(this.config, this.delegate);
     }
 
     public DBAccess newTransaction() {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         OptimisticTransactionDB delegate = (OptimisticTransactionDB) this.delegate;
         return new TransactionAccess(this.config, delegate, delegate.beginTransaction(this.config.writeOptions(DatabaseConfig.WriteType.SYNC)));
     }
@@ -152,8 +151,13 @@ public final class Database implements AutoCloseable {
         this.batch.flush();
     }
 
+    public ColumnFamilyHandle internalColumnFamily(@NonNull WrappedRocksDB wrapper) {
+        checkArg(wrapper.database == this, "given wrapper must belong to this database instance!");
+        return wrapper.column;
+    }
+
     public void clear(@NonNull List<? extends WrappedRocksDB> toClear) throws Exception {
-        checkState(this.delegate instanceof OptimisticTransactionDB, "storage is open in read-only mode!");
+        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         checkArg(toClear.stream().allMatch(wrapper -> wrapper.database == this), "all wrappers must belong to this database instance!");
 
         toClear = toClear.stream().distinct().collect(Collectors.toList());
@@ -190,10 +194,10 @@ public final class Database implements AutoCloseable {
         return column;
     }
 
-    synchronized Path assignTmpSstFilePath() {
+    synchronized Path assignTmpSstFilePath(@NonNull String prefix) {
         Path path;
         do {
-            path = this.tmpSstDirectoryPath.resolve(UUID.randomUUID().toString() + ".sst");
+            path = this.tmpSstDirectoryPath.resolve(prefix + '-' + UUID.randomUUID() + ".sst");
         } while (!this.activeTmpSstFiles.add(path));
         return path;
     }
@@ -216,9 +220,9 @@ public final class Database implements AutoCloseable {
         this.delegate.close();
 
         if (!this.activeTmpSstFiles.isEmpty()) {
-            logger.alert("some temporary SST files have not been ingested:\n\n" + new TreeSet<>(this.activeTmpSstFiles));
+            logger.alert("some temporary SST files have not been ingested:\n\n" + this.activeTmpSstFiles);
         }
-        PFiles.rm(this.tmpSstDirectoryPath.toFile());
+        //PFiles.rm(this.tmpSstDirectoryPath.toFile());
     }
 
     @FunctionalInterface
@@ -270,7 +274,9 @@ public final class Database implements AutoCloseable {
             try {
                 db = this.config.readOnly()
                         ? RocksDB.openReadOnly(this.config.dbOptions(), path.toString(), this.columns, columns)
-                        : OptimisticTransactionDB.open(this.config.dbOptions(), path.toString(), this.columns, columns);
+                        : this.config.transactional()
+                        ? OptimisticTransactionDB.open(this.config.dbOptions(), path.toString(), this.columns, columns)
+                        : RocksDB.open(this.config.dbOptions(), path.toString(), this.columns, columns);
             } catch (RocksDBException e) {
                 String s = e.getMessage().replace("Column families not opened: ", "");
                 if (!this.config.readOnly() && s.length() != e.getMessage().length()) {
@@ -278,7 +284,9 @@ public final class Database implements AutoCloseable {
                         logger.warn("Deleting column family: %s", name);
                         this.columns.add(new ColumnFamilyDescriptor(name.getBytes(StandardCharsets.UTF_8), this.config.columnFamilyOptions(DatabaseConfig.ColumnFamilyType.FAST)));
                     }
-                    db = OptimisticTransactionDB.open(this.config.dbOptions(), path.toString(), this.columns, columns);
+                    db = this.config.transactional()
+                            ? OptimisticTransactionDB.open(this.config.dbOptions(), path.toString(), this.columns, columns)
+                            : RocksDB.open(this.config.dbOptions(), path.toString(), this.columns, columns);
                     while (columns.size() > this.factories.size()) {
                         ColumnFamilyHandle handle = columns.remove(this.factories.size());
                         this.columns.remove(this.factories.size());

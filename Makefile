@@ -28,7 +28,7 @@ ifndef NATIVES_DEBUG
 export CFLAGS		:=	-O3 -ffast-math
 export BUILD_TYPE	:=	release
 else
-export CFLAGS		:=	-DNATIVES_DEBUG
+export CFLAGS		:=	-O2 -DNATIVES_DEBUG
 export BUILD_TYPE	:=	debug
 endif
 $(info natives: building for $(BUILD_TYPE))
@@ -50,8 +50,11 @@ export CXXFLAGS		:= $(CXXFLAGS) -ffunction-sections -fdata-sections
 #export CXXFLAGS		:= $(CXXFLAGS) -fno-function-sections -fno-data-sections
 
 export LDFLAGS		:= $(LDFLAGS) -shared
-#export LDFLAGS		:= $(LDFLAGS) -Wl,--gc-sections
+export LDFLAGS		:= $(LDFLAGS) -Wl,--gc-sections
+
+ifndef NATIVES_DEBUG
 export LDFLAGS		:= $(LDFLAGS) -Wl,-s
+endif
 
 export LDFLAGS		:= $(LDFLAGS) -fuse-ld=lld
 export LDFLAGS		:= $(LDFLAGS) -Wl,-O3 -Wl,--icf=all
@@ -62,7 +65,7 @@ export LDFLAGS		:= $(LDFLAGS) -Wl,--warn-common
 #export LDFLAGS		:= $(LDFLAGS) -Wl,--print-map
 #export LDFLAGS		:= $(LDFLAGS) -Wl,--print-gc-sections
 
-export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/docker-build -Wl,-l:librocksdbjni-linux64.so
+export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/docker-build -Wl,-l:librocksdbjni-linux64.so -Wl,-ltbb
 
 export INCLUDES		:=	$(JAVA_HOME)include $(JAVA_HOME)include/linux
 

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -44,7 +44,7 @@ import static net.daporkchop.lib.logging.Logging.*;
  */
 public class Compact implements IMode {
     private static CompletableFuture<Void> run(@NonNull Executor executor, @NonNull WrappedRocksDB db, @NonNull String name) {
-        return CompletableFuture.runAsync((ERunnable) db::optimize, executor).thenRun(() -> logger.info("Compacted %s.", name));
+        return CompletableFuture.runAsync((ERunnable) db::compact, executor).thenRun(() -> logger.info("Compacted %s.", name));
     }
 
     @Override

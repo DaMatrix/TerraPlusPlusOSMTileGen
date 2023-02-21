@@ -165,24 +165,24 @@ public class Updater {
         long id = element.id();
         long combinedId = Element.addTypeToId(element.type(), id);
 
-        /*checkArg();
+        checkArg(element.version() == 0, "cannot create element at non-zero version %d", element.version());
 
-        if (element instanceof Changeset.Node) {
+        //we assume that an element which has just been created isn't immediately deleted, lol
+        boolean visible = true;
+
+        /*if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
 
-            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
-            if (!changedNode.tags().isEmpty()) {
-                storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version()));
-            }
+            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), visible, new Point(changedNode.lon(), changedNode.lat())));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), changedWay.refs().toLongArray()));
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), visible, changedWay.refs().toLongArray()));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
 
             Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), members));
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), visible, members));
         }*/
 
         //this will force the element's tile intersections and references to be re-computed
@@ -195,29 +195,36 @@ public class Updater {
 
         /*if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
-            Point point = storage.points().get(access, id);
-            if (point == null) {
+            Node oldNode = storage.nodes().get(access, id);
+            if (oldNode == null) {
                 logger.warn("attempting to modify non-existent node with id %d, assuming that it's newly re-created!", id);
-                this.create(storage, access, element, changedIds);
+                this.create(storage, access, changedNode, changedIds);
                 return;
+            } else if (!oldNode.visible()) {
+                logger.alert("attempting to modify deleted node with id %d!", id);
+                throw new UpdateImpossibleException();
+            } else if (changedNode.version() != oldNode.version() + 1) {
+                logger.alert("attempting to modify node with id %d from version %d to %d!", id, oldNode.version(), changedNode.version());
+                throw new UpdateImpossibleException();
             }
-
-            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
-            if (changedNode.tags().isEmpty()) {
-                storage.nodes().delete(access, id);
-            } else {
-                storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version()));
-            }
+            
+            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), true, new Point(changedNode.lon(), changedNode.lat())));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
-            Way way = storage.ways().get(access, id);
-            if (way == null) {
+            Way oldWay = storage.ways().get(access, id);
+            if (oldWay == null) {
                 logger.warn("attempting to modify non-existent way with id %d, assuming that it's newly re-created!", id);
-                this.create(storage, access, element, changedIds);
+                this.create(storage, access, changedWay, changedIds);
                 return;
+            } else if (!oldWay.visible()) {
+                logger.alert("attempting to modify deleted way with id %d!", id);
+                throw new UpdateImpossibleException();
+            } else if (changedWay.version() != oldWay.version() + 1) {
+                logger.alert("attempting to modify way with id %d from version %d to %d!", id, oldWay.version(), changedWay.version());
+                throw new UpdateImpossibleException();
             }
 
-            LongSet oldNodes = new LongOpenHashSet(way.nodes());
+            LongSet oldNodes = new LongOpenHashSet(oldWay.nodes());
             LongSet newNodes = new LongOpenHashSet(changedWay.refs());
             for (long node : newNodes) {
                 if (!oldNodes.remove(node)) { //node was newly added to this way
@@ -228,19 +235,25 @@ public class Updater {
                 storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), changedWay.refs().toLongArray()));
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), true, changedWay.refs().toLongArray()));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
-            Relation relation = storage.relations().get(access, id);
-            if (relation == null) {
+            Relation oldRelation = storage.relations().get(access, id);
+            if (oldRelation == null) {
                 logger.warn("attempting to modify non-existent relation with id %d, assuming that it's newly re-created!", id);
-                this.create(storage, access, element, changedIds);
+                this.create(storage, access, changedRelation, changedIds);
                 return;
+            } else if (!oldRelation.visible()) {
+                logger.alert("attempting to modify deleted relation with id %d!", id);
+                throw new UpdateImpossibleException();
+            } else if (changedRelation.version() != oldRelation.version() + 1) {
+                logger.alert("attempting to modify relation with id %d from version %d to %d!", id, oldRelation.version(), changedRelation.version());
+                throw new UpdateImpossibleException();
             }
 
             Relation.Member[] newMembers = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
 
-            LongSet oldRefs = new LongOpenHashSet(Arrays.stream(relation.members()).mapToLong(Relation.Member::combinedId).toArray());
+            LongSet oldRefs = new LongOpenHashSet(Arrays.stream(oldRelation.members()).mapToLong(Relation.Member::combinedId).toArray());
             LongSet newRefs = new LongOpenHashSet(Arrays.stream(newMembers).mapToLong(Relation.Member::combinedId).toArray());
             for (long ref : newRefs) {
                 if (!oldRefs.remove(ref)) { //element was newly added to this relation
@@ -251,7 +264,7 @@ public class Updater {
                 storage.references().deleteReference(access, ref, combinedId);
             }
 
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), newMembers));
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), true, newMembers));
         }*/
 
         //this will force the element's tile intersections and references to be re-computed
@@ -264,10 +277,9 @@ public class Updater {
         long combinedId = Element.addTypeToId(element.type(), id);
 
         if (element instanceof Changeset.Node) {
-            Point point = storage.points().get(access, id);
-            checkState(point != null, "node with id %d doesn't exist", id);
+            Node node = storage.nodes().get(access, id);
+            checkState(node != null, "node with id %d doesn't exist", id);
 
-            storage.points().delete(access, id);
             storage.nodes().delete(access, id);
         } else if (element instanceof Changeset.Way) {
             Way way = storage.ways().get(access, id);
@@ -298,5 +310,8 @@ public class Updater {
                 this.markReferentsDirty(storage, access, changedIds, referent);
             }
         }
+    }
+
+    private static final class UpdateImpossibleException extends RuntimeException {
     }
 }

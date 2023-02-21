@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -24,6 +24,7 @@ import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
+import net.daporkchop.lib.logging.Logging;
 
 import java.util.ArrayList;
 import java.util.concurrent.ThreadFactory;
@@ -47,6 +48,7 @@ public class CloseableThreadFactory extends ArrayList<Thread> implements ThreadF
     @Override
     public synchronized Thread newThread(Runnable r) {
         Thread t = this.delegate.newThread(r);
+        t.setUncaughtExceptionHandler((t1, e) -> Logging.logger.alert(e));
         this.add(t);
         return t;
     }

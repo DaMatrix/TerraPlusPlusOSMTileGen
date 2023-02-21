@@ -1,111 +1,14 @@
 #include "tpposmtilegen_common.h"
+#include "UInt64SetMergeOperator.h"
 #include <lib-rocksdb/include/rocksdb/merge_operator.h>
 
 #include <algorithm>
-#include <bit>
 #include <exception>
 #include <ranges>
 #include <set>
 #include <vector>
 
 #include <iostream>
-
-#ifdef NATIVES_DEBUG
-#define DEBUG_MSG(msg) std::cout << msg << std::endl;
-#else
-#define DEBUG_MSG(msg)
-#endif
-
-template<std::endian ORDER>
-class bo_uint64 {
-    static_assert(std::endian::big == std::endian::native || std::endian::little == std::endian::native);
-
-private:
-    constexpr static bool is_native = ORDER == std::endian::native;
-
-    uint64_t _payload;
-
-public:
-    constexpr bo_uint64() noexcept : _payload() {}
-    constexpr bo_uint64(uint64_t payload) noexcept : _payload(payload) {}
-    constexpr bo_uint64(const bo_uint64& other) noexcept = default;
-    constexpr bo_uint64(bo_uint64&& other) noexcept = default;
-
-    constexpr ~bo_uint64() noexcept = default;
-
-    constexpr bo_uint64& operator =(const bo_uint64& other) noexcept = default;
-    constexpr bo_uint64& operator =(bo_uint64&& other) noexcept = default;
-
-    constexpr operator uint64_t() const noexcept {
-        if constexpr (is_native)
-            return _payload;
-        else
-            return __builtin_bswap64(_payload);
-    }
-
-    constexpr bo_uint64& operator =(uint64_t value) noexcept {
-        if constexpr (is_native) {
-            _payload = value;
-        } else {
-            _payload = __builtin_bswap64(value);
-        }
-        return *this;
-    }
-};
-
-using uint64le = bo_uint64<std::endian::little>;
-static_assert(sizeof(uint64le) == sizeof(uint64_t));
-
-class operand_t {
-public:
-    uint64le add_count;
-    uint64le del_count;
-
-    struct range_container {
-        const uint64le* _begin;
-        const uint64le* _end;
-
-    public:
-        constexpr range_container(const uint64le* begin, const uint64le* end) noexcept : _begin(begin), _end(end) {}
-
-        auto begin() noexcept { return _begin; }
-        constexpr auto begin() const noexcept { return _begin; }
-        auto end() noexcept { return _end; }
-        constexpr auto end() const noexcept { return _end; }
-
-        constexpr bool empty() const noexcept { return _begin == _end; }
-    };
-
-    constexpr uint64_t total_count() const noexcept {
-        return add_count + del_count;
-    }
-
-    constexpr size_t total_size_with_headers() const noexcept {
-        return sizeof(uint64le) * (2 + total_count());
-    }
-
-    constexpr void validate(size_t total_size) const noexcept {
-        assert(total_size == total_size_with_headers());
-        assert(std::ranges::is_sorted(add()));
-        assert(std::ranges::is_sorted(del()));
-    }
-
-    range_container add() const noexcept {
-        return {
-            reinterpret_cast<const uint64le*>(this) + 2,
-            reinterpret_cast<const uint64le*>(this) + 2 + add_count
-        };
-    }
-
-    range_container del() const noexcept {
-        return {
-            reinterpret_cast<const uint64le*>(this) + 2 + add_count,
-            reinterpret_cast<const uint64le*>(this) + 2 + add_count + del_count
-        };
-    }
-};
-
-static_assert(sizeof(operand_t) == sizeof(uint64le) * 2);
 
 class UInt64SetMergeOperator : public rocksdb::MergeOperator {
     auto collection_to_string(const auto& src) const {

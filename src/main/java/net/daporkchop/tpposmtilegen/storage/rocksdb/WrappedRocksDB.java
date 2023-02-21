@@ -31,7 +31,6 @@ import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
-import java.util.Arrays;
 
 /**
  * @author DaPorkchop_
@@ -61,7 +60,7 @@ public abstract class WrappedRocksDB {
         this.column = this.database.nukeAndReplaceColumnFamily(this.column, this.desc);
     }
 
-    public void optimize() throws Exception {
+    public void compact() throws Exception {
         //forces compaction of the entire column family
         this.database.delegate().compactRange(this.column);
     }

@@ -27,7 +27,6 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
@@ -51,12 +50,10 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 @Getter
-@Setter
 @ToString(callSuper = true)
 public final class Relation extends Element {
     public static final int TYPE = 2;
 
-    @NonNull
     protected Member[] members;
 
     public Relation(long id, Map<String, String> tags, int version, boolean visible, @NonNull Member[] members) {

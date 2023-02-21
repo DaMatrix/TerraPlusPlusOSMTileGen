@@ -26,14 +26,18 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
+import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
@@ -75,6 +79,9 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Set;
+import java.util.TreeSet;
+import java.util.UUID;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -111,6 +118,9 @@ public final class Storage implements AutoCloseable {
 
     protected final Path root;
 
+    protected final Path tmpDirectoryPath;
+    protected final Set<Path> activeTmpFiles = new TreeSet<>();
+
     public Storage(@NonNull Path root) throws Exception {
         this(root, DatabaseConfig.RW_GENERAL);
     }
@@ -121,7 +131,8 @@ public final class Storage implements AutoCloseable {
         boolean legacy;
         if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
-            || "/media/daporkchop/data/switzerland".equals(root.toString())) {
+            || "/media/daporkchop/data/switzerland".equals(root.toString())
+            || "/media/daporkchop/data/switzerland-reference".equals(root.toString())) {
             legacy = false;
         } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())) {
             legacy = true;
@@ -161,6 +172,8 @@ public final class Storage implements AutoCloseable {
         } else {
             this.setReplicationBaseUrl("https://planet.openstreetmap.org/replication/minute/");
         }
+
+        this.tmpDirectoryPath = root.resolve("tmp");
     }
 
     public void putNode(@NonNull DBWriteAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
@@ -357,6 +370,11 @@ public final class Storage implements AutoCloseable {
         this.replicationTimestamp.close();
 
         this.db.close();
+
+        if (!this.activeTmpFiles.isEmpty()) {
+            logger.alert("some temporary files have not been closed:\n\n" + this.activeTmpFiles);
+        }
+        PFiles.rm(this.tmpDirectoryPath.toFile());
     }
 
     public void setReplicationBaseUrl(@NonNull String baseUrl) throws Exception {
@@ -418,5 +436,48 @@ public final class Storage implements AutoCloseable {
         }
 
         return parser.applyThrowing(Unpooled.wrappedBuffer(data));
+    }
+
+    public synchronized Handle<Path> getTmpFilePath(@NonNull String prefix, @NonNull String extension) throws IOException {
+        Path path;
+        do {
+            path = this.tmpDirectoryPath.resolve(prefix + '-' + UUID.randomUUID() + '.' + extension);
+        } while (this.activeTmpFiles.contains(path) || PFiles.checkFileExists(path.toFile()));
+
+        PFiles.ensureDirectoryExists(this.tmpDirectoryPath.toFile());
+
+        @AllArgsConstructor
+        class PathHandle extends AbstractRefCounted implements Handle<Path> {
+            Path path;
+
+            @Override
+            public PathHandle retain() throws AlreadyReleasedException {
+                super.retain();
+                return this;
+            }
+
+            @Override
+            protected void doRelease() {
+                synchronized (Storage.this) {
+                    if (!Storage.this.activeTmpFiles.remove(this.path)) {
+                        logger.alert("temporary file '%s' was already released?!?", this.path);
+                    }
+                    if (PFiles.checkFileExists(this.path.toFile())) {
+                        logger.alert("temporary file '%s' still exists?!?", this.path);
+                        PFiles.rm(this.path.toFile());
+                    }
+                    this.path = null;
+                }
+            }
+
+            @Override
+            public Path get() {
+                this.ensureNotReleased();
+                return this.path;
+            }
+        }
+
+        this.activeTmpFiles.add(path);
+        return new PathHandle(path);
     }
 }

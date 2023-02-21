@@ -68,6 +68,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 @With
 public final class DatabaseConfig {
     public static final DatabaseConfig RW_GENERAL;
+    public static final DatabaseConfig RW_BULK_LOAD;
     public static final DatabaseConfig RW_LITE;
 
     public static final DatabaseConfig RO_GENERAL;
@@ -99,6 +100,7 @@ public final class DatabaseConfig {
 
         RW_GENERAL = builder()
                 .readOnly(false)
+                .transactional(true)
                 .dbOptions(new DBOptions()
                                 .setEnv(Env.getDefault()
                                         .setBackgroundThreads(CPU_COUNT, Priority.HIGH)
@@ -141,7 +143,10 @@ public final class DatabaseConfig {
                         .setTableFormatConfig(new BlockBasedTableConfig()
                                 .setBlockSize(dataBlockSizes.get(ColumnFamilyType.FAST).dataBlockSizeBytes)
                                 .setBlockCache(dataBlockSizes.get(ColumnFamilyType.FAST).blockCache))
+                        //a manual compaction run should pick all files in L0 in a single compaction run
+                        .setMaxCompactionBytes(1L << 60L)
                 )
+                .columnFamilyOptionsBasedOn(ColumnFamilyType.FAST_SPARSE, ColumnFamilyType.FAST, baseOptions -> baseOptions)
                 .columnFamilyOptionsBasedOn(ColumnFamilyType.COMPACT, ColumnFamilyType.FAST, baseOptions -> new ColumnFamilyOptions(baseOptions)
                         .setCompressionPerLevel(Collections.singletonList(CompressionType.ZSTD_COMPRESSION))
                         .setCompressionOptions(new CompressionOptions()
@@ -179,6 +184,39 @@ public final class DatabaseConfig {
                         .setIngestBehind(baseOptions.ingestBehind())
                         .setWriteGlobalSeqno(baseOptions.writeGlobalSeqno())
                         .setMoveFiles(true)
+                )
+                .build();
+
+        RW_BULK_LOAD = RW_GENERAL.toBuilder()
+                .transactional(false)
+                .dbOptions(new DBOptions(RW_GENERAL.dbOptions())
+                )
+                .columnFamilyOptions(ColumnFamilyType.FAST, new ColumnFamilyOptions(RW_GENERAL.columnFamilyOptions(ColumnFamilyType.FAST))
+                        .setDisableAutoCompactions(true)
+                        //never slowdown ingest
+                        .setLevel0FileNumCompactionTrigger(1 << 30)
+                        .setLevel0SlowdownWritesTrigger(1 << 30)
+                        .setLevel0StopWritesTrigger(1 << 30)
+                        .setSoftPendingCompactionBytesLimit(0L)
+                        .setHardPendingCompactionBytesLimit(0L)
+                )
+                .columnFamilyOptions(ColumnFamilyType.FAST_SPARSE, new ColumnFamilyOptions(RW_GENERAL.columnFamilyOptions(ColumnFamilyType.FAST_SPARSE))
+                        .setDisableAutoCompactions(true)
+                        //never slowdown ingest
+                        .setLevel0FileNumCompactionTrigger(1 << 30)
+                        .setLevel0SlowdownWritesTrigger(1 << 30)
+                        .setLevel0StopWritesTrigger(1 << 30)
+                        .setSoftPendingCompactionBytesLimit(0L)
+                        .setHardPendingCompactionBytesLimit(0L)
+                )
+                .columnFamilyOptions(ColumnFamilyType.COMPACT, new ColumnFamilyOptions(RW_GENERAL.columnFamilyOptions(ColumnFamilyType.COMPACT))
+                        .setDisableAutoCompactions(true)
+                        //never slowdown ingest
+                        .setLevel0FileNumCompactionTrigger(1 << 30)
+                        .setLevel0SlowdownWritesTrigger(1 << 30)
+                        .setLevel0StopWritesTrigger(1 << 30)
+                        .setSoftPendingCompactionBytesLimit(0L)
+                        .setHardPendingCompactionBytesLimit(0L)
                 )
                 .build();
 
@@ -227,6 +265,7 @@ public final class DatabaseConfig {
     @Builder.ObtainVia(method = "ingestOptionsByType")
     private final EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType;
 
+    private final boolean transactional;
     private final boolean readOnly;
 
     @Getter(lazy = true)
@@ -277,6 +316,7 @@ public final class DatabaseConfig {
      */
     public enum ColumnFamilyType {
         FAST,
+        FAST_SPARSE,
         COMPACT,
     }
 

@@ -49,11 +49,4 @@ public interface DBWriteAccess extends DBBaseAccess {
     void flush() throws Exception;
 
     void clear() throws Exception;
-
-    /**
-     * @author DaPorkchop_
-     */
-    interface BulkFlushable<SELF extends BulkFlushable<SELF>> extends DBWriteAccess {
-        void bulkFlush(@NonNull Collection<SELF> toFlush) throws Exception;
-    }
 }

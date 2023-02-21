@@ -22,6 +22,8 @@ package net.daporkchop.tpposmtilegen.storage.special;
 
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.throwing.EBiConsumer;
+import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
@@ -38,6 +40,8 @@ import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
+
+import java.util.function.LongConsumer;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -153,6 +157,15 @@ public class ReferenceDB extends WrappedRocksDB {
             }
         } finally {
             keyArrayRecycler.release(key);
+        }
+    }
+
+    public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
+        try (DBIterator iterator = access.iterator(this.column)) {
+            for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                long key = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                action.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+            }
         }
     }
 

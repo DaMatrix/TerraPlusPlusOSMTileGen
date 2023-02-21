@@ -3,6 +3,8 @@
 #include <cstring>
 #include <stdexcept>
 
+#include <sys/mman.h>
+
 constexpr static jint MAX_COPY_SIZE = 32;
 
 template<typename PRIMITIVE>
@@ -99,6 +101,12 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_memcmp0_
 JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_memcmp0__JJJ
         (JNIEnv *env, jclass cla, jlong s1, jlong s2, jlong n) {
     return std::memcmp(reinterpret_cast<void*>(s1), reinterpret_cast<void*>(s2), n);
+}
+
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0__JJI
+        (JNIEnv *env, jclass cla, jlong addr, jlong size, jint usage) {
+    static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE };
+    return madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
 }
 
 }

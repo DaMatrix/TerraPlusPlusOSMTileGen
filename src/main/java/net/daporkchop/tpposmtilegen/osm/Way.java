@@ -24,7 +24,6 @@ import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.Setter;
 import lombok.ToString;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Area;
@@ -45,12 +44,10 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 @Getter
-@Setter
 @ToString(callSuper = true)
 public final class Way extends Element {
     public static final int TYPE = 1;
 
-    @NonNull
     protected long[] nodes;
 
     public Way(long id, Map<String, String> tags, int version, boolean visible, @NonNull long[] nodes) {

@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.osm.changeset;
 
 import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
@@ -112,6 +113,7 @@ public final class Changeset {
 
     @Getter
     @ToString
+    @JsonIgnoreProperties({"changeset", "uid", "user"})
     public static abstract class Element {
         @JsonProperty
         protected long id;
@@ -128,21 +130,6 @@ public final class Changeset {
         @JsonSetter("timestamp")
         private void timestamp(String timestamp) {
             this.timestamp = Instant.parse(timestamp);
-        }
-
-        @JsonSetter("changeset")
-        private void changeset(String changeset) {
-            //discard
-        }
-
-        @JsonSetter("uid")
-        private void uid(String uid) {
-            //discard
-        }
-
-        @JsonSetter("user")
-        private void user(String user) {
-            //discard
         }
 
         @JsonSetter("tag")

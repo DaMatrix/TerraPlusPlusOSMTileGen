@@ -23,9 +23,8 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.BulkFlushable;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import org.rocksdb.ColumnFamilyHandle;
 
@@ -78,9 +77,9 @@ final class ThreadLocalDBWriteAccess implements DBWriteAccess {
         List<DBWriteAccess> instances = new ArrayList<>();
         this.delegate.forEach(instances::add);
 
-        if (instances.stream().anyMatch(DBWriteAccess.BulkFlushable.class::isInstance)) {
+        if (instances.stream().anyMatch(BulkFlushable.class::isInstance)) {
             //do a bulk flush! (we quietly assume that all instances are of the same type)
-            ((DBWriteAccess.BulkFlushable<?>) instances.get(0)).bulkFlush(uncheckedCast(instances));
+            ((BulkFlushable<?>) instances.get(0)).bulkFlush(uncheckedCast(instances));
         } else {
             //we can't do a bulk flush, so we'll resort to flushing each instance individually
             instances.forEach((EConsumer<DBWriteAccess>) DBWriteAccess::flush);

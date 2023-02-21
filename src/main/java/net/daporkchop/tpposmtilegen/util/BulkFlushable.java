@@ -20,39 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.util;
 
-import io.netty.util.concurrent.FastThreadLocal;
 import lombok.NonNull;
-import lombok.SneakyThrows;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
 
-import java.util.concurrent.Callable;
+import java.util.Collection;
 
 /**
- * Implementation of {@link FastThreadLocal} which is able to close resources when the thread exits.
- *
  * @author DaPorkchop_
  */
-public abstract class CloseableThreadLocal<V extends AutoCloseable> extends IterableThreadLocal<V> implements AutoCloseable {
-    public static <V extends AutoCloseable> CloseableThreadLocal<V> of(@NonNull Callable<V> factory) {
-        return new CloseableThreadLocal<V>() {
-            @Override
-            protected V initialValue0() throws Exception {
-                return factory.call();
-            }
-        };
-    }
-
-    @Override
-    public void close() throws Exception {
-        synchronized (this.instances) {
-            this.instances.keySet().forEach((EConsumer<V>) V::close);
-            this.instances.clear();
-        }
-    }
-
-    @Override
-    @SneakyThrows(Exception.class)
-    protected void cleanupValue0(@NonNull V value) {
-        value.close();
-    }
+public interface BulkFlushable<SELF extends BulkFlushable<SELF>> {
+    void bulkFlush(@NonNull Collection<SELF> toFlush) throws Exception;
 }

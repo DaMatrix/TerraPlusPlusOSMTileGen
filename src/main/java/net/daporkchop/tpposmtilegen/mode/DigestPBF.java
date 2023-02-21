@@ -22,32 +22,31 @@ package net.daporkchop.tpposmtilegen.mode;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import com.wolt.osm.parallelpbf.entity.Header;
-import com.wolt.osm.parallelpbf.entity.OsmEntity;
-import com.wolt.osm.parallelpbf.entity.RelationMember;
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.io.IORunnable;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
+import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
 
 import java.io.File;
 import java.io.InputStream;
+import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.Collections;
-import java.util.List;
-import java.util.Locale;
+import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.Scanner;
-import java.util.concurrent.atomic.LongAdder;
-import java.util.function.Consumer;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -93,11 +92,12 @@ public class DigestPBF implements IMode {
 
         PFiles.ensureDirectoryExists(dst);
 
-        try (Storage storage = new Storage(dst.toPath())) {
+        try (Storage storage = new Storage(dst.toPath(), DatabaseConfig.RW_BULK_LOAD)) {
             //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
             Purge.purge(storage, Purge.DataType.osm);
 
-            try (InputStream is = Files.newInputStream(src.toPath());
+            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage, storage.db().internalColumnFamily(storage.references()), false);
+                 InputStream is = Files.newInputStream(src.toPath());
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
@@ -127,25 +127,41 @@ public class DigestPBF implements IMode {
                         .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
                             Node node = new Node(in);
                             storage.putNode(storage.db().sstBatch(), node, new Point(in.getLon(), in.getLat()));
-                            node.computeReferences(storage.db().batch(), storage);
+                            node.computeReferences(referencesWriteAccess, storage);
 
                             notifier.step(Node.TYPE);
                         })
                         .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
                             Way way = new Way(in);
                             storage.putWay(storage.db().sstBatch(), way);
-                            way.computeReferences(storage.db().batch(), storage);
+                            way.computeReferences(referencesWriteAccess, storage);
 
                             notifier.step(Way.TYPE);
                         })
                         .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
                             Relation relation = new Relation(in);
                             storage.putRelation(storage.db().sstBatch(), relation);
-                            relation.computeReferences(storage.db().batch(), storage);
+                            relation.computeReferences(referencesWriteAccess, storage);
 
                             notifier.step(Relation.TYPE);
                         })
                         .parse();
+            }
+
+            try (TimedOperation compactPoints = new TimedOperation("Points compaction")) {
+                storage.points().compact();
+            }
+            try (TimedOperation compactNodes = new TimedOperation("Nodes compaction")) {
+                storage.nodes().compact();
+            }
+            try (TimedOperation compactWays = new TimedOperation("Ways compaction")) {
+                storage.ways().compact();
+            }
+            try (TimedOperation compactRelations = new TimedOperation("Relations compaction")) {
+                storage.relations().compact();
+            }
+            try (TimedOperation compactReferences = new TimedOperation("References compaction")) {
+                storage.references().compact();
             }
         }
     }
