@@ -67,6 +67,9 @@ export LDFLAGS		:= $(LDFLAGS) -Wl,--warn-common
 
 export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/docker-build -Wl,-l:librocksdbjni-linux64.so -Wl,-ltbb
 
+export CXXFLAGS		:= $(CXXFLAGS) -fopenmp
+export LDFLAGS		:= $(LDFLAGS) -fopenmp
+
 export INCLUDES		:=	$(JAVA_HOME)include $(JAVA_HOME)include/linux
 
 export ARCHS		:=	x86_64-linux-gnu

@@ -9,10 +9,11 @@
 #include <execution>
 #include <utility>
 #include <vector>
-#include <queue>
 
 #include <cassert>
 #include <sys/mman.h>
+
+#include <parallel/algorithm>
 
 class keyvalue_t {
 public:
@@ -68,59 +69,6 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsort
     }
 }
 
-JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsortedWriteAccess_mergeBuffers
-        (JNIEnv *env, jobject instance, jlong _addr1, jlong _size1, jlong _addr2, jlong _size2, jlong _dstAddr, jlong _dstSize) {
-    try {
-        assert(_size1 % sizeof(keyvalue_t) == 0);
-        assert(_size2 % sizeof(keyvalue_t) == 0);
-        assert(_dstSize % sizeof(keyvalue_t) == 0);
-
-        keyvalue_t* addr1 = reinterpret_cast<keyvalue_t*>(_addr1);
-        size_t size1 = static_cast<ptrdiff_t>(_size1 / sizeof(keyvalue_t));
-        keyvalue_t* addr2 = reinterpret_cast<keyvalue_t*>(_addr2);
-        size_t size2 = static_cast<ptrdiff_t>(_size2 / sizeof(keyvalue_t));
-        keyvalue_t* dstAddr = reinterpret_cast<keyvalue_t*>(_dstAddr);
-        size_t dstSize = static_cast<ptrdiff_t>(_dstSize / sizeof(keyvalue_t));
-
-        assert(size1 + size2 == dstSize);
-        assert(addr1 < addr2 ? addr1 + size1 <= addr2 : addr2 + size2 <= addr1);
-
-        madvise(addr1, size1 * sizeof(keyvalue_t), MADV_SEQUENTIAL);
-        madvise(addr2, size2 * sizeof(keyvalue_t), MADV_SEQUENTIAL);
-
-        std::merge(&addr1[0], &addr1[size1], &addr2[0], &addr2[size2], &dstAddr[0]);
-
-        madvise(addr1, size1 * sizeof(keyvalue_t), MADV_NORMAL);
-        madvise(addr2, size2 * sizeof(keyvalue_t), MADV_NORMAL);
-    } catch (const std::bad_alloc& e) {
-        throwOutOfMemory(env, e);
-    }
-}
-
-JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsortedWriteAccess_mergeBuffersInPlace
-        (JNIEnv *env, jobject instance, jlong _begin, jlong _middle, jlong _end, jboolean parallel) {
-    try {
-        assert((_end - _middle) % sizeof(keyvalue_t) == 0);
-        assert((_end - _begin) % sizeof(keyvalue_t) == 0);
-
-        keyvalue_t* begin = reinterpret_cast<keyvalue_t*>(_begin);
-        keyvalue_t* middle = reinterpret_cast<keyvalue_t*>(_middle);
-        keyvalue_t* end = reinterpret_cast<keyvalue_t*>(_end);
-
-        madvise(begin, _end - _begin, MADV_WILLNEED);
-
-        if (parallel) {
-            std::inplace_merge(std::execution::par_unseq, begin, middle, end);
-        } else {
-            std::inplace_merge(std::execution::unseq, begin, middle, end);
-        }
-
-        madvise(begin, _end - _begin, MADV_NORMAL);
-    } catch (const std::bad_alloc& e) {
-        throwOutOfMemory(env, e);
-    }
-}
-
 JNIEXPORT jboolean JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsortedWriteAccess_isSorted
         (JNIEnv *env, jobject instance, jlong _addr, jlong _size, jboolean parallel) {
     try {
@@ -161,15 +109,13 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsort
         env->GetLongArrayRegion(_srcAddrs, 0, srcCount, reinterpret_cast<jlong*>(&srcAddrs[0]));
         env->GetLongArrayRegion(_srcSizes, 0, srcCount, reinterpret_cast<jlong*>(&srcSizes[0]));
 
-        {
-            ptrdiff_t totalSrcSize = 0;
-            for (jint i = 0; i < srcCount; i++) {
-                assert(srcSizes[i] % sizeof(keyvalue_t) == 0);
-                srcSizes[i] /= sizeof(keyvalue_t);
-                totalSrcSize += srcSizes[i];
-            }
-            assert(totalSrcSize == dstSize);
+        ptrdiff_t totalSrcSize = 0;
+        for (jint i = 0; i < srcCount; i++) {
+            assert(srcSizes[i] % sizeof(keyvalue_t) == 0);
+            srcSizes[i] /= sizeof(keyvalue_t);
+            totalSrcSize += srcSizes[i];
         }
+        assert(totalSrcSize == dstSize);
 
         for (jint i = 0; i < srcCount; i++) {
             madvise(srcAddrs[i], srcSizes[i] * sizeof(keyvalue_t), MADV_SEQUENTIAL);
@@ -185,57 +131,15 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsort
                 std::copy(std::execution::par_unseq, &src[0], &src[srcSizes[0]], dstAddr);
                 break;
             }
-            case 2: {
-                auto src0 = srcAddrs[0];
-                auto src1 = srcAddrs[1];
-                DEBUG_MSG("nWayMerge: using std::merge");
-                std::merge(std::execution::par_unseq, &src0[0], &src0[srcSizes[0]], &src1[0], &src1[srcSizes[1]], dstAddr);
-                break;
-            }
             default: {
-                using entry_t = std::pair<keyvalue_t*, keyvalue_t*>;
-                if (srcCount <= 32) {
-                    DEBUG_MSG("nWayMerge: using linear iteration over std::vector");
+                DEBUG_MSG("nWayMerge: using __gnu_parallel::multiway_merge");
 
-                    std::vector<entry_t> srcs;
-                    for (jint i = 0; i < srcCount; i++) {
-                        srcs.push_back({ srcAddrs[i], &srcAddrs[i][srcSizes[i]] });
-                    }
-
-                    ptrdiff_t d = 0;
-                    while (d < dstSize) {
-                        auto min = std::min_element(srcs.begin(), srcs.end(), [](const entry_t& a, const entry_t& b) { return (*(a.first)) < (*(b.first)); });
-                        dstAddr[d++] = *(min->first);
-
-                        if (__builtin_expect(++min->first == min->second, false)) {
-                            srcs.erase(min);
-                            DEBUG_MSG("completed input buffer, remaining: " << srcs.size());
-                        }
-                    }
-                    assert(srcs.empty());
-                } else {
-                    DEBUG_MSG("nWayMerge: using std::priority_queue");
-
-                    auto cmp = [](const entry_t& a, const entry_t& b) { return (*(a.first)) > (*(b.first)); };
-                    std::priority_queue<entry_t, std::vector<entry_t>, decltype(cmp)> queue(cmp);
-                    for (jint i = 0; i < srcCount; i++) {
-                        queue.push({ srcAddrs[i], &srcAddrs[i][srcSizes[i]] });
-                    }
-
-                    ptrdiff_t d = 0;
-                    while (d < dstSize) {
-                        entry_t min = queue.top();
-                        queue.pop();
-                        dstAddr[d++] = *(min.first);
-
-                        if (__builtin_expect(++min.first == min.second, false)) {
-                            DEBUG_MSG("completed input buffer, remaining: " << queue.size());
-                        } else { [[likely]]
-                            queue.push(min);
-                        }
-                    }
-                    assert(queue.empty());
+                std::vector<std::pair<keyvalue_t*, keyvalue_t*>> srcs;
+                for (jint i = 0; i < srcCount; i++) {
+                    srcs.push_back({ srcAddrs[i], &srcAddrs[i][srcSizes[i]] });
                 }
+
+                __gnu_parallel::multiway_merge(srcs.begin(), srcs.end(), dstAddr, totalSrcSize, std::less<keyvalue_t>(), __gnu_parallel::exact_tag());
                 break;
             }
         }
@@ -311,9 +215,7 @@ JNIEXPORT const keyvalue_t* JNICALL Java_net_daporkchop_tpposmtilegen_natives_UI
         } while (sequenceEnd != end && sequenceEnd->key == key);
 
         std::vector<uint64le> uniqueValues;
-        uniqueValues.reserve(sequenceEnd - begin + (merge ? sizeof(operand_t) / sizeof(uint64le) : 0));
-        if (merge) {
-        }
+        uniqueValues.reserve(sequenceEnd - begin);
         for (const keyvalue_t* i = begin; i != sequenceEnd; i++) {
             if (i == begin || i[-1].value != i->value) {
                 uniqueValues.push_back(i->value);

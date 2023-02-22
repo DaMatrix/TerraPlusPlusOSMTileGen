@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.function.throwing.ESupplier;
+import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.system.PlatformInfo;
@@ -80,13 +81,15 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
 
     private final CloseableThreadLocal<WriteBuffer> writeBuffers = CloseableThreadLocal.of(WriteBuffer::new);
 
+    private final double compressionRatio;
     private final boolean merge;
 
     private volatile boolean flushing = false;
 
-    public UInt64SetUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, boolean assumeEmpty) throws Exception {
+    public UInt64SetUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, boolean assumeEmpty, double compressionRatio) throws Exception {
         this.storage = storage;
         this.columnFamilyHandle = columnFamilyHandle;
+        this.compressionRatio = compressionRatio;
         this.merge = !assumeEmpty;
 
         this.pathHandle = storage.getTmpFilePath(
@@ -104,19 +107,21 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write");
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
         throw new UnsupportedOperationException();
     }
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
         throw new UnsupportedOperationException();
     }
 
     @Override
     public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
         checkArg(UInt64SetMergeOperator.getNumDels(value) == 0L, "delete isn't supported!");
 
@@ -139,12 +144,14 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
 
     @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
         throw new UnsupportedOperationException();
     }
 
     @Override
     public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
         throw new UnsupportedOperationException();
     }
@@ -176,7 +183,7 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
                      Options options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions())) {
                     EnvOptions envOptions = this.storage.db().config().envOptions();
 
-                    final long targetBlockSize = 128L << 20L;
+                    final long targetBlockSize = PMath.roundUp((long) (this.compressionRatio * options.targetFileSizeBase()), 16L);
                     long[] blockStartAddrs = partitionSortedRange(sortedMmap.addr(), size, targetBlockSize);
 
                     Memory.madvise(sortedMmap.addr(), size, Memory.Usage.MADV_SEQUENTIAL);
@@ -225,142 +232,13 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
 
     private static native void sortBuffer(long addr, long size, boolean parallel) throws OutOfMemoryError;
 
-    private static native void mergeBuffers(long addr1, long size1, long addr2, long size2, long dstAddr, long dstSize) throws OutOfMemoryError;
-
-    private static native void mergeBuffersInPlace(long begin, long middle, long end, boolean parallel) throws OutOfMemoryError;
-
     private static native boolean isSorted(long addr, long size, boolean parallel) throws OutOfMemoryError;
 
     private static native boolean nWayMerge(long[] srcAddrs, long[] srcSizes, int srcCount, long dstAddr, long dstSize) throws OutOfMemoryError;
 
     private static native long[] partitionSortedRange(long addr, long size, long targetBlockSize) throws OutOfMemoryError;
 
-    /*public static void mergeSortBufferIterative(long addr, long size, Runnable flush) {
-        sortBuffer(addr, size, true);
-        flush = fallbackIfNull(flush, (Runnable) () -> {});
-
-        final long maxInitialSortSize = 8L << 30L;
-
-        if (size <= maxInitialSortSize) {
-            //sort the buffer in one go
-            sortBuffer(addr, size, true);
-            checkState(isSorted(addr, size, true));
-        } else {
-            //break the buffer up into smaller runs, then merge them
-            for (long offset = 0L; offset < size; offset += maxInitialSortSize) {
-                long runSize = Math.min(maxInitialSortSize, size - offset);
-                if (!isSorted(addr + offset, runSize, true)) {
-                    sortBuffer(addr + offset, runSize, true);
-                    checkState(isSorted(addr + offset, runSize, true));
-                    flush.run();
-                    logger.info("sorted %dth initial block at offset 0x%x", offset / maxInitialSortSize, offset);
-                } else {
-                    logger.info("skipping sorted %dth initial block at offset 0x%x", offset / maxInitialSortSize, offset);
-                }
-            }
-
-            for (long sortedRunSize = maxInitialSortSize << 1L; sortedRunSize < size; sortedRunSize <<= 1L) {
-                long inputRunSize = sortedRunSize >>> 1L;
-
-                for (long offset = 0L; offset < size; offset += sortedRunSize) {
-                    long totalRunSize = Math.min(sortedRunSize, size - offset);
-                    if (totalRunSize > inputRunSize) {
-                        if (!isSorted(addr + offset, totalRunSize, true)) {
-                            mergeBuffersInPlace(addr + offset, addr + offset + inputRunSize, addr + offset + totalRunSize, true);
-                            checkState(isSorted(addr + offset, totalRunSize, true));
-                            flush.run();
-                            logger.info("merged %dth block at offset 0x%x with run size 0x%x", offset / sortedRunSize, offset, sortedRunSize);
-                        } else {
-                            logger.info("skipping merged %dth block at offset 0x%x with run size 0x%x", offset / sortedRunSize, offset, sortedRunSize);
-                        }
-                    } else {
-                        logger.info("merged %dth block at offset 0x%x with run size 0x%x", offset / sortedRunSize, offset, sortedRunSize);
-                    }
-                }
-            }
-
-            checkState(isSorted(addr, size, true));
-        }
-    }
-
-    public static void mergeSortBufferRecursive(long addr, long size, Runnable flush) {
-        checkArg(size % 16L == 0L, size);
-        flush = fallbackIfNull(flush, (Runnable) () -> {});
-
-        if (isSorted(addr, size, true)) { //already sorted, nothing to do
-            logger.info("0x%016x to 0x%016x (0x%016x bytes) is already sorted", addr, addr + size, size);
-            return;
-        }
-
-        try { //sort the whole buffer at once, if we can
-            sortBuffer(addr, size, true);
-            logger.info("sorted 0x%016x to 0x%016x (0x%016x bytes)", addr, addr + size, size);
-        } catch (OutOfMemoryError e) { //the buffer is too large to be sorted at once, let's try to do it incrementally using merge sort
-            long begin = addr;
-            long middle = addr + PMath.roundUp(size >>> 1L, 16L);
-            long end = addr + size;
-
-            logger.info("merge sort: recursing on left side: 0x%016x to 0x%016x (0x%016x bytes)", begin, middle, middle - begin);
-            mergeSortBufferRecursive(begin, middle - begin, flush);
-
-            logger.info("merge sort: recursing on right side: 0x%016x to 0x%016x (0x%016x bytes)", middle, end, end - middle);
-            mergeSortBufferRecursive(middle, end - middle, flush);
-
-            logger.info("merge sort: merging left side (0x%016x to 0x%016x, 0x%016x bytes) with right side (0x%016x to 0x%016x, 0x%016x bytes)",
-                    begin, middle, middle - begin, middle, end, end - middle);
-            try {
-                mergeBuffersInPlace(begin, middle, end, true);
-            } catch (OutOfMemoryError e1) {
-                logger.info("merge sort: falling back to serial merge");
-                mergeBuffersInPlace(begin, middle, end, false);
-            }
-            logger.info("merge sort: complete");
-        }
-    }
-
-    public static void mergeSortBufferRecursiveBlocks(long addr, long size, Runnable flush) {
-        checkArg(size % 16L == 0L, size);
-        flush = fallbackIfNull(flush, (Runnable) () -> {});
-
-        if (isSorted(addr, size, false)) { //already sorted, nothing to do
-            logger.info("0x%016x to 0x%016x (0x%016x bytes) is already sorted", addr, addr + size, size);
-            return;
-        }
-
-        if (size <= (8L << 30L)) {
-            try { //sort the whole buffer at once, if we can
-                sortBuffer(addr, size, true);
-                flush.run();
-                logger.info("sorted 0x%016x to 0x%016x (0x%016x bytes)", addr, addr + size, size);
-                return;
-            } catch (OutOfMemoryError e) { //the buffer is too large to be sorted at once, let's try to do it incrementally using merge sort
-                logger.info("insufficient memory to sort range 0x%016x to 0x%016x (0x%016x bytes), falling back to recursive merge sort", addr, addr + size, size);
-            }
-        }
-
-        long begin = addr;
-        long middle = addr + PMath.roundUp(size >>> 1L, 16L);
-        long end = addr + size;
-
-        logger.info("merge sort: recursing on left side: 0x%016x to 0x%016x (0x%016x bytes)", begin, middle, middle - begin);
-        mergeSortBufferRecursiveBlocks(begin, middle - begin, flush);
-
-        logger.info("merge sort: recursing on right side: 0x%016x to 0x%016x (0x%016x bytes)", middle, end, end - middle);
-        mergeSortBufferRecursiveBlocks(middle, end - middle, flush);
-
-        logger.info("merge sort: merging left side (0x%016x to 0x%016x, 0x%016x bytes) with right side (0x%016x to 0x%016x, 0x%016x bytes)",
-                begin, middle, middle - begin, middle, end, end - middle);
-        try {
-            mergeBuffersInPlace(begin, middle, end, false);
-        } catch (OutOfMemoryError e1) {
-            logger.info("merge sort: falling back to serial merge");
-            mergeBuffersInPlace(begin, middle, end, false);
-        }
-        flush.run();
-        logger.info("merge sort: complete");
-    }*/
-
-    public static void mergeSortBufferNWay(long addr, long size, Runnable flush, long dstAddr, long dstSize) {
+    private static void mergeSortBufferNWay(long addr, long size, Runnable flush, long dstAddr, long dstSize) {
         checkArg(size == dstSize);
         flush = fallbackIfNull(flush, (Runnable) () -> {});
 
@@ -384,11 +262,13 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
             sizes.add(runSize);
         }
 
+        Memory.madvise(dstAddr, dstSize, Memory.Usage.MADV_REMOVE);
+
         try (TimedOperation merge = new TimedOperation("Merge " + addrs.size() + " sorted arrays")) {
             nWayMerge(addrs.toLongArray(), sizes.toLongArray(), addrs.size(), dstAddr, dstSize);
         }
 
-        checkState(isSorted(dstAddr, dstSize, false));
+        checkState(isSorted(dstAddr, dstSize, true));
 
         Memory.madvise(addr, size, Memory.Usage.MADV_REMOVE);
     }

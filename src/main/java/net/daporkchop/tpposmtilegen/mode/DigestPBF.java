@@ -96,7 +96,8 @@ public class DigestPBF implements IMode {
             //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
             Purge.purge(storage, Purge.DataType.osm);
 
-            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage, storage.db().internalColumnFamily(storage.references()), false);
+            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage, storage.db()
+                    .internalColumnFamily(storage.references()), true, 4.266666667d);
                  InputStream is = Files.newInputStream(src.toPath());
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
