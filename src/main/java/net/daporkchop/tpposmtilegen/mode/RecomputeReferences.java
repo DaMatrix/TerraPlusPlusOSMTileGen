@@ -28,7 +28,6 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 
@@ -56,9 +55,9 @@ public class RecomputeReferences implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1, "Usage: recompute_references <index_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src.toPath())) {
+        try (Storage storage = new Storage(src)) {
             try (TimedOperation clearOperation = new TimedOperation("Clear references")) {
                 storage.references().clear();
             }

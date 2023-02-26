@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -79,18 +79,17 @@ public class AveragePointDensity implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1, "Usage: assemble_geometry <index_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
         DoubleAdder value = new DoubleAdder();
         DoubleAdder weight = new DoubleAdder();
 
-
-        try (Storage storage = new Storage(src.toPath())) {
+        try (Storage storage = new Storage(src)) {
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Compute average point density")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
                 /*Path outDir = Paths.get("/media/daporkchop/2tb/aaa");
-                PFiles.rmContentsParallel(outDir.toFile());
+                PFiles.rmContentsParallel(outDir);
                 Collection<Map.Entry<String, Geometry[]>> geometries = new ConcurrentLinkedQueue<>();
                 Bounds2d bb = Bounds2d.of(Point.doubleToFix(8.58108d), Point.doubleToFix(8.55190d), Point.doubleToFix(47.22108d), Point.doubleToFix(47.20743d));*/
 

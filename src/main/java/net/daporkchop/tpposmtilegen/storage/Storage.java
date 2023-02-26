@@ -160,7 +160,7 @@ public final class Storage implements AutoCloseable {
             throw new IllegalArgumentException(root.toString());
         }
 
-        if (!config.readOnly() && PFiles.checkFileExists(root.resolve("db").resolve("IDENTITY").toFile())) {
+        if (!config.readOnly() && PFiles.checkFileExists(root.resolve("db").resolve("IDENTITY"))) {
             //if we're trying to open the storage read-write, we should first open and close it read-only in order to double-check the version number without breaking
             // anything
             try (Storage readOnlyStorage = new Storage(root, DatabaseConfig.RO_LITE)) {
@@ -425,7 +425,7 @@ public final class Storage implements AutoCloseable {
         if (!this.activeTmpFiles.isEmpty()) {
             logger.alert("some temporary files have not been closed:\n\n" + this.activeTmpFiles);
         }
-        PFiles.rm(this.tmpDirectoryPath.toFile());
+        PFiles.rm(this.tmpDirectoryPath);
     }
 
     public CompletableFuture<ChangesetState> getLatestChangesetState() throws Exception {
@@ -553,9 +553,9 @@ public final class Storage implements AutoCloseable {
         Path path;
         do {
             path = this.tmpDirectoryPath.resolve(prefix + '-' + UUID.randomUUID() + '.' + extension);
-        } while (this.activeTmpFiles.contains(path) || PFiles.checkFileExists(path.toFile()));
+        } while (this.activeTmpFiles.contains(path) || PFiles.checkFileExists(path));
 
-        PFiles.ensureDirectoryExists(this.tmpDirectoryPath.toFile());
+        PFiles.ensureDirectoryExists(this.tmpDirectoryPath);
 
         @AllArgsConstructor
         class PathHandle extends AbstractRefCounted implements Handle<Path> {
@@ -573,9 +573,9 @@ public final class Storage implements AutoCloseable {
                     if (!Storage.this.activeTmpFiles.remove(this.path)) {
                         logger.alert("temporary file '%s' was already released?!?", this.path);
                     }
-                    if (PFiles.checkFileExists(this.path.toFile())) {
+                    if (PFiles.checkFileExists(this.path)) {
                         logger.alert("temporary file '%s' still exists?!?", this.path);
-                        PFiles.rm(this.path.toFile());
+                        PFiles.rm(this.path);
                     }
                     this.path = null;
                 }

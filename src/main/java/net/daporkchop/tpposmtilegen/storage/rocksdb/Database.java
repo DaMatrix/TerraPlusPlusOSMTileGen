@@ -86,7 +86,7 @@ public final class Database implements AutoCloseable {
         this.columns = Collections.synchronizedMap(new Object2ObjectOpenHashMap<>(columns));
 
         this.tmpSstDirectoryPath = path.resolve("tmp_sst_files");
-        PFiles.rm(this.tmpSstDirectoryPath.toFile());
+        PFiles.rm(this.tmpSstDirectoryPath);
 
         this.batch = new ThreadLocalDBWriteAccess(new CloseableThreadLocal<DBWriteAccess>() {
             @Override
@@ -204,7 +204,7 @@ public final class Database implements AutoCloseable {
     synchronized void returnTmpSstFilePath(@NonNull Path path) {
         checkArg(path.startsWith(this.tmpSstDirectoryPath), "given path '%s' should start with '%s'", path, this.tmpSstDirectoryPath);
         checkArg(this.activeTmpSstFiles.remove(path), "given path '%s' isn't assigned or has already been returned", path);
-        checkArg(!PFiles.checkFileExists(path.toFile()), "given path '%s' exists", path);
+        checkArg(!PFiles.checkFileExists(path), "given path '%s' exists", path);
     }
 
     @Override
@@ -221,7 +221,7 @@ public final class Database implements AutoCloseable {
         if (!this.activeTmpSstFiles.isEmpty()) {
             logger.alert("some temporary SST files have not been ingested:\n\n" + this.activeTmpSstFiles);
         }
-        PFiles.rm(this.tmpSstDirectoryPath.toFile());
+        PFiles.rm(this.tmpSstDirectoryPath);
     }
 
     @FunctionalInterface

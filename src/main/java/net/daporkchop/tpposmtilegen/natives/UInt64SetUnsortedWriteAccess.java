@@ -310,11 +310,11 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
         this.flush();
 
         this.channel.close();
-        PFiles.rm(this.pathHandle.get().toFile());
+        PFiles.rm(this.pathHandle.get());
         this.pathHandle.release();
 
         this.sortedChannel.close();
-        PFiles.rm(this.sortedPathHandle.get().toFile());
+        PFiles.rm(this.sortedPathHandle.get());
         this.sortedPathHandle.release();
     }
 

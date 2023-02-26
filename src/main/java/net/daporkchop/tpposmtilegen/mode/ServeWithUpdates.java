@@ -30,6 +30,8 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 
 import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Scanner;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -59,10 +61,10 @@ public class ServeWithUpdates implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 3, "Usage: serve_with_updates <index_dir> <port> <lite>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (Storage storage = new Storage(src.toPath(), lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
+        try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              Serve.Server server = new Serve.Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             AtomicBoolean running = new AtomicBoolean(true);
             Thread updateThread = new Thread((ERunnable) () -> {

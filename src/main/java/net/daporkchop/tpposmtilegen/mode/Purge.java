@@ -28,7 +28,8 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.Scanner;
 import java.util.stream.Collectors;
@@ -83,7 +84,7 @@ public class Purge implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length >= 1, "Usage: purge <index_dir> [<data_type>...]");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
         DataType[] types;
         if (args.length == 1) {
@@ -96,7 +97,7 @@ public class Purge implements IMode {
             types = Arrays.stream(args, 1, args.length).map(DataType::valueOf).distinct().toArray(DataType[]::new);
         }
 
-        try (Storage storage = new Storage(src.toPath(), DatabaseConfig.RW_LITE)) {
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_LITE)) {
             purge(storage, types);
         }
     }

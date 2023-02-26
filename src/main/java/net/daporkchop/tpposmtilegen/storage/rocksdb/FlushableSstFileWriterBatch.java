@@ -252,8 +252,8 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
 
             this.currentFilePath = FlushableSstFileWriterBatch.this.database.assignTmpSstFilePath(new String(this.column.getName(), StandardCharsets.UTF_8));
             try {
-                checkState(!PFiles.checkFileExists(this.currentFilePath.toFile()), "file '%s' already exists!", this.currentFilePath);
-                PFiles.ensureFileExists(this.currentFilePath.toFile());
+                checkState(!PFiles.checkFileExists(this.currentFilePath), "file '%s' already exists!", this.currentFilePath);
+                PFiles.ensureFileExists(this.currentFilePath);
 
                 try {
                     this.writer = new SstFileWriter(FlushableSstFileWriterBatch.this.config.envOptions(), this.options);
@@ -267,8 +267,8 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
                         throw e;
                     }
                 } catch (Exception e) {
-                    if (PFiles.checkFileExists(this.currentFilePath.toFile())) {
-                        PFiles.rm(this.currentFilePath.toFile());
+                    if (PFiles.checkFileExists(this.currentFilePath)) {
+                        PFiles.rm(this.currentFilePath);
                     }
                     throw e;
                 }

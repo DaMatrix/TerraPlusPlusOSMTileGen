@@ -28,8 +28,9 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 
-import java.io.File;
 import java.lang.reflect.Field;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -65,10 +66,9 @@ public class Compact implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1, "Usage: compact <index_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        logger.info("Opening storage...");
-        try (Storage storage = new Storage(src.toPath());
+        try (Storage storage = new Storage(src);
              CloseableThreadFactory threadFactory = new CloseableThreadFactory("Compaction worker")) {
             logger.info("Running compaction...");
 

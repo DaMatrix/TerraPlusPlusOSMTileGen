@@ -23,7 +23,6 @@ package net.daporkchop.tpposmtilegen.mode;
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import com.wolt.osm.parallelpbf.entity.Header;
 import lombok.NonNull;
-import lombok.SneakyThrows;
 import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.util.PorkUtil;
@@ -38,10 +37,11 @@ import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
-import java.io.File;
+import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Scanner;
 import java.util.stream.Stream;
 
@@ -52,6 +52,10 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 public class DigestPBF implements IMode {
+    private static <T> T getHeaders(@NonNull Path path) throws IOException {
+        return null; //TODO
+    }
+
     @Override
     public String name() {
         return "digest_pbf";
@@ -71,11 +75,11 @@ public class DigestPBF implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: digest_pbf <pbf> <index_dir>");
-        File src = PFiles.assertFileExists(new File(args[0]));
-        File dst = new File(args[1]);
+        Path src = PFiles.assertFileExists(Paths.get(args[0]));
+        Path dst = Paths.get(args[1]);
 
         if (false) {
-            try (InputStream is = Files.newInputStream(src.toPath());
+            try (InputStream is = Files.newInputStream(src);
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
@@ -119,7 +123,7 @@ public class DigestPBF implements IMode {
         }
 
         if (PFiles.checkDirectoryExists(dst)) {
-            try (Stream<Path> stream = Files.list(dst.toPath())) {
+            try (Stream<Path> stream = Files.list(dst)) {
                 if (stream.findAny().isPresent()) {
                     logger.warn("destination folder already exists. proceed? [true/false]");
                     if (!Boolean.parseBoolean(new Scanner(System.in).nextLine())) {
@@ -127,7 +131,7 @@ public class DigestPBF implements IMode {
                         return;
                     }
 
-                    try (Storage storage = new Storage(dst.toPath(), DatabaseConfig.RW_LITE)) {
+                    try (Storage storage = new Storage(dst, DatabaseConfig.RW_LITE)) {
                         //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
                         //TODO: uncomment this
                         // Purge.purge(storage, Purge.DataType.osm);
@@ -138,7 +142,7 @@ public class DigestPBF implements IMode {
 
         PFiles.ensureDirectoryExists(dst);
 
-        try (Storage storage = new Storage(dst.toPath(), DatabaseConfig.RW_BULK_LOAD)) {
+        try (Storage storage = new Storage(dst, DatabaseConfig.RW_BULK_LOAD)) {
             storage.nodes().clear();
             storage.points().clear();
             storage.ways().clear();
@@ -146,7 +150,7 @@ public class DigestPBF implements IMode {
 
             try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage, storage.db()
                     .internalColumnFamily(storage.references()), true, 4.266666667d);
-                 InputStream is = Files.newInputStream(src.toPath());
+                 InputStream is = Files.newInputStream(src);
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")

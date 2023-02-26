@@ -26,7 +26,6 @@ import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.geotools.data.FileDataStore;
@@ -39,7 +38,8 @@ import org.locationtech.jts.geom.MultiPolygon;
 import org.locationtech.jts.geom.Polygon;
 import org.opengis.feature.Feature;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.stream.IntStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -66,17 +66,17 @@ public class DigestCoastlines implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 2, "Usage: digest_coastlines <shapefile> <index_dir>");
-        File src = PFiles.assertFileExists(new File(args[0]));
-        File dst = new File(args[1]);
+        Path src = PFiles.assertFileExists(Paths.get(args[0]));
+        Path dst = PFiles.assertDirectoryExists(Paths.get(args[1]));
 
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines")
                 .slot("pieces")
                 .build();
-             Storage storage = new Storage(dst.toPath())) {
+             Storage storage = new Storage(dst)) {
             DBWriteAccess access = storage.db().batch();
             storage.coastlines().clear();
 
-            FileDataStore store = FileDataStoreFinder.getDataStore(src);
+            FileDataStore store = FileDataStoreFinder.getDataStore(src.toFile());
             SimpleFeatureSource featureSource = store.getFeatureSource();
             SimpleFeatureCollection featureCollection = featureSource.getFeatures();
             notifier.setTotal(0, featureCollection.size());

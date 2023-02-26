@@ -40,16 +40,15 @@ import net.daporkchop.tpposmtilegen.http.Response;
 import net.daporkchop.tpposmtilegen.http.exception.HttpException;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.util.Tile;
 
-import java.io.File;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Scanner;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -80,10 +79,10 @@ public class Serve implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 3, "Usage: serve <index_dir> <port> <lite>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (Storage storage = new Storage(src.toPath(), lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
+        try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              Server server = new Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             new Scanner(System.in).nextLine();
         }
@@ -142,13 +141,16 @@ public class Serve implements IMode {
                     throw new IllegalStateException();
                 case "tile": {
                     if (split.length == 2) {
-                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -180 * Point.PRECISION), Tile.point2tile(level, 180 * Point.PRECISION)).mapToObj(i -> i + "/"));
+                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -180 * Point.PRECISION), Tile.point2tile(level, 180
+                                                                                                                                                    * Point.PRECISION))
+                                .mapToObj(i -> i + "/"));
                         return;
                     }
 
                     int tileX = Integer.parseInt(split[2]);
                     if (split.length == 3) {
-                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -90 * Point.PRECISION), Tile.point2tile(level, 90 * Point.PRECISION)).mapToObj(i -> i + ".json"));
+                        this.sendIndex(response, path, IntStream.rangeClosed(Tile.point2tile(level, -90 * Point.PRECISION), Tile.point2tile(level, 90 * Point.PRECISION))
+                                .mapToObj(i -> i + ".json"));
                         return;
                     }
 

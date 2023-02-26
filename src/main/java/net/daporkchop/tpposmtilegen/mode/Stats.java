@@ -30,7 +30,8 @@ import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ColumnFamilyMetaData;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Comparator;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -57,9 +58,9 @@ public class Stats implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1, "Usage: test <index_dir>");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src.toPath(), DatabaseConfig.RO_LITE)) {
+        try (Storage storage = new Storage(src, DatabaseConfig.RO_LITE)) {
             storage.db().columns().keySet().stream()
                     .sorted(Comparator.comparing((EFunction<ColumnFamilyHandle, byte[]>) ColumnFamilyHandle::getName, Utils.BYTES_COMPARATOR))
                     .forEach(handle -> {

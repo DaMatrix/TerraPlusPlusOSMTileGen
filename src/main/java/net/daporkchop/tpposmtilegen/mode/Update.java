@@ -27,7 +27,8 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 
-import java.io.File;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.Scanner;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -55,10 +56,10 @@ public class Update implements IMode {
     @Override
     public void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1 || args.length == 2, "Usage: update <index_dir> [lite=true]");
-        File src = PFiles.assertDirectoryExists(new File(args[0]));
+        Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = args.length == 1 || Boolean.parseBoolean(args[1]);
 
-        try (Storage storage = new Storage(src.toPath(), lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
+        try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              DBAccess txn = storage.db().newTransaction()) {
             Updater updater = new Updater(storage);
             try (Scanner scanner = new Scanner(System.in)) {
@@ -84,7 +85,8 @@ public class Update implements IMode {
                                 break;
                             }
 
-                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong(), null).join());
+                            logger.info("Database state: %s",
+                                    storage.getChangesetState(storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong(), null).join());
                             logger.info("Current state:  %s (%s)",
                                     storage.getChangesetState(storage.sequenceNumberProperty().getLong(txn).getAsLong(), null).join(),
                                     storage.sequenceNumberProperty().getLong(txn).getAsLong() == storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong()
