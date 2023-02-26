@@ -61,7 +61,7 @@ public class ReferenceDB extends WrappedRocksDB {
         byte[] key = keyArrayRecycler.get();
         byte[] mergeOp = mergeOpRecycler.get();
         try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
             UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
             access.merge(this.column, key, mergeOp);
         } finally {
@@ -84,7 +84,7 @@ public class ReferenceDB extends WrappedRocksDB {
             UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
             for (int i = 0; i < size; i++) {
                 long id = ids.getLong(i);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                 access.merge(this.column, key, mergeOp);
             }
         } finally {
@@ -107,7 +107,7 @@ public class ReferenceDB extends WrappedRocksDB {
             UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
             for (int i = 0; i < size; i++) {
                 long id = Element.addTypeToId(type, ids.getLong(i));
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                 access.merge(this.column, key, mergeOp);
             }
         } finally {
@@ -122,7 +122,7 @@ public class ReferenceDB extends WrappedRocksDB {
         byte[] key = keyArrayRecycler.get();
         byte[] mergeOp = mergeOpRecycler.get();
         try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
             UInt64SetMergeOperator.setSingleDelete(mergeOp, referentCombined);
             access.merge(this.column, key, mergeOp);
         } finally {
@@ -135,7 +135,7 @@ public class ReferenceDB extends WrappedRocksDB {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] key = keyArrayRecycler.get();
         try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
             access.delete(this.column, key);
         } finally {
             keyArrayRecycler.release(key);
@@ -146,13 +146,12 @@ public class ReferenceDB extends WrappedRocksDB {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] key = keyArrayRecycler.get();
         try {
-            PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
             byte[] listBytes = access.get(this.column, key);
             if (listBytes != null) {
                 checkState(listBytes.length % 8 == 0, listBytes.length);
                 for (int i = 0; i < listBytes.length; i += 8) {
-                    long val = PUnsafe.getLong(listBytes, PUnsafe.ARRAY_BYTE_BASE_OFFSET + i);
-                    dst.add(PlatformInfo.IS_BIG_ENDIAN ? Long.reverseBytes(val) : val);
+                    dst.add(PUnsafe.getUnalignedLongLE(listBytes, PUnsafe.arrayByteElementOffset(i)));
                 }
             }
         } finally {
@@ -163,8 +162,7 @@ public class ReferenceDB extends WrappedRocksDB {
     public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
         try (DBIterator iterator = access.iterator(this.column)) {
             for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-                long key = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                action.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                action.accept(PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0)));
             }
         }
     }
@@ -179,8 +177,8 @@ public class ReferenceDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referent) : referent);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referent);
                 access.put(this.column, key, EMPTY_BYTE_ARRAY);
             } finally {
                 recycler.release(key);
@@ -197,10 +195,10 @@ public class ReferenceDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
                 for (int i = 0; i < size; i++) {
                     long id = ids.getLong(i);
-                    PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                    PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                     access.put(this.column, key, EMPTY_BYTE_ARRAY);
                 }
             } finally {
@@ -218,10 +216,10 @@ public class ReferenceDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
                 for (int i = 0; i < size; i++) {
                     long id = Element.addTypeToId(type, ids.getLong(i));
-                    PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(id) : id);
+                    PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                     access.put(this.column, key, EMPTY_BYTE_ARRAY);
                 }
             } finally {
@@ -234,8 +232,8 @@ public class ReferenceDB extends WrappedRocksDB {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
-                PUnsafe.putLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(referentCombined) : referentCombined);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
                 access.delete(this.column, key);
             } finally {
                 recycler.release(key);
@@ -248,10 +246,10 @@ public class ReferenceDB extends WrappedRocksDB {
             byte[] from = recycler.get();
             byte[] to = recycler.get();
             try {
-                PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
-                PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-                PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
-                PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
+                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(0), combinedId);
+                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(8), 0L);
+                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(0), combinedId + 1L);
+                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(8), 0L);
                 access.deleteRange(this.column, from, to);
             } finally {
                 recycler.release(from);
@@ -265,20 +263,19 @@ public class ReferenceDB extends WrappedRocksDB {
             byte[] from = recycler.get();
             byte[] to = recycler.get();
             try {
-                PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId) : combinedId);
-                PUnsafe.putLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
-                PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(combinedId + 1L) : combinedId + 1L);
-                PUnsafe.putLong(to, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L, 0L);
+                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(0), combinedId);
+                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(8), 0L);
+                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(0), combinedId + 1L);
+                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(8), 0L);
                 try (DBIterator iterator = access.iterator(this.column, from, to)) {
                     for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                         byte[] key = iterator.key();
 
                         //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
-                        checkState(PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET) == PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET), "%d != %d",
-                                PUnsafe.getLong(from, PUnsafe.ARRAY_BYTE_BASE_OFFSET), PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET));
+                        checkState(PUnsafe.getUnalignedLong(from, PUnsafe.arrayByteElementOffset(0)) == PUnsafe.getUnalignedLong(key, PUnsafe.arrayByteElementOffset(0)), "%d != %d",
+                                PUnsafe.getUnalignedLong(from, PUnsafe.arrayByteElementOffset(0)), PUnsafe.getUnalignedLong(key, PUnsafe.arrayByteElementOffset(0)));
 
-                        long val = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET + 8L);
-                        dst.add(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
+                        dst.add(PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8)));
                     }
                 }
             } finally {
@@ -291,8 +288,7 @@ public class ReferenceDB extends WrappedRocksDB {
         public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
             try (DBIterator iterator = access.iterator(this.column)) {
                 for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-                    long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                    action.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
+                    action.accept(PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0)));
                 }
             }
         }

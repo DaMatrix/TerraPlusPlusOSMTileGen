@@ -24,7 +24,6 @@ import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.io.IORunnable;
 import net.daporkchop.lib.common.function.exception.EConsumer;
-import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.mmap.RefCountedMemoryMap;
@@ -110,8 +109,7 @@ public class OffHeapSpliteratableLongList implements AutoCloseable {
                 long i = this.from;
                 if (i < this.upTo) {
                     this.from++;
-                    long l = PUnsafe.getLong(this.addr + (i << 3L));
-                    consumer.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(l) : l);
+                    consumer.accept(PUnsafe.getUnalignedLongBE(this.addr + (i << 3L)));
                     return true;
                 }
                 return false;
@@ -123,8 +121,7 @@ public class OffHeapSpliteratableLongList implements AutoCloseable {
                     long i = this.from;
                     this.from = this.upTo;
                     while (i < this.upTo) {
-                        long l = PUnsafe.getLong(this.addr + (i++ << 3L));
-                        consumer.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(l) : l);
+                        consumer.accept(PUnsafe.getUnalignedLongBE(this.addr + (i++ << 3L)));
                     }
                     this.mmap.release();
                 }

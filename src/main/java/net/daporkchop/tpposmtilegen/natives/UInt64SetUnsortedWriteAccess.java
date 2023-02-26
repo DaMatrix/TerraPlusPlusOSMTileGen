@@ -30,7 +30,6 @@ import net.daporkchop.lib.common.function.exception.ESupplier;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.pool.handle.Handle;
-import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
@@ -126,10 +125,7 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
         checkArg(UInt64SetMergeOperator.getNumDels(value) == 0L, "delete isn't supported!");
 
         checkArg(key.length == 8, key.length);
-        long realKey = PUnsafe.getLong(key, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-        if (PlatformInfo.IS_LITTLE_ENDIAN) {
-            realKey = Long.reverseBytes(realKey);
-        }
+        long realKey = PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0));
 
         long numAdds = UInt64SetMergeOperator.getNumAdds(value);
         if (numAdds == 0L) {

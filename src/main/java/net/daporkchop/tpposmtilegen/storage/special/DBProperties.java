@@ -22,7 +22,6 @@ package net.daporkchop.tpposmtilegen.storage.special;
 
 import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
@@ -130,7 +129,7 @@ public final class DBProperties extends WrappedRocksDB {
             ByteArrayRecycler valueArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
             byte[] valueArray = valueArrayRecycler.get();
             try {
-                PUnsafe.putLong(valueArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_BIG_ENDIAN ? Long.reverseBytes(value) : value);
+                PUnsafe.putUnalignedLongLE(valueArray, PUnsafe.arrayByteElementOffset(0), value);
                 access.put(DBProperties.this.column, this.key, valueArray);
             } finally {
                 valueArrayRecycler.release(valueArray);
@@ -148,8 +147,7 @@ public final class DBProperties extends WrappedRocksDB {
             byte[] valueArray = access.get(DBProperties.this.column, this.key);
             if (valueArray != null) {
                 checkState(valueArray.length == Long.BYTES);
-                long value = PUnsafe.getLong(valueArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                return OptionalLong.of(PlatformInfo.IS_BIG_ENDIAN ? Long.reverseBytes(value) : value);
+                return OptionalLong.of(PUnsafe.getUnalignedLongLE(valueArray, PUnsafe.arrayByteElementOffset(0)));
             } else {
                 return OptionalLong.empty();
             }

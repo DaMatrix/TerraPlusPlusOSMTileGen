@@ -26,7 +26,6 @@ import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
-import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -73,7 +72,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         byte[] keyArray = keyArrayRecycler.get();
         try {
             //serialize key to bytes
-            PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+            PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
             access.delete(this.column, keyArray);
         } finally {
             keyArrayRecycler.release(keyArray);
@@ -84,7 +83,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();
         try {
-            PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+            PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
 
             byte[] valueData = access.get(this.column, keyArray);
             return valueData != null ? this.valueFromBytes(key, Unpooled.wrappedBuffer(valueData)) : null;
@@ -113,7 +112,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             for (int i = 0; i < size; i++) {
                 byte[] keyArray = keyArrayRecycler.get();
                 long key = keys.getLong(i);
-                PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
                 keyBytes.add(keyArray);
             }
 
@@ -137,10 +136,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     public void forEach(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
         try (DBIterator itr = access.iterator(this.column)) {
             for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                long key = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                    key = Long.reverseBytes(key);
-                }
+                long key = PUnsafe.getUnalignedLongBE(itr.key(), PUnsafe.arrayByteElementOffset(0));
                 callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(itr.value())));
             }
         }
@@ -162,10 +158,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     }
                 },
                 v -> {
-                    long key = PUnsafe.getLong(v.key, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                        key = Long.reverseBytes(key);
-                    }
+                    long key = PUnsafe.getUnalignedLongBE(v.key, PUnsafe.arrayByteElementOffset(0));
                     callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(v.value)));
                 });
     }
@@ -184,10 +177,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                             }
                         },
                         keyArray -> {
-                            long key = PUnsafe.getLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-                            if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                                key = Long.reverseBytes(key);
-                            }
+                            long key = PUnsafe.getUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0));
                             callback.accept(key);
                         });
                 break;
@@ -199,15 +189,10 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     if (!itr.isValid()) { //column family is empty
                         return;
                     }
-                    firstKey = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                    firstKey = PUnsafe.getUnalignedLongBE(itr.key(), PUnsafe.arrayByteElementOffset(0));
                     itr.seekToLast();
                     checkState(itr.isValid());
-                    lastKey = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
-
-                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
-                        firstKey = Long.reverseBytes(firstKey);
-                        lastKey = Long.reverseBytes(lastKey);
-                    }
+                    lastKey = PUnsafe.getUnalignedLongBE(itr.key(), PUnsafe.arrayByteElementOffset(0));
                 }
 
                 //TODO: this could be improved further by using an iterator for sub-ranges
@@ -215,7 +200,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
                     byte[] keyArray = keyArrayRecycler.get();
                     try {
-                        PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+                        PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
 
                         if (access.get(this.column, keyArray) != null) {
                             callback.accept(key);
