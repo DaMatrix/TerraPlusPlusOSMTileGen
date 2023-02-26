@@ -24,7 +24,7 @@ import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.util.PorkUtil;
 
 import java.util.ArrayList;

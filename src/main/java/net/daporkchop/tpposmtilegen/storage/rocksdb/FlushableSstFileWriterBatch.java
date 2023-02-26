@@ -22,9 +22,9 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.Getter;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EBiConsumer;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
-import net.daporkchop.lib.common.function.throwing.EPredicate;
+import net.daporkchop.lib.common.function.exception.EBiConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
+import net.daporkchop.lib.common.function.exception.EPredicate;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;

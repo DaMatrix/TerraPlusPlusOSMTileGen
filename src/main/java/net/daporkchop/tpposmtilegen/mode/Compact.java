@@ -21,8 +21,8 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EFunction;
-import net.daporkchop.lib.common.function.throwing.ERunnable;
+import net.daporkchop.lib.common.function.exception.EFunction;
+import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;

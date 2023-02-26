@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -27,8 +27,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.Setter;
 import net.daporkchop.lib.common.misc.string.PStrings;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.reference.cache.Cached;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
@@ -52,7 +51,7 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 @Setter
 @EqualsAndHashCode
 public final class Point implements Geometry {
-    private static final Ref<Matcher> PARSE_MATCHER_CACHE = ThreadRef.regex(Pattern.compile("^(-)?(\\d+)(?:\\.(\\d+))?$"));
+    private static final Cached<Matcher> PARSE_MATCHER_CACHE = Cached.regex(Pattern.compile("^(-)?(\\d+)(?:\\.(\\d+))?$"));
 
     public static final int PRECISION = 10_000_000;
     public static final int UNDEFINED_COORDINATE = 2147483647;

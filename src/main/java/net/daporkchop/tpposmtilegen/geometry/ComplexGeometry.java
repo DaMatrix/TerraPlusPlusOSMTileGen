@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -22,8 +22,8 @@ package net.daporkchop.tpposmtilegen.geometry;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.reference.ReferenceStrength;
+import net.daporkchop.lib.common.reference.cache.Cached;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import net.daporkchop.tpposmtilegen.util.Utils;
@@ -41,7 +41,7 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
  * @author DaPorkchop_
  */
 public abstract class ComplexGeometry implements Geometry {
-    protected static final Ref<PolygonRecycler> POLYGON_RECYCLER = ThreadRef.soft(PolygonRecycler::new);
+    protected static final Cached<PolygonRecycler> POLYGON_RECYCLER = Cached.threadLocal(PolygonRecycler::new, ReferenceStrength.SOFT);
 
     protected static Point[] simplifyVisvalingamWhyatt(@NonNull Point[] inPoints, int targetLevel, boolean closed) {
         double minimumDensity = Utils.minimumDensityAtLevel(targetLevel);

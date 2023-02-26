@@ -22,7 +22,7 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.BulkFlushable;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;

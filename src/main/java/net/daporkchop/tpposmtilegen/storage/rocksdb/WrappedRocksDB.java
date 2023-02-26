@@ -24,8 +24,8 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.reference.ReferenceStrength;
+import net.daporkchop.lib.common.reference.cache.Cached;
 import net.daporkchop.tpposmtilegen.util.SimpleRecycler;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
@@ -38,12 +38,12 @@ import java.nio.ByteBuffer;
 @RequiredArgsConstructor
 public abstract class WrappedRocksDB {
     protected static final byte[] EMPTY_BYTE_ARRAY = new byte[0];
-    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = ThreadRef.soft(() -> new ByteArrayRecycler(8));
-    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = ThreadRef.soft(() -> new ByteArrayRecycler(16));
-    protected static final Ref<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_24 = ThreadRef.soft(() -> new ByteArrayRecycler(24));
-    protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_8 = ThreadRef.late(() -> ByteBuffer.allocateDirect(8));
-    protected static final Ref<ByteBuffer> DIRECT_BUFFER_RECYCLER_16 = ThreadRef.late(() -> ByteBuffer.allocateDirect(16));
-    protected static final Ref<ByteBuf> WRITE_BUFFER_CACHE = ThreadRef.late(UnpooledByteBufAllocator.DEFAULT::directBuffer);
+    protected static final Cached<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_8 = Cached.threadLocal(() -> new ByteArrayRecycler(8), ReferenceStrength.SOFT);
+    protected static final Cached<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_16 = Cached.threadLocal(() -> new ByteArrayRecycler(16), ReferenceStrength.SOFT);
+    protected static final Cached<ByteArrayRecycler> BYTE_ARRAY_RECYCLER_24 = Cached.threadLocal(() -> new ByteArrayRecycler(24), ReferenceStrength.SOFT);
+    protected static final Cached<ByteBuffer> DIRECT_BUFFER_RECYCLER_8 = Cached.threadLocal(() -> ByteBuffer.allocateDirect(8));
+    protected static final Cached<ByteBuffer> DIRECT_BUFFER_RECYCLER_16 = Cached.threadLocal(() -> ByteBuffer.allocateDirect(16));
+    protected static final Cached<ByteBuf> WRITE_BUFFER_CACHE = Cached.threadLocal(UnpooledByteBufAllocator.DEFAULT::directBuffer);
 
     @NonNull
     protected final Database database;

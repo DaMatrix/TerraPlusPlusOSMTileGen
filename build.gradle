@@ -37,7 +37,7 @@ ext {
     lombokVersion = "1.18.18"
     nettyVersion = "4.1.36.Final"
     parallelpbfVersion = "1486e5601be765ecb7d088c1d7f5f7494b0d2491"
-    porklibVersion = "0.5.5-SNAPSHOT"
+    porklibVersion = "0.5.8-SNAPSHOT"
     rocksdbVersion = "7.7.3"
 }
 

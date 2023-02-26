@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -24,8 +24,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.reference.cache.Cached;
 import sun.security.util.ByteArrayLexOrder;
 
 import java.io.IOException;
@@ -39,7 +38,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  */
 @UtilityClass
 public class Utils {
-    public final Ref<SimpleRecycler<ByteBuf>> IO_BUFFER_RECYCLER = ThreadRef.late(() -> new SimpleRecycler<ByteBuf>() {
+    public final Cached<SimpleRecycler<ByteBuf>> IO_BUFFER_RECYCLER = Cached.threadLocal(() -> new SimpleRecycler<ByteBuf>() {
         @Override
         protected ByteBuf newInstance0() {
             return Unpooled.directBuffer();

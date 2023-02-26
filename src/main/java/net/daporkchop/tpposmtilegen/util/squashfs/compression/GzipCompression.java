@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -22,8 +22,8 @@ package net.daporkchop.tpposmtilegen.util.squashfs.compression;
 
 import io.netty.buffer.ByteBuf;
 import lombok.NonNull;
-import net.daporkchop.lib.common.ref.Ref;
-import net.daporkchop.lib.common.ref.ThreadRef;
+import net.daporkchop.lib.common.reference.ReferenceStrength;
+import net.daporkchop.lib.common.reference.cache.Cached;
 import net.daporkchop.lib.compression.context.PDeflater;
 import net.daporkchop.lib.compression.zlib.Zlib;
 import net.daporkchop.lib.compression.zlib.ZlibMode;
@@ -39,7 +39,7 @@ import static net.daporkchop.tpposmtilegen.util.squashfs.SquashfsConstants.*;
  */
 public final class GzipCompression implements Compression {
     protected final ZlibDeflaterOptions options = Zlib.PROVIDER.deflateOptions().withMode(ZlibMode.GZIP);
-    protected final Ref<PDeflater> deflaterCache = ThreadRef.soft(() -> Zlib.PROVIDER.deflater(this.options));
+    protected final Cached<PDeflater> deflaterCache = Cached.threadLocal(() -> Zlib.PROVIDER.deflater(this.options), ReferenceStrength.SOFT);
 
     @Override
     public int id() {

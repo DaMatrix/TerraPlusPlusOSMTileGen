@@ -22,7 +22,7 @@ package net.daporkchop.tpposmtilegen.util;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.misc.threadfactory.PThreadFactories;
 import net.daporkchop.lib.logging.Logging;
 

@@ -23,7 +23,7 @@ package net.daporkchop.tpposmtilegen.util;
 import io.netty.util.concurrent.FastThreadLocal;
 import lombok.NonNull;
 import lombok.SneakyThrows;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
 
 import java.util.concurrent.Callable;
 

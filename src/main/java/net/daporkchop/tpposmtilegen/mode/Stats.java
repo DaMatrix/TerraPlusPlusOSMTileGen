@@ -21,7 +21,7 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EFunction;
+import net.daporkchop.lib.common.function.exception.EFunction;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.tpposmtilegen.storage.Storage;

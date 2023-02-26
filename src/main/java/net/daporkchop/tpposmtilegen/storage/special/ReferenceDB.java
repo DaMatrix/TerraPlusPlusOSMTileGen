@@ -22,8 +22,8 @@ package net.daporkchop.tpposmtilegen.storage.special;
 
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.throwing.EBiConsumer;
-import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.exception.EBiConsumer;
+import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
