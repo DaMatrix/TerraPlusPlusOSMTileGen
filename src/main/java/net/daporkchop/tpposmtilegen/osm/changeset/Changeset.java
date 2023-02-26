@@ -24,9 +24,12 @@ import com.fasterxml.jackson.annotation.JsonCreator;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSetter;
+import com.fasterxml.jackson.core.JsonParseException;
+import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.dataformat.xml.XmlMapper;
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.ByteBufInputStream;
+import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AccessLevel;
@@ -54,6 +57,10 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @ToString
 public final class Changeset {
     private static final XmlMapper XML_MAPPER = new XmlMapper();
+
+    public static Changeset parse(@NonNull byte[] data) throws IOException {
+        return parse(Unpooled.wrappedBuffer(data));
+    }
 
     public static Changeset parse(@NonNull ByteBuf buf) throws IOException {
         try (InputStream in = new BufferedInputStream(new GZIPInputStream(new ByteBufInputStream(buf)))) {

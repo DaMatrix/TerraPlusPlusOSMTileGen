@@ -162,6 +162,11 @@ final class TransactionAccess implements DBAccess {
     }
 
     @Override
+    public boolean isDirty() throws Exception {
+        return this.transaction.getWriteBatch().getWriteBatch().count() != 0;
+    }
+
+    @Override
     public void flush() throws Exception {
         this.transaction.commit();
     }

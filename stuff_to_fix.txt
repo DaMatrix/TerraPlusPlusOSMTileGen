@@ -1,3 +1,5 @@
 - Nodes are now always stored in the storage, even if they have no tags
   (this is to make sure that the version number is always stored)
 - updater is totally broken now
+- changeset data fetcher needs to be able to retry failed requests
+- invalidate cloudflare cached URLs

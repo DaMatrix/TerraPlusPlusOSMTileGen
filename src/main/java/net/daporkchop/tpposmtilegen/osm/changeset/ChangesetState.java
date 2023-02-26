@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.osm.changeset;
 
 import io.netty.buffer.ByteBuf;
+import io.netty.buffer.Unpooled;
 import lombok.EqualsAndHashCode;
 import lombok.Getter;
 import lombok.NonNull;
@@ -42,6 +43,10 @@ import static net.daporkchop.lib.logging.Logging.*;
 public class ChangesetState {
     protected final Instant timestamp;
     protected final long sequenceNumber;
+
+    public ChangesetState(@NonNull byte[] data) {
+        this(Unpooled.wrappedBuffer(data));
+    }
 
     public ChangesetState(@NonNull ByteBuf data) {
         String timestamp = null;

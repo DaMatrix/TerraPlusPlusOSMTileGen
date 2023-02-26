@@ -84,12 +84,12 @@ public class Update implements IMode {
                                 break;
                             }
 
-                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong()));
+                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong(), null).join());
                             logger.info("Current state:  %s (%s)",
-                                    storage.getChangesetState(storage.sequenceNumberProperty().getLong(txn).getAsLong()),
+                                    storage.getChangesetState(storage.sequenceNumberProperty().getLong(txn).getAsLong(), null).join(),
                                     storage.sequenceNumberProperty().getLong(txn).getAsLong() == storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong()
                                             ? "no changes" : "uncommitted");
-                            logger.info("Latest state:   %s", storage.getLatestChangesetState());
+                            logger.info("Latest state:   %s", storage.getLatestChangesetState().join());
                             break;
                         case "update":
                             if (split.length != 1) {
@@ -152,8 +152,12 @@ public class Update implements IMode {
                             if (split.length != 1) {
                                 logger.warn("command '%s' expects no arguments", split[0]);
                                 break;
+                            } else if (txn.isDirty()) {
+                                logger.warn("there are uncommitted changes which must be committed or rolled back before stopping!");
+                                break;
                             }
 
+                            logger.info("stopping...");
                             break LOOP;
                         default:
                             logger.error("Unknown command: '%s'", command);

@@ -40,6 +40,7 @@ import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.OptionalLong;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.LongPredicate;
 import java.util.stream.Collector;
 import java.util.stream.Collectors;
@@ -57,7 +58,7 @@ public class Updater {
     protected final ChangesetState globalState;
 
     public Updater(@NonNull Storage storage) throws Exception {
-        this.globalState = storage.getLatestChangesetState();
+        this.globalState = storage.getLatestChangesetState().join();
 
         try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
             //storage.sequenceNumberProperty().remove(batch);
@@ -79,13 +80,13 @@ public class Updater {
             checkState(replicationTimestamp >= 0L, "no replication info!");
 
             //binary search to find sequence number from timestamp
-            long min = 0;
+            long min = 0L;
             long max = this.globalState.sequenceNumber();
             while (min <= max) {
                 long middle = (min + max) >> 1L;
                 long middleTimestamp;
                 try {
-                    middleTimestamp = storage.getChangesetState(middle).timestamp().toEpochMilli() / 1000L;
+                    middleTimestamp = storage.getChangesetState(middle, null).join().timestamp().toEpochMilli() / 1000L;
                 } catch (FileNotFoundException e) {
                     middleTimestamp = -1L; //fallback if file not found, assume we're too low
                 }
@@ -107,7 +108,7 @@ public class Updater {
             }
         } else if (!storage.replicationTimestampProperty().getLong(storage.db().read()).isPresent()) { //set timestamp
             try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
-                storage.replicationTimestampProperty().set(batch, storage.getChangesetState(sequenceNumber.getAsLong()).timestamp().toEpochMilli() / 1000L);
+                storage.replicationTimestampProperty().set(batch, storage.getChangesetState(sequenceNumber.getAsLong(), null).join().timestamp().toEpochMilli() / 1000L);
             }
         }
     }
@@ -123,12 +124,17 @@ public class Updater {
         }
 
         logger.info("updating...");
-        ChangesetState state = storage.getChangesetState(sequenceNumber);
         long next = sequenceNumber + 1L;
-        ChangesetState nextState = storage.getChangesetState(next);
+
+        CompletableFuture<ChangesetState> stateFuture = storage.getChangesetState(sequenceNumber, this.globalState);
+        CompletableFuture<ChangesetState> nextStateFuture = storage.getChangesetState(next, this.globalState);
+        CompletableFuture<Changeset> changesetFuture = storage.getChangeset(next, this.globalState);
+
+        ChangesetState state = stateFuture.join();
+        ChangesetState nextState = nextStateFuture.join();
         logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
-        Changeset changeset = storage.getChangeset(next);
+        Changeset changeset = changesetFuture.join();
         this.applyChanges(storage, access, now, changeset);
         storage.sequenceNumberProperty().set(access, next);
         return true;

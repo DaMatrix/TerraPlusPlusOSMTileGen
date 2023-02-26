@@ -26,17 +26,21 @@ import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.objects.Object2ObjectLinkedOpenHashMap;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
+import net.daporkchop.lib.common.function.io.IOUnaryOperator;
+import net.daporkchop.lib.common.function.throwing.ESupplier;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.lib.unsafe.util.exception.AlreadyReleasedException;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
@@ -83,6 +87,8 @@ import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
 
@@ -96,6 +102,10 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
 @Getter
 public final class Storage implements AutoCloseable {
     public static final String DEFAULT_REPLICATION_BASE_URL = System.getProperty("defaultReplicationBaseUrl", "https://planet.openstreetmap.org/replication/minute/");
+
+    private static final int REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD = 128;
+    private static final int REPLICATION_BLOBS_CACHE_CLEANUP_TARGET = 64;
+    private static final long REPLICATION_BLOBS_CACHE_PREFETCH_DISTANCE = 1L;
 
     protected NodeDB nodes;
     protected PointDB points;
@@ -125,6 +135,10 @@ public final class Storage implements AutoCloseable {
 
     protected final Path tmpDirectoryPath;
     protected final Set<Path> activeTmpFiles = new TreeSet<>();
+
+    protected final Path replicationDirectoryPath;
+    protected final Object2ObjectLinkedOpenHashMap<String, CompletableFuture<byte[]>> replicationBlobs
+            = new Object2ObjectLinkedOpenHashMap<>(REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD);
 
     public Storage(@NonNull Path root) throws Exception {
         this(root, DatabaseConfig.RW_GENERAL);
@@ -190,6 +204,7 @@ public final class Storage implements AutoCloseable {
         this.elementsByType.put(Coastline.TYPE, this.coastlines);
 
         this.tmpDirectoryPath = root.resolve("tmp");
+        this.replicationDirectoryPath = root.resolve("replication");
 
         if (!legacy) {
             OptionalLong version = this.versionNumberProperty.getLong(this.db.read());
@@ -413,68 +428,125 @@ public final class Storage implements AutoCloseable {
         PFiles.rm(this.tmpDirectoryPath.toFile());
     }
 
-    public ChangesetState getLatestChangesetState() throws Exception {
-        return this.getReplicationDataObject("state.txt", false, ChangesetState::new);
+    public CompletableFuture<ChangesetState> getLatestChangesetState() throws Exception {
+        return this.requestReplicationDataObject("state.txt", false).thenApply(ChangesetState::new);
     }
 
-    public ChangesetState getChangesetState(long sequence) throws Exception {
-        return this.getReplicationDataObject(
-                PStrings.fastFormat("%03d/%03d/%03d.state.txt", sequence / 1000000L, (sequence / 1000L) % 1000L, sequence % 1000L),
-                true,
-                ChangesetState::new);
+    public CompletableFuture<ChangesetState> getChangesetState(long sequence, ChangesetState latestChangesetState) throws Exception {
+        CompletableFuture<ChangesetState> future = this.requestReplicationDataObject(this.formatChangesetPathState(sequence), true).thenApply(ChangesetState::new);
+        this.prefetchChangeset(sequence, latestChangesetState);
+        return future;
     }
 
-    public Changeset getChangeset(long sequence) throws Exception {
-        return this.getReplicationDataObject(
-                PStrings.fastFormat("%03d/%03d/%03d.osc.gz", sequence / 1000000L, (sequence / 1000L) % 1000L, sequence % 1000L),
-                true,
-                Changeset::parse);
+    public CompletableFuture<Changeset> getChangeset(long sequence, ChangesetState latestChangesetState) throws Exception {
+        CompletableFuture<Changeset> future = this.requestReplicationDataObject(this.formatChangesetPathData(sequence), true)
+                .thenApply((IOFunction<byte[], Changeset>) Changeset::parse);
+        this.prefetchChangeset(sequence, latestChangesetState);
+        return future;
     }
 
-    private <T> T getReplicationDataObject(@NonNull String path, boolean cache, @NonNull IOFunction<ByteBuf, T> parser) throws Exception {
-        Path file = this.root.resolve("replication").resolve(path);
-        if (cache && Files.exists(file)) {
-            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
-                int size = toInt(channel.size());
-                ByteBuf buf = UnpooledByteBufAllocator.DEFAULT.ioBuffer(size, size);
-                try {
-                    while (buf.isWritable()) {
-                        buf.writeBytes(channel, buf.writerIndex(), buf.writableBytes());
+    private void prefetchChangeset(long sequence, ChangesetState latestChangesetState) throws Exception {
+        if (latestChangesetState != null) {
+            for (long d = 1L; d <= REPLICATION_BLOBS_CACHE_PREFETCH_DISTANCE && sequence + d <= latestChangesetState.sequenceNumber(); d++) {
+                //request both the state and the data
+                this.requestReplicationDataObject(this.formatChangesetPathState(sequence + d), true);
+                this.requestReplicationDataObject(this.formatChangesetPathData(sequence + d), true);
+            }
+        }
+    }
+
+    private String formatChangesetPathState(long sequence) {
+        return this.formatChangesetPath(sequence, "state.txt");
+    }
+
+    private String formatChangesetPathData(long sequence) {
+        return this.formatChangesetPath(sequence, "osc.gz");
+    }
+
+    private String formatChangesetPath(long sequence, @NonNull String extension) {
+        return PStrings.fastFormat("%03d/%03d/%03d.%s", sequence / 1000000L, (sequence / 1000L) % 1000L, sequence % 1000L, extension);
+    }
+
+    private void cleanupReplicationDataObjectCache() {
+        if (this.replicationBlobs.size() > REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD) {
+            synchronized (this.replicationBlobs) {
+                if (this.replicationBlobs.size() > REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD) {
+                    int cleaned = 0;
+                    logger.trace("beginning replication URL cache cleanup...");
+                    try {
+                        do {
+                            if (!this.replicationBlobs.get(this.replicationBlobs.lastKey()).isDone()) {
+                                logger.warn("aborting cache cleanup because URL '%s' has not finished downloading", this.replicationBlobs.lastKey());
+                                break;
+                            }
+                            this.replicationBlobs.removeLast();
+                        } while (this.replicationBlobs.size() > REPLICATION_BLOBS_CACHE_CLEANUP_TARGET);
+                    } finally {
+                        logger.trace("finished replication URL cache cleanup, removed %d entries", cleaned);
                     }
-                    return parser.applyThrowing(buf);
-                } finally {
-                    buf.release();
+                }
+            }
+        }
+    }
+
+    private CompletableFuture<byte[]> requestReplicationDataObject(@NonNull String path, boolean cache) throws Exception {
+        if (cache) {
+            synchronized (this.replicationBlobs) {
+                CompletableFuture<byte[]> future = this.replicationBlobs.getAndMoveToFirst(path);
+                if (future != null) {
+                    return future;
                 }
             }
         }
 
-        Optional<String> replicationBaseUrl = this.replicationBaseUrlProperty().get(this.db().read());
-        if (!replicationBaseUrl.isPresent()) {
-            logger.warn("no replication base url is stored, falling back to default: '%s'", DEFAULT_REPLICATION_BASE_URL);
-            if (!this.db().config().readOnly()) {
-                try (DBWriteAccess batch = this.db().beginLocalBatch()) {
-                    this.replicationBaseUrlProperty().set(batch, DEFAULT_REPLICATION_BASE_URL);
-                }
+        CompletableFuture<byte[]> future = CompletableFuture.supplyAsync((ESupplier<CompletableFuture<byte[]>>) () -> {
+            Path file = this.replicationDirectoryPath.resolve(path);
+            if (cache && Files.exists(file)) { //file is already cached
+                return CompletableFuture.completedFuture(Files.readAllBytes(file));
             }
-            replicationBaseUrl = Optional.of(DEFAULT_REPLICATION_BASE_URL);
-        }
 
-        byte[] data;
-        try (InputStream in = new URL(replicationBaseUrl.get() + path).openStream()) {
-            data = StreamUtil.toByteArray(in);
-        }
+            Optional<String> replicationBaseUrl = this.replicationBaseUrlProperty().get(this.db().read());
+            if (!replicationBaseUrl.isPresent()) {
+                logger.warn("no replication base url is stored, falling back to default: '%s'", DEFAULT_REPLICATION_BASE_URL);
+                if (!this.db().config().readOnly()) {
+                    try (DBWriteAccess batch = this.db().beginLocalBatch()) {
+                        this.replicationBaseUrlProperty().set(batch, DEFAULT_REPLICATION_BASE_URL);
+                    }
+                }
+                replicationBaseUrl = Optional.of(DEFAULT_REPLICATION_BASE_URL);
+            }
+
+            return this.downloadUrl(replicationBaseUrl.get() + path)
+                    .thenApplyAsync((IOUnaryOperator<byte[]>) data -> {
+                        Files.createDirectories(file.getParent());
+                        Files.write(file, data, StandardOpenOption.WRITE, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                        return data;
+                    });
+        }).thenCompose(Function.identity());
 
         if (cache) {
-            Files.createDirectories(file.getParent());
-            try (FileChannel channel = FileChannel.open(file, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE)) {
-                ByteBuf buf = Unpooled.wrappedBuffer(data);
-                while (buf.isReadable()) {
-                    buf.readBytes(channel, buf.readableBytes());
-                }
+            synchronized (this.replicationBlobs) {
+                CompletableFuture<byte[]> replacedFuture = this.replicationBlobs.putAndMoveToFirst(path, future);
+                checkState(replacedFuture == null, "replaced existing cached future for '%s'", path);
+                this.cleanupReplicationDataObjectCache();
             }
         }
+        return future;
+    }
 
-        return parser.applyThrowing(Unpooled.wrappedBuffer(data));
+    private CompletableFuture<byte[]> downloadUrl(@NonNull String url) throws Exception {
+        return CompletableFuture.supplyAsync((ESupplier<byte[]>) () -> {
+            logger.trace("downloading URL '%s'...", url);
+            try (InputStream in = new URL(url).openStream()) {
+                byte[] data = StreamUtil.toByteArray(in);
+                logger.info("downloaded data for URL '%s' (%d bytes)", url, data.length);
+                return data;
+            } catch (Throwable t) {
+                logger.alert("failed to download URL '%s'", t, url);
+                PUnsafe.throwException(t);
+                throw new AssertionError(); //impossible
+            }
+        });
     }
 
     public synchronized Handle<Path> getTmpFilePath(@NonNull String prefix, @NonNull String extension) throws IOException {
