@@ -23,7 +23,7 @@ package net.daporkchop.tpposmtilegen.mode;
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
 import com.wolt.osm.parallelpbf.entity.Header;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.io.IORunnable;
+import lombok.SneakyThrows;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.util.PorkUtil;
@@ -37,15 +37,11 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
-import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
 
 import java.io.File;
 import java.io.InputStream;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.util.Scanner;
 import java.util.stream.Stream;
 
@@ -78,6 +74,50 @@ public class DigestPBF implements IMode {
         File src = PFiles.assertFileExists(new File(args[0]));
         File dst = new File(args[1]);
 
+        if (false) {
+            try (InputStream is = Files.newInputStream(src.toPath());
+                 CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
+                 ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
+                         .slot("nodes").slot("ways").slot("relations")
+                         .build()) {
+                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
+                        .setThreadFactory(threadFactory)
+                        .onHeader((EConsumer<Header>) header -> {
+                            logger.info("PBF header: %s", header);
+                            if (header.getReplicationSequenceNumber() == null && header.getReplicationTimestamp() == null) {
+                                logger.error("\"%s\" doesn't contain a replication timestamp or sequence number!", src);
+                                System.exit(1);
+                            }
+                        })
+                        .onBoundBox(bb -> logger.info("bounding box: %s", bb))
+                        .onChangeset(changeset -> logger.info("changeset: %s", changeset))
+                        .onNode((EConsumer<com.wolt.osm.parallelpbf.entity.Node>) in -> {
+                            if (in.getInfo().isVisible()) {
+                                int i = 0;
+                            } else {
+                                int i = 0;
+                            }
+                            notifier.step(Node.TYPE);
+                        })
+                        .onWay((EConsumer<com.wolt.osm.parallelpbf.entity.Way>) in -> {
+                            if (in.getInfo().isVisible()) {
+                                int i = 0;
+                            } else {
+                                int i = 0;
+                            }
+                            if (in.getId() == 169723588L) {
+                                int i = 0;
+                            }
+                            notifier.step(Way.TYPE);
+                        })
+                        .onRelation((EConsumer<com.wolt.osm.parallelpbf.entity.Relation>) in -> {
+                            notifier.step(Relation.TYPE);
+                        })
+                        .parse();
+            }
+            return;
+        }
+
         if (PFiles.checkDirectoryExists(dst)) {
             try (Stream<Path> stream = Files.list(dst.toPath())) {
                 if (stream.findAny().isPresent()) {
@@ -86,6 +126,12 @@ public class DigestPBF implements IMode {
                         logger.info("Abort.");
                         return;
                     }
+
+                    try (Storage storage = new Storage(dst.toPath(), DatabaseConfig.RW_LITE)) {
+                        //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
+                        //TODO: uncomment this
+                        // Purge.purge(storage, Purge.DataType.osm);
+                    }
                 }
             }
         }
@@ -93,8 +139,10 @@ public class DigestPBF implements IMode {
         PFiles.ensureDirectoryExists(dst);
 
         try (Storage storage = new Storage(dst.toPath(), DatabaseConfig.RW_BULK_LOAD)) {
-            //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
-            Purge.purge(storage, Purge.DataType.osm);
+            storage.nodes().clear();
+            storage.points().clear();
+            storage.ways().clear();
+            storage.relations().clear();
 
             try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage, storage.db()
                     .internalColumnFamily(storage.references()), true, 4.266666667d);
@@ -103,7 +151,6 @@ public class DigestPBF implements IMode {
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
                          .build()) {
-
                 new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
                         .setThreadFactory(threadFactory)
                         .onHeader((EConsumer<Header>) header -> {
@@ -114,13 +161,16 @@ public class DigestPBF implements IMode {
                             }
 
                             if (header.getReplicationSequenceNumber() != null) {
-                                storage.sequenceNumber().set(storage.db().batch(), header.getReplicationSequenceNumber());
+                                storage.sequenceNumberProperty().set(storage.db().batch(), header.getReplicationSequenceNumber().longValue());
                             }
                             if (header.getReplicationTimestamp() != null) {
-                                storage.replicationTimestamp().set(header.getReplicationTimestamp());
+                                storage.replicationTimestampProperty().set(storage.db().batch(), header.getReplicationTimestamp().longValue());
                             }
                             if (header.getReplicationBaseUrl() != null) {
-                                storage.setReplicationBaseUrl(header.getReplicationBaseUrl());
+                                storage.replicationBaseUrlProperty().set(storage.db().batch(), header.getReplicationBaseUrl());
+                            } else {
+                                logger.warn("'%s' doesn't provide a replication base url, falling back to default: '%s'", src, Storage.DEFAULT_REPLICATION_BASE_URL);
+                                storage.replicationBaseUrlProperty().set(storage.db().batch(), Storage.DEFAULT_REPLICATION_BASE_URL);
                             }
                         })
                         .onBoundBox(bb -> logger.info("bounding box: %s", bb))

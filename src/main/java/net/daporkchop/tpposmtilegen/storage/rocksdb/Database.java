@@ -136,15 +136,14 @@ public final class Database implements AutoCloseable {
         return this.sstBatch;
     }
 
-    public DBWriteAccess newNotAutoFlushingWriteBatch() {
-        checkState(!this.config.readOnly(), "storage is open in read-only mode!");
-        return new FlushableWriteBatch(this.config, this.delegate);
-    }
-
     public DBAccess newTransaction() {
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         OptimisticTransactionDB delegate = (OptimisticTransactionDB) this.delegate;
         return new TransactionAccess(this.config, delegate, delegate.beginTransaction(this.config.writeOptions(DatabaseConfig.WriteType.SYNC)));
+    }
+
+    public DBReadAccess snapshot() throws Exception {
+        return new SnapshotReadAccess(this.config, this.delegate);
     }
 
     public void flush() throws Exception {
@@ -222,7 +221,7 @@ public final class Database implements AutoCloseable {
         if (!this.activeTmpSstFiles.isEmpty()) {
             logger.alert("some temporary SST files have not been ingested:\n\n" + this.activeTmpSstFiles);
         }
-        //PFiles.rm(this.tmpSstDirectoryPath.toFile());
+        PFiles.rm(this.tmpSstDirectoryPath.toFile());
     }
 
     @FunctionalInterface

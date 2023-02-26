@@ -84,10 +84,11 @@ public class Update implements IMode {
                                 break;
                             }
 
-                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumber().get(storage.db().read())));
+                            logger.info("Database state: %s", storage.getChangesetState(storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong()));
                             logger.info("Current state:  %s (%s)",
-                                    storage.getChangesetState(storage.sequenceNumber().get(txn)),
-                                    storage.sequenceNumber().get(txn) == storage.sequenceNumber().get(storage.db().read()) ? "no changes" : "uncommitted");
+                                    storage.getChangesetState(storage.sequenceNumberProperty().getLong(txn).getAsLong()),
+                                    storage.sequenceNumberProperty().getLong(txn).getAsLong() == storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong()
+                                            ? "no changes" : "uncommitted");
                             logger.info("Latest state:   %s", storage.getLatestChangesetState());
                             break;
                         case "update":
@@ -112,17 +113,19 @@ public class Update implements IMode {
                                 break;
                             }
 
-                            if (storage.sequenceNumber().get(txn) >= targetSequenceNumber) {
-                                logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!", storage.sequenceNumber().get(txn), targetSequenceNumber);
+                            if (storage.sequenceNumberProperty().getLong(txn).getAsLong() >= targetSequenceNumber) {
+                                logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!",
+                                        storage.sequenceNumberProperty().getLong(txn).getAsLong(), targetSequenceNumber);
                                 break;
                             }
 
                             do {
                                 if (!updater.update(storage, txn)) {
-                                    logger.warn("updater returned false, sequence number %d isn't available yet! stopping at %d", targetSequenceNumber, storage.sequenceNumber().get(txn));
+                                    logger.warn("updater returned false, sequence number %d isn't available yet! stopping at %d",
+                                            targetSequenceNumber, storage.sequenceNumberProperty().getLong(txn).getAsLong());
                                     break;
                                 }
-                            } while (storage.sequenceNumber().get(txn) < targetSequenceNumber);
+                            } while (storage.sequenceNumberProperty().getLong(txn).getAsLong() < targetSequenceNumber);
                             logger.info("update_to %d: done.", targetSequenceNumber);
                             break;
                         }

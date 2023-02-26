@@ -79,6 +79,11 @@ class FlushableWriteBatch implements DBWriteAccess {
     }
 
     @Override
+    public boolean isDirty() throws Exception {
+        return this.dirty;
+    }
+
+    @Override
     public void flush() throws Exception {
         if (this.dirty) {
             try {

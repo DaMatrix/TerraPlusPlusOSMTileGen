@@ -100,9 +100,9 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
                 UInt64SetUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "sorted.buf");
         this.sortedChannel = FileChannel.open(this.sortedPathHandle.get(), READ, WRITE, CREATE_NEW, SPARSE);
 
-        Runtime.getRuntime()
+        /*Runtime.getRuntime()
                 .exec(new String[]{ "chattr", "+C", this.pathHandle.get().toAbsolutePath().toString(), this.sortedPathHandle.get().toAbsolutePath().toString() })
-                .waitFor();
+                .waitFor();*/
     }
 
     @Override
@@ -159,6 +159,11 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
     @Override
     public long getDataSize() throws Exception {
         return this.channel.size();
+    }
+
+    @Override
+    public boolean isDirty() throws Exception {
+        return DBWriteAccess.super.isDirty() || this.writeBuffers.snapshotValues().stream().anyMatch(writeBuffer -> writeBuffer.buf.isReadable());
     }
 
     @Override
@@ -267,8 +272,9 @@ public final class UInt64SetUnsortedWriteAccess implements DBWriteAccess {
         try (TimedOperation merge = new TimedOperation("Merge " + addrs.size() + " sorted arrays")) {
             nWayMerge(addrs.toLongArray(), sizes.toLongArray(), addrs.size(), dstAddr, dstSize);
         }
-
-        checkState(isSorted(dstAddr, dstSize, true));
+        try (TimedOperation verify = new TimedOperation("Verify sorted data")) {
+            checkState(isSorted(dstAddr, dstSize, true));
+        }
 
         Memory.madvise(addr, size, Memory.Usage.MADV_REMOVE);
     }

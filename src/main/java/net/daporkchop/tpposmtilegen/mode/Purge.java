@@ -23,9 +23,9 @@ package net.daporkchop.tpposmtilegen.mode;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
 import java.io.File;
@@ -53,6 +53,10 @@ public class Purge implements IMode {
 
             try (TimedOperation clearOperation = purgeOperation.pushChild("Clearing DB columns")) {
                 storage.db().clear(Stream.of(types).flatMap(type -> type.wrappersToClear(storage)).collect(Collectors.toList()));
+
+                for (DataType type : types) {
+                    type.clearRest(storage);
+                }
             }
         }
     }
@@ -122,12 +126,24 @@ public class Purge implements IMode {
                         storage.points(),
                         storage.ways(),
                         storage.relations(),
-                        storage.references(),
-                        storage.sequenceNumber()
+                        storage.references()
                 );
+            }
+
+            @Override
+            protected void clearRest(@NonNull Storage storage) throws Exception {
+                try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
+                    storage.sequenceNumberProperty().remove(batch);
+                    storage.replicationTimestampProperty().remove(batch);
+                    storage.replicationBaseUrlProperty().remove(batch);
+                }
             }
         };
 
         protected abstract Stream<? extends WrappedRocksDB> wrappersToClear(@NonNull Storage storage);
+
+        protected void clearRest(@NonNull Storage storage) throws Exception {
+            //no-op
+        }
     }
 }

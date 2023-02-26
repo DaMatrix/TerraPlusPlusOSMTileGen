@@ -286,5 +286,15 @@ public class ReferenceDB extends WrappedRocksDB {
                 recycler.release(to);
             }
         }
+
+        @Override
+        public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
+            try (DBIterator iterator = access.iterator(this.column)) {
+                for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                    long val = PUnsafe.getLong(iterator.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                    action.accept(PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(val) : val);
+                }
+            }
+        }
     }
 }

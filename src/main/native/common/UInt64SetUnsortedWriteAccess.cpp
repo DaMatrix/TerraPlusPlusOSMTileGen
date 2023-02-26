@@ -15,6 +15,8 @@
 
 #include <parallel/algorithm>
 
+#include <iostream>
+
 class keyvalue_t {
 public:
     uint64le key;
@@ -178,11 +180,14 @@ JNIEXPORT jlongArray JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64Set
                 blockEnd = totalEnd;
             } else { //skip ahead until we run out of entries with the same key
                 blockEnd = blockStart + targetBlockSize;
-                while (blockEnd + 1 < totalEnd && blockEnd[0].key == blockEnd[1].key) {
+                //while (blockEnd + 1 < totalEnd && blockEnd[0].key == blockEnd[1].key) {
+                while (blockEnd[-1].key == blockEnd[0].key && blockEnd + 1 < totalEnd) {
                     blockEnd++;
                 }
             }
 
+            DEBUG_MSG("added block from " << ((void*) ((blockStart - addr) * sizeof(keyvalue_t))) << " to " << ((void*) ((blockEnd - addr) * sizeof(keyvalue_t)))
+                      << " (keys " << blockStart[0].key << " to " << blockEnd[-1].key << ")");
             blocks.push_back({ blockStart, (blockEnd - blockStart) * sizeof(keyvalue_t) });
             blockStart = blockEnd;
         }
@@ -245,6 +250,30 @@ JNIEXPORT const keyvalue_t* JNICALL Java_net_daporkchop_tpposmtilegen_natives_UI
     } catch (const std::bad_alloc& e) {
         throwOutOfMemory(env, e);
         return nullptr;
+    }
+}
+
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_VerifyMergeOpReferences_findAndPrintReferences
+        (JNIEnv *env, jobject instance, const keyvalue_t* begin, const keyvalue_t* end, jlong key) {
+    try {
+        keyvalue_t value;
+        value.key = key;
+        value.value = 0;
+
+        const keyvalue_t* it = std::lower_bound(begin, end, value);
+        if (it == end) {
+            std::cout << "key " << key << " not found." << std::endl;
+            return;
+        }
+
+        std::cout << "values with key " << key << " (starting at " << ((void*) ((it - begin) * sizeof(keyvalue_t))) << "):" << std::endl;
+        do {
+            std::cout << "  at " << ((void*) ((it - begin) * sizeof(keyvalue_t))) << ": " << it->value << std::endl;
+            ++it;
+        } while (it != end && it->key == key);
+        std::cout << "  end: " << ((void*) ((it - begin) * sizeof(keyvalue_t))) << std::endl;
+    } catch (const std::bad_alloc& e) {
+        throwOutOfMemory(env, e);
     }
 }
 

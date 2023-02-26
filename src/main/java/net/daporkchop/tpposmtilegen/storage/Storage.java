@@ -56,9 +56,9 @@ import net.daporkchop.tpposmtilegen.storage.map.PointDB;
 import net.daporkchop.tpposmtilegen.storage.map.RelationDB;
 import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.map.WayDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.storage.special.DBLong;
@@ -67,7 +67,6 @@ import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicLong;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.OptimisticTransactionDB;
 
@@ -79,6 +78,8 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Optional;
+import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
@@ -94,6 +95,8 @@ import static net.daporkchop.tpposmtilegen.util.Utils.*;
  */
 @Getter
 public final class Storage implements AutoCloseable {
+    public static final String DEFAULT_REPLICATION_BASE_URL = System.getProperty("defaultReplicationBaseUrl", "https://planet.openstreetmap.org/replication/minute/");
+
     protected NodeDB nodes;
     protected PointDB points;
     protected WayDB ways;
@@ -103,10 +106,12 @@ public final class Storage implements AutoCloseable {
 
     protected DBProperties properties;
     protected DBProperties.LongProperty versionNumberProperty;
+    protected DBProperties.LongProperty sequenceNumberProperty;
+    protected DBProperties.LongProperty replicationTimestampProperty;
+    protected DBProperties.StringProperty replicationBaseUrlProperty;
 
+    @Deprecated
     protected DBLong sequenceNumber;
-    protected final OffHeapAtomicLong replicationTimestamp;
-    protected String replicationBaseUrl;
 
     protected ReferenceDB references;
 
@@ -134,22 +139,37 @@ public final class Storage implements AutoCloseable {
             || "/media/daporkchop/data/switzerland".equals(root.toString())
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())) {
             legacy = false;
-        } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())) {
+        } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())
+                   || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())) {
             legacy = true;
         } else {
             throw new IllegalArgumentException(root.toString());
         }
 
+        if (!config.readOnly() && PFiles.checkFileExists(root.resolve("db").resolve("IDENTITY").toFile())) {
+            //if we're trying to open the storage read-write, we should first open and close it read-only in order to double-check the version number without breaking
+            // anything
+            try (Storage readOnlyStorage = new Storage(root, DatabaseConfig.RO_LITE)) {
+                //no-op
+            }
+        }
+
         Database.Builder builder = new Database.Builder(config)
                 .autoFlush(true)
-                .add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor))
+                //.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor))
                 .add("nodes", (database, handle, descriptor) -> this.nodes = new NodeDB(database, handle, descriptor))
                 .add("points", (database, handle, descriptor) -> this.points = new PointDB(database, handle, descriptor))
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
                 .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
-                .add("references", (database, handle, descriptor) -> this.references = legacy ? new ReferenceDB.Legacy(database, handle, descriptor) : new ReferenceDB(database, handle, descriptor), legacy ? null : UInt64SetMergeOperator.INSTANCE)
-                .add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
+                .add("references", (database, handle, descriptor) -> this.references = legacy ? new ReferenceDB.Legacy(database, handle, descriptor) : new ReferenceDB(database, handle, descriptor), legacy ? null : UInt64SetMergeOperator.INSTANCE);
+
+        if (legacy) {
+            builder.add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
+        } else {
+            builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor));
+        }
+
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
@@ -157,23 +177,32 @@ public final class Storage implements AutoCloseable {
             this.db = builder.build(root.resolve("db"));
         }
 
-        this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
-
-        this.replicationTimestamp = new OffHeapAtomicLong(root.resolve("osm_replicationTimestamp"), -1L);
+        if (!legacy) {
+            this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
+            this.sequenceNumberProperty = this.properties.getLongProperty("sequenceNumber");
+            this.replicationTimestampProperty = this.properties.getLongProperty("replicationTimestamp");
+            this.replicationBaseUrlProperty = this.properties.getStringProperty("replicationBaseUrl");
+        }
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
         this.elementsByType.put(Relation.TYPE, this.relations);
         this.elementsByType.put(Coastline.TYPE, this.coastlines);
 
-        Path replicationUrlFile = root.resolve("replication_base_url.txt");
-        if (Files.exists(replicationUrlFile)) {
-            this.replicationBaseUrl = new String(Files.readAllBytes(replicationUrlFile)).trim();
-        } else {
-            this.setReplicationBaseUrl("https://planet.openstreetmap.org/replication/minute/");
-        }
-
         this.tmpDirectoryPath = root.resolve("tmp");
+
+        if (!legacy) {
+            OptionalLong version = this.versionNumberProperty.getLong(this.db.read());
+            if (!version.isPresent()) {
+                if (!config.readOnly()) {
+                    try (DBWriteAccess batch = this.db.beginLocalBatch()) {
+                        this.versionNumberProperty.set(batch, 1L);
+                    }
+                }
+            } else if (version.getAsLong() != 1L) {
+                throw new IllegalStateException("storage at '" + root + "' is at version v" + version.getAsLong() + ", but this version of T++OSMTileGen only supports v1");
+            }
+        }
     }
 
     public void putNode(@NonNull DBWriteAccess access, @NonNull Node node, @NonNull Point point) throws Exception {
@@ -181,12 +210,25 @@ public final class Storage implements AutoCloseable {
         this.nodes.put(access, node.id(), node);
     }
 
+    public void deleteNode(@NonNull DBWriteAccess access, long id) throws Exception {
+        this.points.delete(access, id);
+        this.nodes.delete(access, id);
+    }
+
     public void putWay(@NonNull DBWriteAccess access, @NonNull Way way) throws Exception {
         this.ways.put(access, way.id(), way);
     }
 
+    public void deleteWay(@NonNull DBWriteAccess access, long id) throws Exception {
+        this.ways.delete(access, id);
+    }
+
     public void putRelation(@NonNull DBWriteAccess access, @NonNull Relation relation) throws Exception {
         this.relations.put(access, relation.id(), relation);
+    }
+
+    public void deleteRelation(@NonNull DBWriteAccess access, long id) throws Exception {
+        this.relations.delete(access, id);
     }
 
     public Element getElement(@NonNull DBReadAccess access, long combinedId) throws Exception {
@@ -335,10 +377,6 @@ public final class Storage implements AutoCloseable {
             checkpoint.createCheckpoint(tmpDir.resolve("db").toString());
         }
 
-        logger.info("Copying extra stuff...");
-        Files.write(tmpDir.resolve("replication_base_url.txt"), this.replicationBaseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-        new OffHeapAtomicLong(tmpDir.resolve("osm_replicationTimestamp"), this.replicationTimestamp.get()).close();
-
         if (Files.exists(this.root.resolve("custom"))) {
             this.copyRecursive(this.root.resolve("custom"), tmpDir.resolve("custom"));
         }
@@ -367,22 +405,12 @@ public final class Storage implements AutoCloseable {
             this.db.delegate().flushWal(true);
         }
 
-        this.replicationTimestamp.close();
-
         this.db.close();
 
         if (!this.activeTmpFiles.isEmpty()) {
             logger.alert("some temporary files have not been closed:\n\n" + this.activeTmpFiles);
         }
         PFiles.rm(this.tmpDirectoryPath.toFile());
-    }
-
-    public void setReplicationBaseUrl(@NonNull String baseUrl) throws Exception {
-        if (!baseUrl.endsWith("/")) {
-            baseUrl += '/';
-        }
-        this.replicationBaseUrl = baseUrl;
-        Files.write(this.root.resolve("replication_base_url.txt"), baseUrl.getBytes(), StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
     }
 
     public ChangesetState getLatestChangesetState() throws Exception {
@@ -403,7 +431,7 @@ public final class Storage implements AutoCloseable {
                 Changeset::parse);
     }
 
-    private <T> T getReplicationDataObject(@NonNull String path, boolean cache, @NonNull IOFunction<ByteBuf, T> parser) throws IOException {
+    private <T> T getReplicationDataObject(@NonNull String path, boolean cache, @NonNull IOFunction<ByteBuf, T> parser) throws Exception {
         Path file = this.root.resolve("replication").resolve(path);
         if (cache && Files.exists(file)) {
             try (FileChannel channel = FileChannel.open(file, StandardOpenOption.READ)) {
@@ -420,8 +448,19 @@ public final class Storage implements AutoCloseable {
             }
         }
 
+        Optional<String> replicationBaseUrl = this.replicationBaseUrlProperty().get(this.db().read());
+        if (!replicationBaseUrl.isPresent()) {
+            logger.warn("no replication base url is stored, falling back to default: '%s'", DEFAULT_REPLICATION_BASE_URL);
+            if (!this.db().config().readOnly()) {
+                try (DBWriteAccess batch = this.db().beginLocalBatch()) {
+                    this.replicationBaseUrlProperty().set(batch, DEFAULT_REPLICATION_BASE_URL);
+                }
+            }
+            replicationBaseUrl = Optional.of(DEFAULT_REPLICATION_BASE_URL);
+        }
+
         byte[] data;
-        try (InputStream in = new URL(this.replicationBaseUrl + path).openStream()) {
+        try (InputStream in = new URL(replicationBaseUrl.get() + path).openStream()) {
             data = StreamUtil.toByteArray(in);
         }
 

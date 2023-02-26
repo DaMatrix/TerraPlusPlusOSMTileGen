@@ -93,6 +93,11 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
+    public boolean isDirty() throws Exception {
+        return this.writeDelegate.isDirty();
+    }
+
+    @Override
     public void flush() throws Exception {
         this.writeDelegate.flush();
     }

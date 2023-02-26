@@ -24,8 +24,10 @@ import io.netty.util.concurrent.FastThreadLocal;
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 
+import java.util.ArrayList;
 import java.util.IdentityHashMap;
 import java.util.Iterator;
+import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.function.Consumer;
@@ -83,6 +85,12 @@ public abstract class IterableThreadLocal<V> extends FastThreadLocal<V> {
         }
         if (removed) {
             this.cleanupValue0(value);
+        }
+    }
+
+    public List<V> snapshotValues() {
+        synchronized (this.instances) {
+            return new ArrayList<>(this.instances.keySet());
         }
     }
 

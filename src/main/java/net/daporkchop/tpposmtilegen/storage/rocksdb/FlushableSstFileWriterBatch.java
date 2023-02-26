@@ -24,6 +24,7 @@ import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.throwing.EBiConsumer;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
+import net.daporkchop.lib.common.function.throwing.EPredicate;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
@@ -98,11 +99,12 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
 
     @Override
     public long getDataSize() throws Exception {
-        long sum = 0L;
-        for (ColumnState columnState : this.statesPerColumn.values()) {
-            sum = Math.addExact(sum, columnState.getDataSize());
-        }
-        return sum;
+        return this.statesPerColumn.values().stream().mapToLong(ColumnState::getDataSize).reduce(0L, Math::addExact);
+    }
+
+    @Override
+    public boolean isDirty() throws Exception {
+        return this.statesPerColumn.values().stream().anyMatch((EPredicate<ColumnState>) ColumnState::isDirty);
     }
 
     @Override
@@ -230,7 +232,7 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
         }
 
         @Override
-        public long getDataSize() throws Exception {
+        public long getDataSize() {
             return this.dataSize;
         }
 

@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -22,12 +22,15 @@ package net.daporkchop.tpposmtilegen.util;
 
 import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
+import lombok.SneakyThrows;
 import lombok.experimental.UtilityClass;
-import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.throwing.EConsumer;
 import net.daporkchop.lib.common.util.PorkUtil;
 
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.List;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
@@ -82,18 +85,50 @@ public class Threading {
     }
 
     public <T> void iterateParallel(int threads, int maxQueueSize, @NonNull EConsumer<EConsumer<T>> iterator, @NonNull EConsumer<T> function) throws Exception {
+        List<Throwable> exceptions = new ArrayList<>();
         try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
             Semaphore semaphore = new Semaphore(maxQueueSize);
             iterator.acceptThrowing(v -> {
+                tryThrowExceptions(exceptions);
+
                 semaphore.acquireUninterruptibly();
                 executor.execute(() -> {
                     try {
-                        function.accept(v);
+                        if (exceptions.isEmpty()) {
+                            function.accept(v);
+                        }
+                    } catch (Throwable t) {
+                        synchronized (exceptions) {
+                            exceptions.add(t);
+                        }
                     } finally {
                         semaphore.release();
                     }
                 });
             });
+        } catch (Exception e) {
+            tryAddExceptions(exceptions, e);
+            throw e;
         }
+        tryThrowExceptions(exceptions);
+    }
+
+    @SneakyThrows
+    private void tryThrowExceptions(List<Throwable> exceptions) {
+        if (!exceptions.isEmpty()) {
+            AsyncException e = new AsyncException();
+            tryAddExceptions(exceptions, e);
+            throw e;
+        }
+    }
+
+    private void tryAddExceptions(List<Throwable> exceptions, Throwable e) {
+        synchronized (exceptions) {
+            exceptions.forEach(e::addSuppressed);
+            exceptions.clear();
+        }
+    }
+
+    public static class AsyncException extends Exception {
     }
 }

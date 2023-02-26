@@ -73,6 +73,11 @@ final class ThreadLocalDBWriteAccess implements DBWriteAccess {
     }
 
     @Override
+    public boolean isDirty() throws Exception {
+        return this.delegate.get().isDirty();
+    }
+
+    @Override
     public void flush() throws Exception {
         List<DBWriteAccess> instances = new ArrayList<>();
         this.delegate.forEach(instances::add);

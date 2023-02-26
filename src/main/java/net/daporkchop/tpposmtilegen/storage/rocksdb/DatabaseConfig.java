@@ -28,9 +28,9 @@ import lombok.With;
 import net.daporkchop.lib.common.util.PValidation;
 import org.rocksdb.AccessHint;
 import org.rocksdb.BlockBasedTableConfig;
-import org.rocksdb.BloomFilter;
 import org.rocksdb.Cache;
 import org.rocksdb.ColumnFamilyOptions;
+import org.rocksdb.CompactRangeOptions;
 import org.rocksdb.CompactionOptionsUniversal;
 import org.rocksdb.CompactionStyle;
 import org.rocksdb.CompressionOptions;
@@ -38,11 +38,9 @@ import org.rocksdb.CompressionType;
 import org.rocksdb.DBOptions;
 import org.rocksdb.Env;
 import org.rocksdb.EnvOptions;
-import org.rocksdb.ExternalFileIngestionInfo;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.IngestExternalFileOptions;
 import org.rocksdb.LRUCache;
-import org.rocksdb.Options;
 import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -54,7 +52,6 @@ import java.util.Arrays;
 import java.util.Collections;
 import java.util.EnumMap;
 import java.util.Objects;
-import java.util.function.Function;
 import java.util.function.UnaryOperator;
 
 import static net.daporkchop.lib.common.util.PorkUtil.*;
@@ -185,6 +182,9 @@ public final class DatabaseConfig {
                         .setWriteGlobalSeqno(baseOptions.writeGlobalSeqno())
                         .setMoveFiles(true)
                 )
+                .compactRangeOptions(new CompactRangeOptions()
+                        .setChangeLevel(true)
+                )
                 .build();
 
         RW_BULK_LOAD = RW_GENERAL.toBuilder()
@@ -265,29 +265,32 @@ public final class DatabaseConfig {
     @Builder.ObtainVia(method = "ingestOptionsByType")
     private final EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType;
 
+    @NonNull
+    private final CompactRangeOptions compactRangeOptions;
+
     private final boolean transactional;
     private final boolean readOnly;
 
     @Getter(lazy = true)
     private final EnvOptions envOptions = new EnvOptions(this.dbOptions);
 
-    private EnumMap<ColumnFamilyType, ColumnFamilyOptions> columnFamilyOptionsByType() {
+    public EnumMap<ColumnFamilyType, ColumnFamilyOptions> columnFamilyOptionsByType() {
         return new EnumMap<>(this.columnFamilyOptionsByType);
     }
 
-    private EnumMap<ReadType, ReadOptions> readOptionsByType() {
+    public EnumMap<ReadType, ReadOptions> readOptionsByType() {
         return new EnumMap<>(this.readOptionsByType);
     }
 
-    private EnumMap<WriteType, WriteOptions> writeOptionsByType() {
+    public EnumMap<WriteType, WriteOptions> writeOptionsByType() {
         return new EnumMap<>(this.writeOptionsByType);
     }
 
-    private EnumMap<FlushType, FlushOptions> flushOptionsByType() {
+    public EnumMap<FlushType, FlushOptions> flushOptionsByType() {
         return new EnumMap<>(this.flushOptionsByType);
     }
 
-    private EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType() {
+    public EnumMap<IngestType, IngestExternalFileOptions> ingestOptionsByType() {
         return new EnumMap<>(this.ingestOptionsByType);
     }
 

@@ -22,13 +22,13 @@ package net.daporkchop.tpposmtilegen.storage.map;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
+import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.system.PlatformInfo;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
@@ -38,14 +38,15 @@ import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksIterator;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.stream.LongStream;
 
 import static java.lang.Math.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
@@ -169,7 +170,77 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                 });
     }
 
+    public void forEachKeyParallel(@NonNull DBReadAccess access, @NonNull LongConsumer callback, @NonNull KeyDistribution distribution) throws Exception {
+        switch (distribution) {
+            case UNKNOWN:
+            case SCATTERED:
+            case EVEN_SPARSE:
+                Threading.<byte[]>iterateParallel(32 * CPU_COUNT,
+                        c -> {
+                            try (DBIterator itr = access.iterator(this.column)) {
+                                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
+                                    c.accept(itr.key());
+                                }
+                            }
+                        },
+                        keyArray -> {
+                            long key = PUnsafe.getLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                            if (PlatformInfo.IS_LITTLE_ENDIAN) {
+                                key = Long.reverseBytes(key);
+                            }
+                            callback.accept(key);
+                        });
+                break;
+            case EVEN_DENSE: {
+                long firstKey;
+                long lastKey;
+                try (DBIterator itr = access.iterator(this.column)) {
+                    itr.seekToFirst();
+                    if (!itr.isValid()) { //column family is empty
+                        return;
+                    }
+                    firstKey = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+                    itr.seekToLast();
+                    checkState(itr.isValid());
+                    lastKey = PUnsafe.getLong(itr.key(), PUnsafe.ARRAY_BYTE_BASE_OFFSET);
+
+                    if (PlatformInfo.IS_LITTLE_ENDIAN) {
+                        firstKey = Long.reverseBytes(firstKey);
+                        lastKey = Long.reverseBytes(lastKey);
+                    }
+                }
+
+                //TODO: this could be improved further by using an iterator for sub-ranges
+                Threading.forEachParallelLong(key -> {
+                    ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+                    byte[] keyArray = keyArrayRecycler.get();
+                    try {
+                        PUnsafe.putLong(keyArray, PUnsafe.ARRAY_BYTE_BASE_OFFSET, PlatformInfo.IS_LITTLE_ENDIAN ? Long.reverseBytes(key) : key);
+
+                        if (access.get(this.column, keyArray) != null) {
+                            callback.accept(key);
+                        }
+                    } catch (Exception e) {
+                        PUnsafe.throwException(e);
+                    } finally {
+                        keyArrayRecycler.release(keyArray);
+                    }
+                }, LongStream.rangeClosed(firstKey, lastKey).spliterator());
+                break;
+            }
+            default:
+                throw new IllegalArgumentException(distribution.name());
+        }
+    }
+
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);
 
     protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);
+
+    public enum KeyDistribution {
+        UNKNOWN,
+        SCATTERED,
+        EVEN_SPARSE,
+        EVEN_DENSE,
+    }
 }

@@ -46,6 +46,10 @@ public interface DBWriteAccess extends DBBaseAccess {
 
     long getDataSize() throws Exception;
 
+    default boolean isDirty() throws Exception {
+        return this.getDataSize() != 0L;
+    }
+
     void flush() throws Exception;
 
     void clear() throws Exception;

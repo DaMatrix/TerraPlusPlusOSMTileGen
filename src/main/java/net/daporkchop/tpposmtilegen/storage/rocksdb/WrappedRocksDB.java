@@ -62,7 +62,7 @@ public abstract class WrappedRocksDB {
 
     public void compact() throws Exception {
         //forces compaction of the entire column family
-        this.database.delegate().compactRange(this.column);
+        this.database.delegate().compactRange(this.column, null, null, this.database.config().compactRangeOptions());
     }
 
     @RequiredArgsConstructor
