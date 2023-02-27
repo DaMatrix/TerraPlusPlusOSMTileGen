@@ -3,3 +3,4 @@
 - updater is totally broken now
 - changeset data fetcher needs to be able to retry failed requests
 - invalidate cloudflare cached URLs
+- Point needs to use 64-bit coordinates

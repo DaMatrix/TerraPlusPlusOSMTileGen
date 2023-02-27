@@ -82,23 +82,23 @@ public final class Way extends Element {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
+        super.toBytes(dst);
+
         dst.writeInt(this.nodes.length);
         for (long node : this.nodes) {
             dst.writeLong(node);
         }
-
-        super.toBytes(dst);
     }
 
     @Override
     public void fromBytes(@NonNull ByteBuf src) {
+        super.fromBytes(src);
+
         int count = src.readInt();
         this.nodes = new long[count];
         for (int i = 0; i < count; i++) {
             this.nodes[i] = src.readLong();
         }
-
-        super.fromBytes(src);
     }
 
     @Override
@@ -157,5 +157,11 @@ public final class Way extends Element {
         } finally {
             PUnsafe.freeMemory(addr);
         }
+    }
+
+    @Override
+    public void erase() {
+        super.erase();
+        this.nodes = null;
     }
 }

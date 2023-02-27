@@ -25,7 +25,7 @@ export CXX			:=	clang++
 export LD			:=	clang++
 
 ifndef NATIVES_DEBUG
-export CFLAGS		:=	-O3 -ffast-math
+export CFLAGS		:=	-O2 -ffast-math
 export BUILD_TYPE	:=	release
 else
 export CFLAGS		:=	-O2 -DNATIVES_DEBUG

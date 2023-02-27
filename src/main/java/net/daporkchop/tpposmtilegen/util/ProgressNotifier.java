@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -72,6 +72,8 @@ public final class ProgressNotifier implements AutoCloseable {
     @Getter
     protected final Logger logger;
 
+    protected boolean closed = false;
+
     private ProgressNotifier(@NonNull Slot[] slots, @NonNull String prefix, long interval) {
         this.slots = slots;
         this.prefix = prefix;
@@ -129,6 +131,11 @@ public final class ProgressNotifier implements AutoCloseable {
 
     @Override
     public void close() throws InterruptedException {
+        if (this.closed) {
+            return;
+        }
+        this.closed = true;
+
         this.thread.interrupt();
         this.thread.join();
 

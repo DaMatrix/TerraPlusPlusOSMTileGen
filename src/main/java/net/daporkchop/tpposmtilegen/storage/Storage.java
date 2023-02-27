@@ -208,14 +208,15 @@ public final class Storage implements AutoCloseable {
 
         if (!legacy) {
             OptionalLong version = this.versionNumberProperty.getLong(this.db.read());
+            final long supportedVersion = 2L;
             if (!version.isPresent()) {
                 if (!config.readOnly()) {
                     try (DBWriteAccess batch = this.db.beginLocalBatch()) {
-                        this.versionNumberProperty.set(batch, 1L);
+                        this.versionNumberProperty.set(batch, supportedVersion);
                     }
                 }
-            } else if (version.getAsLong() != 1L) {
-                throw new IllegalStateException("storage at '" + root + "' is at version v" + version.getAsLong() + ", but this version of T++OSMTileGen only supports v1");
+            } else if (version.getAsLong() != supportedVersion) {
+                throw new IllegalStateException("storage at '" + root + "' is at version v" + version.getAsLong() + ", but this version of T++OSMTileGen only supports v" + supportedVersion);
             }
         }
     }

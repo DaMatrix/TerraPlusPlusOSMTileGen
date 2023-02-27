@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse;
 
 import lombok.NonNull;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.util.mmap.SparseMemoryMap;
 import net.daporkchop.tpposmtilegen.util.mmap.alloc.Allocator;
 
@@ -47,6 +48,7 @@ public abstract class AbstractSparseAllocator extends SparseMemoryMap implements
     }
 
     protected void initHeaders() {
+        Memory.madvise(this.addr, this.size, Memory.Usage.MADV_REMOVE);
         PUnsafe.setMemory(this.addr, this.headerSize(), (byte) 0);
         PUnsafe.putLong(this.addr, MAGIC);
     }

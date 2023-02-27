@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -55,7 +55,7 @@ public class OffHeapAtomicBitSet extends AbstractSparseAllocator {
         return (PUnsafe.getLong(addr + this.base + 8L + (wordIndex << 3L)) & (1L << (index & 0x3FL))) != 0L;
     }
 
-    public void set(long index) {
+    public boolean set(long index) {
         long wordIndex = index >>> 6L;
         this.ensureCapacity(wordIndex);
 
@@ -64,6 +64,7 @@ public class OffHeapAtomicBitSet extends AbstractSparseAllocator {
         do {
             val = PUnsafe.getLongVolatile(null, wordAddr);
         } while (!PUnsafe.compareAndSwapLong(null, wordAddr, val, val | (1L << (index & 0x3FL))));
+        return (val & (1L << (index & 0x3FL))) != 0L;
     }
 
     public void clear(long index) {

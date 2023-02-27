@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2020 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -65,7 +65,7 @@ public class MemoryMap implements AutoCloseable {
         }
     }
 
-    protected static void truncate0(@NonNull FileChannel channel, long size) {
+    public static void truncate0(@NonNull FileChannel channel, long size) {
         try {
             Field fdField = FILE_CHANNEL_IMPL.getDeclaredField("fd");
             fdField.setAccessible(true);

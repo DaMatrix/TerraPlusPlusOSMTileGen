@@ -88,23 +88,23 @@ public final class Relation extends Element {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
+        super.toBytes(dst);
+
         dst.writeInt(this.members.length);
         for (Member member : this.members) {
             member.write(dst);
         }
-
-        super.toBytes(dst);
     }
 
     @Override
     public void fromBytes(@NonNull ByteBuf src) {
+        super.fromBytes(src);
+
         int count = src.readInt();
         this.members = new Member[count];
         for (int i = 0; i < count; i++) {
             this.members[i] = new Member(src);
         }
-
-        super.fromBytes(src);
     }
 
     @Override
@@ -199,6 +199,13 @@ public final class Relation extends Element {
         } finally {
             Arrays.stream(coordAddrs).forEach(PUnsafe::freeMemory);
         }
+    }
+
+    @Override
+    public void erase() {
+        super.erase();
+        Arrays.fill(this.members, null);
+        this.members = null;
     }
 
     /**

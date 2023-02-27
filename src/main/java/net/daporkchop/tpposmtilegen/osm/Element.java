@@ -32,8 +32,12 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
+import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.Collections;
 import java.util.Map;
+
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * An OpenStreetMap element.
@@ -85,6 +89,15 @@ public abstract class Element implements Persistent {
         return (int) (combined >>> 62L);
     }
 
+    public static int getVersionFromSerialized(@NonNull ByteBuffer data) {
+        checkArg(data.order() == ByteOrder.BIG_ENDIAN);
+        return data.getInt(data.position());
+    }
+
+    public static int getVersionFromSerialized(@NonNull ByteBuf data) {
+        return data.getInt(data.readerIndex());
+    }
+
     protected final long id;
     protected Map<String, String> tags;
     protected int version;
@@ -124,4 +137,9 @@ public abstract class Element implements Persistent {
     public abstract void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception;
 
     public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception;
+
+    public void erase() {
+        this.tags.clear();
+        this.tags = null;
+    }
 }
