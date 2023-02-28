@@ -335,8 +335,6 @@ public class DigestPBF implements IMode {
         public void close() throws Exception {
             this.notifier.close();
 
-            this.state.forEach((EConsumer<ThreadState>) ThreadState::flush);
-
             for (OSMDataUnsortedWriteAccess access : this.osmDataWriteAccesses) {
                 access.flush();
             }
@@ -354,8 +352,17 @@ public class DigestPBF implements IMode {
             private com.wolt.osm.parallelpbf.entity.Way way;
             private com.wolt.osm.parallelpbf.entity.Relation relation;
 
+            private Class<? extends OsmEntity> lastType = com.wolt.osm.parallelpbf.entity.Node.class;
+
             public void accept(@NonNull com.wolt.osm.parallelpbf.entity.Node node) throws Exception {
                 checkState(this.way == null && this.relation == null);
+                checkState(this.lastType == com.wolt.osm.parallelpbf.entity.Node.class, this.lastType);
+
+                if (!this.joined) {
+                    this.joined = true;
+                    PbfElementHandler.this.nodesWriteAccess.threadJoin();
+                    PbfElementHandler.this.pointsWriteAccess.threadJoin();
+                }
 
                 if (this.node != null) {
                     if (this.node.getId() == node.getId()) {
@@ -378,13 +385,18 @@ public class DigestPBF implements IMode {
             }
 
             public void accept(@NonNull com.wolt.osm.parallelpbf.entity.Way way) throws Exception {
-                checkState(this.relation == null);
+                checkState(this.node == null && this.relation == null);
 
-                if (this.node != null) {
-                    checkState(this.way == null);
-                    PbfElementHandler.this.writeNode(this.node);
-                    erase(this.node);
-                    this.node = null;
+                if (this.lastType == com.wolt.osm.parallelpbf.entity.Node.class) {
+                    PbfElementHandler.this.nodesWriteAccess.threadQuit();
+                    PbfElementHandler.this.pointsWriteAccess.threadQuit();
+                    this.lastType = com.wolt.osm.parallelpbf.entity.Way.class;
+                }
+                checkState(this.lastType == com.wolt.osm.parallelpbf.entity.Way.class, this.lastType);
+
+                if (!this.joined) {
+                    this.joined = true;
+                    PbfElementHandler.this.waysWriteAccess.threadJoin();
                 }
 
                 if (this.way != null) {
@@ -408,16 +420,22 @@ public class DigestPBF implements IMode {
             }
 
             public void accept(@NonNull com.wolt.osm.parallelpbf.entity.Relation relation) throws Exception {
-                if (this.node != null) {
-                    checkState(this.way == null && this.relation == null);
-                    PbfElementHandler.this.writeNode(this.node);
-                    erase(this.node);
-                    this.node = null;
-                } else if (this.way != null) {
-                    checkState(this.relation == null);
-                    PbfElementHandler.this.writeWay(this.way);
-                    erase(this.way);
-                    this.way = null;
+                checkState(this.node == null && this.way == null);
+
+                if (this.lastType == com.wolt.osm.parallelpbf.entity.Node.class) {
+                    PbfElementHandler.this.nodesWriteAccess.threadQuit();
+                    PbfElementHandler.this.pointsWriteAccess.threadQuit();
+                    this.lastType = com.wolt.osm.parallelpbf.entity.Way.class;
+                }
+                if (this.lastType == com.wolt.osm.parallelpbf.entity.Way.class) {
+                    PbfElementHandler.this.waysWriteAccess.threadQuit();
+                    this.lastType = com.wolt.osm.parallelpbf.entity.Relation.class;
+                }
+                checkState(this.lastType == com.wolt.osm.parallelpbf.entity.Relation.class, this.lastType);
+
+                if (!this.joined) {
+                    this.joined = true;
+                    PbfElementHandler.this.relationsWriteAccess.threadJoin();
                 }
 
                 if (this.relation != null) {

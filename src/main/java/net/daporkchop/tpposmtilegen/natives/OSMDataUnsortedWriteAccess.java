@@ -116,7 +116,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
         this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
-        this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.SHARED, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
+        this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
 
         this.lastFlush = FlushInfo.builder().valueSize(0L).targetKeyExclusive(0L).build();
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
@@ -224,7 +224,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.maxKey.accumulate(currentKey);
 
         ThreadState state = this.threadStates.get();
-        checkState(state.joined);
+        checkState(state.state == ThreadState.State.JOINED);
 
         long lastKey = state.lastKey;
         state.lastKey = currentKey;
@@ -240,7 +240,9 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private void tryTriggerPendingFlush(@NonNull FlushInfo pendingFlush) {
         List<ThreadState> otherThreadsStates = this.threadStates.snapshotValues();
-        if (otherThreadsStates.size() == this.threads && otherThreadsStates.stream().allMatch(otherState -> otherState.activelyFlushing || otherState.lastKey > pendingFlush.targetKeyExclusive)) {
+        if (otherThreadsStates.size() == this.threads && otherThreadsStates.stream().allMatch(otherState -> otherState.state == ThreadState.State.ACTIVELY_FLUSHING
+                                                                                                            || otherState.state == ThreadState.State.QUIT
+                                                                                                            || otherState.lastKey > pendingFlush.targetKeyExclusive)) {
             //every other thread has already been started and has passed the target key
             this.executePendingFlush(pendingFlush);
         } else {
@@ -281,24 +283,29 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     public void threadJoin() {
         ThreadState state = this.threadStates.get();
-        checkState(!state.joined);
-        state.joined = true;
+        checkState(state.state == ThreadState.State.INACTIVE, state.state);
+        state.state = ThreadState.State.JOINED;
     }
 
     public void threadRemove() {
         ThreadState state = this.threadStates.get();
-        checkState(state.joined);
-        state.joined = false;
+        checkState(state.state == ThreadState.State.JOINED, state.state);
 
-        FlushInfo pendingFlush = this.pendingFlush;
-        if (pendingFlush != null && state.lastKey >= pendingFlush.targetKeyExclusive) {
-            try {
-                state.activelyFlushing = true;
+        try {
+            FlushInfo pendingFlush = this.pendingFlush;
+            if (pendingFlush != null && state.lastKey >= pendingFlush.targetKeyExclusive) {
+                state.state = ThreadState.State.ACTIVELY_FLUSHING;
                 this.tryTriggerPendingFlush(pendingFlush);
-            } finally {
-                state.activelyFlushing = false;
             }
+        } finally {
+            state.state = ThreadState.State.INACTIVE;
         }
+    }
+
+    public void threadQuit() {
+        ThreadState state = this.threadStates.get();
+        checkState(state.state == ThreadState.State.INACTIVE, state.state);
+        state.state = ThreadState.State.QUIT;
     }
 
     @Override
@@ -306,19 +313,16 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkState(!this.flushing, "already flushing?!?");
         this.flushing = true;
 
-        checkState(this.threadStates.snapshotValues().stream().anyMatch(ThreadState::joined), "some worker threads are still alive?!?");
+        checkState(this.threadStates.snapshotValues().stream().anyMatch(state -> state.state != ThreadState.State.QUIT), "some worker threads are still alive?!?");
 
         if (this.pendingFlush != null) {
             this.executePendingFlush(this.pendingFlush);
         }
 
-        //long lastKey = this.lastKeyPerThread.snapshotValues().stream().mapToLong(MutableLong::longValue).max().getAsLong();
         long lastKey = this.maxKey.get();
         this.scheduleFlush(lastKey, this.valueSize.sum());
         this.executePendingFlush(this.pendingFlush);
     }
-
-    private static native long[] partitionSortedRange(long addr, long size, long targetBlockSize) throws OutOfMemoryError;
 
     private static native int trySwapIndexEntry(long indexBegin, long key, long valueOffset);
 
@@ -353,13 +357,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
                 this.writtenKeys.add(writtenKeys);
 
                 writer.finish();
-            } finally {
-                /*long start = PMath.roundUp(indexAddr, PUnsafe.pageSize());
-                long size = PMath.roundUp(indexSize - 3L * PUnsafe.pageSize(), PUnsafe.pageSize());
-                if (size > 0L) {
-                    checkRangeLen(indexAddr, indexAddr + indexSize, start, size);
-                    Memory.madvise(start, size, Memory.Usage.MADV_DONTNEED);
-                }*/
             }
 
             return pathHandle;
@@ -397,7 +394,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             }
             throw e;
         } finally {
-            Memory.madvise(this.indexAddr, this.indexSize, Memory.Usage.MADV_NORMAL);
+            Memory.madvise(this.indexAddr, this.indexSize, Memory.Usage.MADV_DONTNEED);
         }
 
         paths.removeIf(Objects::isNull);
@@ -441,10 +438,16 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     @Getter
     private static final class ThreadState {
-        private boolean joined;
-        private boolean activelyFlushing;
+        private State state = State.INACTIVE;
 
         private long lastKey = 0L;
+
+        enum State {
+            INACTIVE,
+            JOINED,
+            ACTIVELY_FLUSHING,
+            QUIT,
+        }
     }
 
     @Getter

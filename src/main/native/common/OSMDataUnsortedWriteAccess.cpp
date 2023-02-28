@@ -64,53 +64,6 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorted
         (JNIEnv *env, jclass cla) {
 }
 
-JNIEXPORT jlongArray JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsortedWriteAccess_partitionSortedRange
-        (JNIEnv *env, jobject instance, jlong _addr, jlong _size, jlong _targetBlockSize) {
-    try {
-        assert(_size % sizeof(keyvalue_t) == 0);
-        assert(_targetBlockSize % sizeof(keyvalue_t) == 0);
-
-        keyvalue_t* addr = reinterpret_cast<keyvalue_t*>(_addr);
-        ptrdiff_t size = static_cast<ptrdiff_t>(_size / sizeof(keyvalue_t));
-        ptrdiff_t targetBlockSize = static_cast<ptrdiff_t>(_targetBlockSize / sizeof(keyvalue_t));
-
-        madvise(addr, size * sizeof(keyvalue_t), MADV_RANDOM);
-
-        keyvalue_t* blockStart = addr;
-        keyvalue_t* totalEnd = addr + size;
-
-        using element_t = std::pair<keyvalue_t*, ptrdiff_t>;
-        static_assert(sizeof(element_t) == 2 * sizeof(jlong));
-        std::vector<element_t> blocks;
-#if true
-        while (blockStart < totalEnd) {
-            keyvalue_t* blockEnd;
-            if (totalEnd - blockStart <= targetBlockSize) { //tail
-                blockEnd = totalEnd;
-            } else { //skip ahead until we run out of entries with the same key
-                blockEnd = blockStart + targetBlockSize;
-            }
-
-            DEBUG_MSG("added block from " << ((void*) ((blockStart - addr) * sizeof(keyvalue_t))) << " to " << ((void*) ((blockEnd - addr) * sizeof(keyvalue_t)))
-                      << " (keys " << blockStart[0].key << " to " << blockEnd[-1].key << ")");
-            blocks.push_back({ blockStart, (blockEnd - blockStart) * sizeof(keyvalue_t) });
-            blockStart = blockEnd;
-        }
-#else
-        blocks.push_back({ addr, size * sizeof(keyvalue_t) });
-#endif
-
-        madvise(addr, size * sizeof(keyvalue_t), MADV_NORMAL);
-
-        jlongArray array = env->NewLongArray(blocks.size() * 2);
-        env->SetLongArrayRegion(array, 0, blocks.size() * 2, reinterpret_cast<jlong*>(&blocks[0]));
-        return array;
-    } catch (const std::bad_alloc& e) {
-        throwOutOfMemory(env, e);
-        return nullptr;
-    }
-}
-
 JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsortedWriteAccess_trySwapIndexEntry
         (JNIEnv *env, jobject instance, keyvalue_t* indexBegin, uint64_t key, const data_t* value) {
     if (indexBegin[key].key == 0) {
@@ -155,7 +108,8 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorte
                 rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
                 rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
 
-            free(const_cast<data_t*>(value));
+            //free(const_cast<data_t*>(value));
+            ::operator delete(static_cast<void*>(const_cast<data_t*>(value)), value->size + sizeof(data_t));
 
             if (!status.ok()) {
                 throwRocksdbException(env, status);
