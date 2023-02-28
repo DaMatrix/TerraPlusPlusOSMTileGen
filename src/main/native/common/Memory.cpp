@@ -110,7 +110,7 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_memcmp0_
 
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0__JJI
         (JNIEnv *env, jclass cla, jlong addr, jlong size, jint usage) {
-    static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE };
+    static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE, MADV_HUGEPAGE };
     auto res = madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
     if (res < 0) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));

@@ -117,6 +117,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
         this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
+        Memory.madvise(this.indexAddr, this.indexSize, Memory.Usage.MADV_HUGEPAGE);
 
         this.lastFlush = FlushInfo.builder().valueSize(0L).targetKeyExclusive(0L).build();
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());

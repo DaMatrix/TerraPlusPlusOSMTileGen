@@ -147,6 +147,7 @@ public class Memory {
         MADV_WILLNEED,
         MADV_DONTNEED,
         MADV_REMOVE,
+        MADV_HUGEPAGE,
     }
 
     private static native void madvise0(long addr, long size, int usage);
