@@ -21,17 +21,15 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import com.wolt.osm.parallelpbf.ParallelBinaryParser;
+import com.wolt.osm.parallelpbf.blob.BlobInformation;
 import com.wolt.osm.parallelpbf.entity.Header;
 import com.wolt.osm.parallelpbf.entity.OsmEntity;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.EConsumer;
+import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadlocal.TL;
-import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
-import net.daporkchop.lib.primitive.map.concurrent.LongObjConcurrentCustomUncachedHashMap;
-import net.daporkchop.lib.primitive.map.concurrent.LongObjConcurrentHashMap;
-import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.OSMDataUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -44,9 +42,7 @@ import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 import net.daporkchop.tpposmtilegen.util.IterableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
-import net.daporkchop.tpposmtilegen.util.offheap.OffHeapAtomicBitSet;
 import org.apache.commons.lang3.mutable.MutableInt;
-import org.apache.commons.lang3.mutable.MutableLong;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -59,8 +55,6 @@ import java.util.Scanner;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.function.Function;
 import java.util.function.ToIntFunction;
-import java.util.function.ToLongFunction;
-import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -231,6 +225,8 @@ public class DigestPBF implements IMode {
                         .onNode(elementHandler.nodeHandler)
                         .onWay(elementHandler.wayHandler)
                         .onRelation(elementHandler.relationHandler)
+                        .onBlobStart(elementHandler.blobStartHandler)
+                        .onBlobComplete(elementHandler.blobCompleteHandler)
                         .parse();
                 notifier.close();
             }
@@ -259,17 +255,22 @@ public class DigestPBF implements IMode {
 
         private final Storage storage;
 
-        private final DBWriteAccess nodesWriteAccess;
-        private final DBWriteAccess pointsWriteAccess;
-        private final DBWriteAccess waysWriteAccess;
-        private final DBWriteAccess relationsWriteAccess;
+        private final OSMDataUnsortedWriteAccess nodesWriteAccess;
+        private final OSMDataUnsortedWriteAccess pointsWriteAccess;
+        private final OSMDataUnsortedWriteAccess waysWriteAccess;
+        private final OSMDataUnsortedWriteAccess relationsWriteAccess;
         private final DBWriteAccess referencesWriteAccess;
+
+        private final OSMDataUnsortedWriteAccess[] osmDataWriteAccesses;
 
         private final ProgressNotifier notifier;
 
         private final EConsumer<com.wolt.osm.parallelpbf.entity.Node> nodeHandler = in -> this.state.get().accept(in);
         private final EConsumer<com.wolt.osm.parallelpbf.entity.Way> wayHandler = in -> this.state.get().accept(in);
         private final EConsumer<com.wolt.osm.parallelpbf.entity.Relation> relationHandler = in -> this.state.get().accept(in);
+
+        private final EConsumer<BlobInformation> blobStartHandler = in -> this.state.get().onBlobStart(in);
+        private final ERunnable blobCompleteHandler = () -> this.state.get().onBlobComplete();
 
         public PbfElementHandler(@NonNull Storage storage, @NonNull DBWriteAccess referencesWriteAccess, @NonNull ProgressNotifier notifier, int threads) throws Exception {
             this.storage = storage;
@@ -286,15 +287,18 @@ public class DigestPBF implements IMode {
                     storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.519971471d, threads);
             this.referencesWriteAccess = referencesWriteAccess;
 
+            this.osmDataWriteAccesses = new OSMDataUnsortedWriteAccess[] {
+                    this.nodesWriteAccess,
+                    this.pointsWriteAccess,
+                    this.waysWriteAccess,
+                    this.relationsWriteAccess
+            };
+
             this.notifier = notifier;
         }
 
         private void writeNode(com.wolt.osm.parallelpbf.entity.Node in) throws Exception {
             this.notifier.step(Node.TYPE);
-
-            if (in.getId() >= 1000000000L) {
-                //return;
-            }
 
             this.currentVersion.get().setValue(in.getInfo().getVersion());
 
@@ -333,18 +337,18 @@ public class DigestPBF implements IMode {
 
             this.state.forEach((EConsumer<ThreadState>) ThreadState::flush);
 
-            this.nodesWriteAccess.flush();
-            this.pointsWriteAccess.flush();
-            this.waysWriteAccess.flush();
-            this.relationsWriteAccess.flush();
+            for (OSMDataUnsortedWriteAccess access : this.osmDataWriteAccesses) {
+                access.flush();
+            }
 
-            this.nodesWriteAccess.close();
-            this.pointsWriteAccess.close();
-            this.waysWriteAccess.close();
-            this.relationsWriteAccess.close();
+            for (OSMDataUnsortedWriteAccess access : this.osmDataWriteAccesses) {
+                access.close();
+            }
         }
 
         private final class ThreadState {
+            private boolean joined = false;
+
             //only one of these three fields may be non-null at a time
             private com.wolt.osm.parallelpbf.entity.Node node;
             private com.wolt.osm.parallelpbf.entity.Way way;
@@ -451,6 +455,27 @@ public class DigestPBF implements IMode {
                     PbfElementHandler.this.writeRelation(this.relation);
                     erase(this.relation);
                     this.relation = null;
+                }
+            }
+
+            public void onBlobStart(BlobInformation blobInformation) throws Exception {
+                checkState(!this.joined);
+
+                if (BlobInformation.TYPE_OSM_DATA.equals(blobInformation.getType())) {
+                    this.joined = true;
+                    for (OSMDataUnsortedWriteAccess access : PbfElementHandler.this.osmDataWriteAccesses) {
+                        access.threadJoin();
+                    }
+                }
+            }
+
+            public void onBlobComplete() throws Exception {
+                if (this.joined) {
+                    this.flush();
+                    for (OSMDataUnsortedWriteAccess access : PbfElementHandler.this.osmDataWriteAccesses) {
+                        access.threadRemove();
+                    }
+                    this.joined = false;
                 }
             }
         }

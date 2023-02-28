@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.natives;
 
 import lombok.Builder;
+import lombok.Getter;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.ToString;
@@ -28,7 +29,9 @@ import net.daporkchop.lib.common.function.exception.ESupplier;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.pool.handle.Handle;
+import net.daporkchop.lib.common.util.exception.AlreadyReleasedException;
 import net.daporkchop.lib.logging.Logger;
 import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.lib.unsafe.PUnsafe;
@@ -37,14 +40,11 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.IterableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
-import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import org.apache.commons.lang3.mutable.MutableLong;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.Options;
 import org.rocksdb.SstFileWriter;
 
 import java.nio.ByteBuffer;
-import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -59,7 +59,6 @@ import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
 
-import static java.nio.file.StandardOpenOption.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
@@ -81,6 +80,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final long indexSize = 1L << 40L;
 
     private final LongAccumulator maxKey = new LongAccumulator(Long::max, 0L);
+    private final LongAdder writtenKeys = new LongAdder();
     private final LongAdder valueCount = new LongAdder();
     private final LongAdder valueSize = new LongAdder();
 
@@ -90,7 +90,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final long flushTriggerThreshold;
 
     private final int threads;
-    private final IterableThreadLocal<MutableLong> lastKeyPerThread = IterableThreadLocal.of(MutableLong::new);
+    private final IterableThreadLocal<ThreadState> threadStates = IterableThreadLocal.of(ThreadState::new);
 
     private volatile FlushInfo lastFlush;
     private volatile FlushInfo pendingFlush;
@@ -116,9 +116,9 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
         this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
-        this.indexAddr = Memory.mmapAnon(this.indexSize);
+        this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.SHARED, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
 
-        this.lastFlush = FlushInfo.builder().valueSize(0L).targetKey(0L).build();
+        this.lastFlush = FlushInfo.builder().valueSize(0L).targetKeyExclusive(0L).build();
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
 
         Memory.releaseMemoryToSystem();
@@ -143,15 +143,21 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         }
 
         if (this.flushException) {
-            this.flushes.forEach(f -> {
-                if (f.isCompletedExceptionally()) {
-                    f.join();
-                }
-            });
+            while (true) {
+                this.flushes.forEach(f -> {
+                    if (f.isCompletedExceptionally()) {
+                        f.join();
+                    }
+                });
+            }
         }
 
         checkArg(key.remaining() == 8, key.remaining());
         long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
+
+        FlushInfo lastFlush = this.lastFlush;
+        checkArg(realKey >= lastFlush.targetKeyExclusive,
+                "tried to put key %d, which has already been flushed (last flush was up to and excluding key %d)", realKey, lastFlush.targetKeyExclusive);
 
         //allocate space for the value
         long valueAddr = Memory.malloc(value.remaining() + 4L + 4L);
@@ -206,8 +212,9 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private synchronized void scheduleFlush(long currentKey, long valueSize) {
         if (this.pendingFlush == null) {
-            this.logger.debug("scheduling flush from key %d @ %d B to key %d @ %d B", this.lastFlush.targetKey, this.lastFlush.valueSize, currentKey, valueSize);
-            this.pendingFlush = FlushInfo.builder().valueSize(valueSize).targetKey(currentKey).build();
+            currentKey = PMath.roundUp(currentKey, PUnsafe.pageSize() / 16L);
+            this.logger.debug("scheduling flush from key %d @ %d B (inclusive) to key %d @ %d B (exclusive)", this.lastFlush.targetKeyExclusive, this.lastFlush.valueSize, currentKey, valueSize);
+            this.pendingFlush = FlushInfo.builder().valueSize(valueSize).targetKeyExclusive(currentKey).build();
         }
     }
 
@@ -216,28 +223,32 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
         this.maxKey.accumulate(currentKey);
 
-        MutableLong lastKeyPerThread = this.lastKeyPerThread.get();
-        long lastKey = lastKeyPerThread.longValue();
-        lastKeyPerThread.setValue(currentKey);
+        ThreadState state = this.threadStates.get();
+        checkState(state.joined);
 
-        FlushInfo pendingFlush = this.pendingFlush;
+        long lastKey = state.lastKey;
+        state.lastKey = currentKey;
+
+        /*FlushInfo pendingFlush = this.pendingFlush;
         if (pendingFlush != null) {
-            if (lastKey <= pendingFlush.targetKey && currentKey > pendingFlush.targetKey) {
+            if (lastKey < pendingFlush.targetKeyExclusive && currentKey >= pendingFlush.targetKeyExclusive) {
                 //this thread has advanced to its first key beyond the target key
-                List<MutableLong> otherThreadsLastKey = this.lastKeyPerThread.snapshotValues();
-                checkState(otherThreadsLastKey.size() <= this.threads, otherThreadsLastKey.size());
-                if (otherThreadsLastKey.size() == this.threads && otherThreadsLastKey.stream().allMatch(l -> l.longValue() >= pendingFlush.targetKey)) {
-                    //every other thread has already been started and has passed the target key
-                    this.executePendingFlush(pendingFlush);
-                } else {
-                    int i = 0;
-                }
+                this.tryTriggerPendingFlush(pendingFlush);
             }
+        }*/
+    }
+
+    private void tryTriggerPendingFlush(@NonNull FlushInfo pendingFlush) {
+        List<ThreadState> otherThreadsStates = this.threadStates.snapshotValues();
+        if (otherThreadsStates.size() == this.threads && otherThreadsStates.stream().allMatch(otherState -> otherState.activelyFlushing || otherState.lastKey > pendingFlush.targetKeyExclusive)) {
+            //every other thread has already been started and has passed the target key
+            this.executePendingFlush(pendingFlush);
+        } else {
+            int i = 0;
         }
     }
 
     private void executePendingFlush(@NonNull FlushInfo pendingFlush) {
-
         FlushInfo lastFlush;
         synchronized (this) {
             if (this.pendingFlush != pendingFlush) {
@@ -250,22 +261,44 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             this.pendingFlush = null;
         }
 
-        this.logger.debug("executing flush: " + pendingFlush + " (" + (this.threads - this.ongoingFlushes.availablePermits()) + " flushes active)");
+        this.logger.debug("executing flush: " + pendingFlush + " (" + (this.threadStates.snapshotValues().size() - this.ongoingFlushes.availablePermits()) + " flushes active)");
 
-        this.flushes.add(CompletableFuture.supplyAsync((ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(
+        /*this.flushes.add(CompletableFuture.supplyAsync((ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(
                 this.indexAddr + (lastFlush.targetKey + 1L) * 16L,
-                (pendingFlush.targetKey - lastFlush.targetKey) * 16L)));
+                (pendingFlush.targetKey - lastFlush.targetKey) * 16L)));*/
 
-        /*CompletableFuture<Handle<Path>> flushFuture = new CompletableFuture<>();
+        CompletableFuture<Handle<Path>> flushFuture = new CompletableFuture<>();
         this.flushes.add(flushFuture);
         try {
             flushFuture.complete(this.buildSstFileFromRange(
-                    this.indexMapping.addr() + (lastFlush.targetKey + 1L) * 16L,
-                    (pendingFlush.targetKey - lastFlush.targetKey) * 16L));
+                    this.indexAddr + lastFlush.targetKeyExclusive * 16L,
+                    (pendingFlush.targetKeyExclusive - lastFlush.targetKeyExclusive) * 16L));
         } catch (Throwable t) {
             flushFuture.completeExceptionally(t);
             throw PUnsafe.throwException(t);
-        }*/
+        }
+    }
+
+    public void threadJoin() {
+        ThreadState state = this.threadStates.get();
+        checkState(!state.joined);
+        state.joined = true;
+    }
+
+    public void threadRemove() {
+        ThreadState state = this.threadStates.get();
+        checkState(state.joined);
+        state.joined = false;
+
+        FlushInfo pendingFlush = this.pendingFlush;
+        if (pendingFlush != null && state.lastKey >= pendingFlush.targetKeyExclusive) {
+            try {
+                state.activelyFlushing = true;
+                this.tryTriggerPendingFlush(pendingFlush);
+            } finally {
+                state.activelyFlushing = false;
+            }
+        }
     }
 
     @Override
@@ -273,7 +306,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkState(!this.flushing, "already flushing?!?");
         this.flushing = true;
 
-        checkState(this.lastKeyPerThread.snapshotValues().isEmpty(), "some worker threads are still alive?!?");
+        checkState(this.threadStates.snapshotValues().stream().anyMatch(ThreadState::joined), "some worker threads are still alive?!?");
 
         if (this.pendingFlush != null) {
             this.executePendingFlush(this.pendingFlush);
@@ -289,10 +322,14 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private static native int trySwapIndexEntry(long indexBegin, long key, long valueOffset);
 
-    private static native boolean appendKeys(long writerHandle, long begin, long end);
+    private static native long appendKeys(long writerHandle, long begin, long end);
 
     @SneakyThrows
     private Handle<Path> buildSstFileFromRange(long indexAddr, long indexSize) throws Exception {
+        checkState(indexAddr % PUnsafe.pageSize() == 0L, indexAddr);
+        checkState(indexSize % PUnsafe.pageSize() == 0L, indexSize);
+        Memory.mprotect(indexAddr, indexSize, Memory.MapProtection.READ);
+
         this.ongoingFlushes.acquireUninterruptibly();
         try {
             checkArg(indexSize % 16L == 0L, indexSize);
@@ -306,20 +343,23 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
             try (SstFileWriter writer = new SstFileWriter(this.storage.db().config().envOptions(), this.options)) {
                 writer.open(pathHandle.get().toString());
-                if (!appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize)) {
+                long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize);
+                if (writtenKeys == 0L) {
                     //no keys were appended
                     PFiles.rm(pathHandle.get());
                     pathHandle.close();
                     return null;
                 }
+                this.writtenKeys.add(writtenKeys);
+
                 writer.finish();
             } finally {
-                long start = PMath.roundUp(indexAddr, PUnsafe.pageSize());
+                /*long start = PMath.roundUp(indexAddr, PUnsafe.pageSize());
                 long size = PMath.roundUp(indexSize - 3L * PUnsafe.pageSize(), PUnsafe.pageSize());
                 if (size > 0L) {
                     checkRangeLen(indexAddr, indexAddr + indexSize, start, size);
-                    Memory.madvise(start, size, Memory.Usage.MADV_REMOVE);
-                }
+                    Memory.madvise(start, size, Memory.Usage.MADV_DONTNEED);
+                }*/
             }
 
             return pathHandle;
@@ -327,6 +367,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             this.flushException = true;
             throw t;
         } finally {
+            Memory.madvise(indexAddr, indexSize, Memory.Usage.MADV_DONTNEED);
+            Memory.mprotect(indexAddr, indexSize, Memory.MapProtection.NONE);
             this.ongoingFlushes.release();
         }
     }
@@ -373,7 +415,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             }
         }
 
-        this.logger.success("ingested %d bytes (%.2f MiB) in %d SST files totalling %d bytes (%.2f MiB)",
+        this.logger.success("ingested %d keys (valueCount reports %d) totalling %d bytes (%.2f MiB) in %d SST files totalling %d bytes (%.2f MiB)",
+                this.writtenKeys.sum(), this.valueCount.sum(),
                 this.getDataSize(), this.getDataSize() / (1024.0d * 1024.0d),
                 totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
 
@@ -393,6 +436,66 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     @ToString
     private static final class FlushInfo {
         private final long valueSize;
-        private final long targetKey;
+        private final long targetKeyExclusive;
+    }
+
+    @Getter
+    private static final class ThreadState {
+        private boolean joined;
+        private boolean activelyFlushing;
+
+        private long lastKey = 0L;
+    }
+
+    @Getter
+    private final class SequentialAllocationArena extends AbstractRefCounted {
+        private static final long MAX_SIZE = 1L << 30L; // 1GiB
+
+        private final long addr;
+        private long size;
+
+        private long nextAlloc;
+
+        private boolean locked;
+
+        public SequentialAllocationArena() {
+            this.addr = Memory.mmap(0L, MAX_SIZE, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
+            this.size = MAX_SIZE;
+        }
+
+        public synchronized long alloc(long len) {
+            checkState(!this.locked);
+            if (this.nextAlloc + notNegative(len, "len") > this.size) {
+                throw new OutOfMemoryError(String.valueOf(len));
+            }
+            long addr = this.addr + this.nextAlloc;
+            this.nextAlloc += len;
+            return addr;
+        }
+
+        public synchronized void lock() {
+            checkState(!this.locked);
+            this.locked = true;
+
+            //shrink the mapping down to the minimum size
+            long trimmedSize = PMath.roundUp(this.nextAlloc, PUnsafe.pageSize());
+            long newAddr = Memory.mremap(this.addr, this.size, trimmedSize);
+            checkState(this.addr == newAddr, "mremap returned a different address!");
+            this.size = trimmedSize;
+
+            //make the data read-only
+            Memory.mprotect(this.addr, this.size, Memory.MapProtection.READ);
+        }
+
+        @Override
+        public SequentialAllocationArena retain() throws AlreadyReleasedException {
+            super.retain();
+            return this;
+        }
+
+        @Override
+        protected void doRelease() {
+            Memory.munmap(this.addr, this.size);
+        }
     }
 }

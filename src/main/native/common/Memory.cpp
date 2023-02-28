@@ -1,7 +1,9 @@
 #include "tpposmtilegen_common.h"
 #include "malloc_extension.h"
 
+#include <new>
 #include <string>
+#include <string.h>
 #include <cstring>
 #include <stdexcept>
 
@@ -106,10 +108,13 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_memcmp0_
     return std::memcmp(reinterpret_cast<void*>(s1), reinterpret_cast<void*>(s2), n);
 }
 
-JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0__JJI
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0__JJI
         (JNIEnv *env, jclass cla, jlong addr, jlong size, jint usage) {
     static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE };
-    return madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
+    auto res = madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
+    if (res < 0) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
+    }
 }
 
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_malloc__J
@@ -137,25 +142,74 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__J
     free(reinterpret_cast<void*>(addr));
 }
 
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__JJ
+        (JNIEnv *env, jclass cla, jlong addr, jlong size) {
+    //this assumes that malloc and operator delete use the same allocator
+    ::operator delete(reinterpret_cast<void*>(addr), static_cast<size_t>(size));
+}
+
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_releaseMemoryToSystem
         (JNIEnv *env, jclass cla) {
     MallocExtension::instance()->ReleaseFreeMemory();
 }
 
-JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mmapAnon
-        (JNIEnv *env, jclass cla, jlong length) {
-    //void* ptr = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, 0, 0);
-    void* ptr = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE, 0, 0);
-    if (ptr == 0) {
-        std::string msg = std::to_string(length);
-        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1EXEC(JNIEnv *env, jclass cla) { return PROT_EXEC; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1READ(JNIEnv *env, jclass cla) { return PROT_READ; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1WRITE(JNIEnv *env, jclass cla) { return PROT_WRITE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1NONE(JNIEnv *env, jclass cla) { return PROT_NONE; }
+
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapVisibility_SHARED(JNIEnv *env, jclass cla) { return MAP_SHARED; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapVisibility_SHARED_1VALIDATE(JNIEnv *env, jclass cla) { return MAP_SHARED_VALIDATE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapVisibility_PRIVATE(JNIEnv *env, jclass cla) { return MAP_PRIVATE; }
+
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_ANONYMOUS(JNIEnv *env, jclass cla) { return MAP_ANONYMOUS; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_FIXED(JNIEnv *env, jclass cla) { return MAP_FIXED; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_FIXED_1NOREPLACE(JNIEnv *env, jclass cla) { return MAP_FIXED_NOREPLACE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_GROWSDOWN(JNIEnv *env, jclass cla) { return MAP_GROWSDOWN; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_HUGETLB(JNIEnv *env, jclass cla) { return MAP_HUGETLB; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_HUGE_12MB(JNIEnv *env, jclass cla) { return (21 << MAP_HUGE_SHIFT); }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_HUGE_11GB(JNIEnv *env, jclass cla) { return (30 << MAP_HUGE_SHIFT); }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_LOCKED(JNIEnv *env, jclass cla) { return MAP_LOCKED; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_NORESERVE(JNIEnv *env, jclass cla) { return MAP_NORESERVE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_POPULATE(JNIEnv *env, jclass cla) { return MAP_POPULATE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapFlags_SYNC(JNIEnv *env, jclass cla) { return MAP_SYNC; }
+
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mmap0__JJIIIJ
+        (JNIEnv *env, jclass cla, jlong addr, jlong length, jint prot, jint flags, jint fd, jlong offset) {
+    void* ptr = mmap(reinterpret_cast<void*>(addr), length, prot, flags, fd, offset);
+    if (ptr == MAP_FAILED) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
     return reinterpret_cast<jlong>(ptr);
 }
 
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024RemapFlags_MAYMOVE(JNIEnv *env, jclass cla) { return MREMAP_MAYMOVE; }
+JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024RemapFlags_FIXED(JNIEnv *env, jclass cla) { return MREMAP_FIXED; }
+//JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024RemapFlags_DONTUNMAP(JNIEnv *env, jclass cla) { return MREMAP_DONTUNMAP; }
+
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mremap0__JJJIJ
+        (JNIEnv *env, jclass cla, jlong old_address, jlong old_size, jlong new_size, jint flags, jlong new_address) {
+    void* ptr = mremap(reinterpret_cast<void*>(old_address), old_size, new_size, flags, new_address);
+    if (ptr == MAP_FAILED) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
+    }
+    return reinterpret_cast<jlong>(ptr);
+}
+
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mprotect0__JJI
+        (JNIEnv *env, jclass cla, jlong addr, jlong length, jint prot) {
+    auto res = mprotect(reinterpret_cast<void*>(addr), length, prot);
+    if (res < 0) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
+    }
+}
+
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_munmap__JJ
         (JNIEnv *env, jclass cla, jlong addr, jlong length) {
-    munmap(reinterpret_cast<void*>(addr), length);
+    auto res = munmap(reinterpret_cast<void*>(addr), length);
+    if (res < 0) {
+        env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
+    }
 }
 
 }

@@ -21,11 +21,13 @@
 package net.daporkchop.tpposmtilegen.natives;
 
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.unsafe.PUnsafe;
 
 import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -159,9 +161,125 @@ public class Memory {
 
     public static native void free(long addr);
 
+    public static native void free(long addr, long size);
+
     public static native void releaseMemoryToSystem();
 
-    public static native long mmapAnon(long length);
+    @RequiredArgsConstructor
+    public enum MapProtection {
+        EXEC(PROT_EXEC()),
+        READ(PROT_READ()),
+        WRITE(PROT_WRITE()),
+        NONE(PROT_NONE()),
+        READ_WRITE(READ.flags | WRITE.flags),
+        READ_WRITE_EXEC(READ_WRITE.flags | EXEC.flags),
+        READ_EXEC(READ.flags | EXEC.flags),
+        ;
+
+        private static native int PROT_EXEC();
+
+        private static native int PROT_READ();
+
+        private static native int PROT_WRITE();
+
+        private static native int PROT_NONE();
+
+        private final int flags;
+    }
+
+    @RequiredArgsConstructor
+    public enum MapVisibility {
+        SHARED(SHARED()),
+        SHARED_VALIDATE(SHARED_VALIDATE()),
+        PRIVATE(PRIVATE()),
+        ;
+
+        private static native int SHARED();
+
+        private static native int SHARED_VALIDATE();
+
+        private static native int PRIVATE();
+
+        private final int flags;
+    }
+
+    @RequiredArgsConstructor
+    public enum MapFlags {
+        ANONYMOUS(ANONYMOUS()),
+        FIXED(FIXED()),
+        FIXED_NOREPLACE(FIXED_NOREPLACE()),
+        GROWSDOWN(GROWSDOWN()),
+        HUGETLB(HUGETLB()),
+        HUGE_2MB(HUGE_2MB()),
+        HUGE_1GB(HUGE_1GB()),
+        LOCKED(LOCKED()),
+        NORESERVE(NORESERVE()),
+        POPULATE(POPULATE()),
+        SYNC(SYNC()),
+        ;
+
+        private static native int ANONYMOUS();
+
+        private static native int FIXED();
+
+        private static native int FIXED_NOREPLACE();
+
+        private static native int GROWSDOWN();
+
+        private static native int HUGETLB();
+
+        private static native int HUGE_2MB();
+
+        private static native int HUGE_1GB();
+
+        private static native int LOCKED();
+
+        private static native int NORESERVE();
+
+        private static native int POPULATE();
+
+        private static native int SYNC();
+
+        private final int flags;
+    }
+
+    private static native long mmap0(long addr, long length, int prot, int flags, int fd, long offset);
+
+    public static long mmap(long addr, long length, int fd, long offset, @NonNull MapProtection protection, @NonNull MapVisibility visibility, @NonNull MapFlags... flags) {
+        return mmap0(addr, length, protection.flags, Stream.of(flags).mapToInt(flag -> flag.flags).reduce(visibility.flags, (a, b) -> a | b), fd, offset);
+    }
+
+    @RequiredArgsConstructor
+    public enum RemapFlags {
+        MAYMOVE(MAYMOVE()),
+        FIXED(FIXED()),
+        //DONTUNMAP(DONTUNMAP()),
+        ;
+
+        private static native int MAYMOVE();
+
+        private static native int FIXED();
+
+        //private static native int DONTUNMAP();
+
+        private final int flags;
+    }
+
+    private static native long mremap0(long old_address, long old_size, long new_size, int flags, long new_address);
+
+    public static long mremap(long old_address, long old_size, long new_size, @NonNull RemapFlags... flags) {
+        return mremap0(old_address, old_size, new_size, Stream.of(flags).mapToInt(flag -> flag.flags).reduce(0, (a, b) -> a | b), 0L);
+    }
+
+    public static long mremap(long old_address, long old_size, long new_size, long new_address, @NonNull RemapFlags... flags) {
+        return mremap0(old_address, old_size, new_size, Stream.of(flags).mapToInt(flag -> flag.flags).reduce(0, (a, b) -> a | b), new_address);
+    }
+
+    private static native void mprotect0(long addr, long len, int prot);
+
+    public static void mprotect(long addr, long len, @NonNull MapProtection protection) {
+        mprotect0(addr, len, protection.flags);
+    }
 
     public static native void munmap(long addr, long length);
 }

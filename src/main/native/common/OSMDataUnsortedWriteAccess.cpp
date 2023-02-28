@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <atomic>
 #include <execution>
+#include <new>
 #include <utility>
 #include <vector>
 
@@ -22,6 +23,8 @@ public:
     uint32le size;
     char data[];
 };
+
+static_assert(sizeof(data_t) == sizeof(uint32_t) * 2);
 
 class keyvalue_t {
 public:
@@ -124,19 +127,20 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorted
 
     if (currentValue != nullptr) {
         jint size = currentValue->size;
-        free(const_cast<data_t*>(currentValue));
+        //free(const_cast<data_t*>(currentValue));
+        ::operator delete(static_cast<void*>(const_cast<data_t*>(currentValue)), size + sizeof(data_t));
         return size;
     } else {
         return 0;
     }
 }
 
-JNIEXPORT jboolean JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsortedWriteAccess_appendKeys
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsortedWriteAccess_appendKeys
         (JNIEnv *env, jobject instance, rocksdb::SstFileWriter* writer, const keyvalue_t* begin, const keyvalue_t* end) {
     try {
         assert(begin < end);
 
-        bool any = false;
+        jlong writtenKeys = 0;
 
         for (const keyvalue_t* it = begin; it != end; it++) {
             uint64_t key = it->key;
@@ -158,10 +162,10 @@ JNIEXPORT jboolean JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnso
                 return false;
             }
 
-            any = true;
+            writtenKeys++;
         }
 
-        return any;
+        return writtenKeys;
     } catch (const std::bad_alloc& e) {
         throwOutOfMemory(env, e);
         return false;

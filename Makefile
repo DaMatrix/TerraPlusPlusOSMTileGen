@@ -45,6 +45,7 @@ export CXXFLAGS		:= $(CXXFLAGS) -I.
 #for proper linking with rocksdb
 export CXXFLAGS		:= $(CXXFLAGS) -D_GLIBCXX_USE_CXX11_ABI=0
 export CXXFLAGS		:= $(CXXFLAGS) -fno-rtti
+export CXXFLAGS		:= $(CXXFLAGS) -fsized-deallocation
 
 export CXXFLAGS		:= $(CXXFLAGS) -ffunction-sections -fdata-sections
 #export CXXFLAGS		:= $(CXXFLAGS) -fno-function-sections -fno-data-sections
