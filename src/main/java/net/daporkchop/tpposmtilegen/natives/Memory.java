@@ -160,4 +160,8 @@ public class Memory {
     public static native void free(long addr);
 
     public static native void releaseMemoryToSystem();
+
+    public static native long mmapAnon(long length);
+
+    public static native void munmap(long addr, long length);
 }

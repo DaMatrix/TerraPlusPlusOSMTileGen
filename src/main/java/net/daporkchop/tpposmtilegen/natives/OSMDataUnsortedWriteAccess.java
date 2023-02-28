@@ -77,9 +77,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final ColumnFamilyHandle columnFamilyHandle;
     private final ToIntFunction<ByteBuffer> versionFromValueExtractor;
 
-    private final Handle<Path> indexPathHandle;
-    private final FileChannel indexChannel;
-    private final MemoryMap indexMapping;
+    private final long indexAddr;
+    private final long indexSize = 1L << 40L;
 
     private final LongAccumulator maxKey = new LongAccumulator(Long::max, 0L);
     private final LongAdder valueCount = new LongAdder();
@@ -117,13 +116,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
         this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
-        this.indexPathHandle = storage.getTmpFilePath(
-                OSMDataUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "index");
-        this.indexChannel = FileChannel.open(this.indexPathHandle.get(), READ, WRITE, CREATE_NEW, SPARSE);
-        MemoryMap.truncate0(this.indexChannel, 1L << 40L);
-        checkState(this.indexChannel.size() == (1L << 40L));
-        this.indexMapping = new MemoryMap(this.indexChannel, FileChannel.MapMode.READ_WRITE, 0L, this.indexChannel.size());
-        Memory.madvise(this.indexMapping.addr(), this.indexMapping.size(), Memory.Usage.MADV_REMOVE);
+        this.indexAddr = Memory.mmapAnon(this.indexSize);
 
         this.lastFlush = FlushInfo.builder().valueSize(0L).targetKey(0L).build();
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
@@ -166,7 +159,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         PUnsafe.putUnalignedIntLE(valueAddr + 4L, value.remaining());
         PUnsafe.copyMemory(PUnsafe.pork_directBufferAddress(value) + value.position(), valueAddr + 8L, value.remaining());
 
-        int oldSize = trySwapIndexEntry(this.indexMapping.addr(), realKey, valueAddr);
+        int oldSize = trySwapIndexEntry(this.indexAddr, realKey, valueAddr);
         if (oldSize >= 0) { //we successfully replaced the previous value
             long d = value.remaining() + 4L + 4L;
             if (oldSize > 0) { //a previous value existed
@@ -257,10 +250,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             this.pendingFlush = null;
         }
 
-        this.logger.debug("executing flush: " + pendingFlush);
+        this.logger.debug("executing flush: " + pendingFlush + " (" + (this.threads - this.ongoingFlushes.availablePermits()) + " flushes active)");
 
         this.flushes.add(CompletableFuture.supplyAsync((ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(
-                this.indexMapping.addr() + (lastFlush.targetKey + 1L) * 16L,
+                this.indexAddr + (lastFlush.targetKey + 1L) * 16L,
                 (pendingFlush.targetKey - lastFlush.targetKey) * 16L)));
 
         /*CompletableFuture<Handle<Path>> flushFuture = new CompletableFuture<>();
@@ -362,7 +355,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             }
             throw e;
         } finally {
-            Memory.madvise(this.indexMapping.addr(), this.indexMapping.size(), Memory.Usage.MADV_NORMAL);
+            Memory.madvise(this.indexAddr, this.indexSize, Memory.Usage.MADV_NORMAL);
         }
 
         paths.removeIf(Objects::isNull);
@@ -384,10 +377,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
                 this.getDataSize(), this.getDataSize() / (1024.0d * 1024.0d),
                 totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
 
-        this.indexMapping.close();
-        this.indexChannel.close();
-        PFiles.rm(this.indexPathHandle.get());
-        this.indexPathHandle.release();
+        Memory.munmap(this.indexAddr, this.indexSize);
 
         this.options.close();
 

@@ -6,6 +6,7 @@
 #include <stdexcept>
 
 #include <sys/mman.h>
+#include <malloc.h>
 
 constexpr static jint MAX_COPY_SIZE = 32;
 
@@ -139,6 +140,22 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__J
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_releaseMemoryToSystem
         (JNIEnv *env, jclass cla) {
     MallocExtension::instance()->ReleaseFreeMemory();
+}
+
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mmapAnon
+        (JNIEnv *env, jclass cla, jlong length) {
+    //void* ptr = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, 0, 0);
+    void* ptr = mmap(nullptr, length, PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANONYMOUS | MAP_NORESERVE, 0, 0);
+    if (ptr == 0) {
+        std::string msg = std::to_string(length);
+        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
+    }
+    return reinterpret_cast<jlong>(ptr);
+}
+
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_munmap__JJ
+        (JNIEnv *env, jclass cla, jlong addr, jlong length) {
+    munmap(reinterpret_cast<void*>(addr), length);
 }
 
 }
