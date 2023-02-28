@@ -152,4 +152,12 @@ public class Memory {
     public static void madvise(long addr, long size, @NonNull Memory.Usage usage) {
         madvise0(addr, size, usage.ordinal());
     }
+
+    public static native long malloc(long size) throws OutOfMemoryError;
+
+    public static native long realloc(long addr, long size) throws OutOfMemoryError;
+
+    public static native void free(long addr);
+
+    public static native void releaseMemoryToSystem();
 }

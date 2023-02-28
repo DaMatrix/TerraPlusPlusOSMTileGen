@@ -47,6 +47,10 @@ public final class TimedOperation implements AutoCloseable {
         this(name, Logging.logger, null);
     }
 
+    public TimedOperation(@NonNull String name, @NonNull Logger logger) {
+        this(name, logger, null);
+    }
+
     private TimedOperation(@NonNull String name, @NonNull Logger logger, TimedOperation parent) {
         if (parent != null) {
             checkState(!parent.done, "parent is already done!");

@@ -214,15 +214,17 @@ public class DigestPBF implements IMode {
                 }
             }
 
+            final int threads = PorkUtil.CPU_COUNT;
+
             try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
-                     storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
+                    storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
                  InputStream is = Files.newInputStream(src);
-                 CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker");
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
                          .build();
-                 PbfElementHandler elementHandler = new PbfElementHandler(storage, referencesWriteAccess, notifier)) {
-                new ParallelBinaryParser(is, PorkUtil.CPU_COUNT)
+                 PbfElementHandler elementHandler = new PbfElementHandler(storage, referencesWriteAccess, notifier, threads);
+                 CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker")) {
+                new ParallelBinaryParser(is, threads)
                         .setThreadFactory(threadFactory)
                         .onBoundBox(bb -> logger.info("bounding box: %s", bb))
                         .onChangeset(changeset -> logger.info("changeset: %s", changeset))
@@ -230,6 +232,7 @@ public class DigestPBF implements IMode {
                         .onWay(elementHandler.wayHandler)
                         .onRelation(elementHandler.relationHandler)
                         .parse();
+                notifier.close();
             }
 
             try (TimedOperation compactPoints = new TimedOperation("Points compaction")) {
@@ -268,43 +271,36 @@ public class DigestPBF implements IMode {
         private final EConsumer<com.wolt.osm.parallelpbf.entity.Way> wayHandler = in -> this.state.get().accept(in);
         private final EConsumer<com.wolt.osm.parallelpbf.entity.Relation> relationHandler = in -> this.state.get().accept(in);
 
-        private final Handle<Path> visitedNodesPathHandle;
-        private final OffHeapAtomicBitSet visitedNodes;
-
-        public PbfElementHandler(@NonNull Storage storage, @NonNull DBWriteAccess referencesWriteAccess, @NonNull ProgressNotifier notifier) throws Exception {
+        public PbfElementHandler(@NonNull Storage storage, @NonNull DBWriteAccess referencesWriteAccess, @NonNull ProgressNotifier notifier, int threads) throws Exception {
             this.storage = storage;
 
             ToIntFunction<ByteBuffer> currentVersionExtractor = buf -> this.currentVersion.get().intValue();
 
             this.nodesWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.nodes()), Node::getVersionFromSerialized, 5.135142074d);
+                    storage, storage.db().internalColumnFamily(storage.nodes()), Node::getVersionFromSerialized, 6.394704777d, threads);
             this.pointsWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.points()), currentVersionExtractor, 5.135142074d);
+                    storage, storage.db().internalColumnFamily(storage.points()), currentVersionExtractor, 5.135142074d, threads); //TODO: find the best ratio for this
             this.waysWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.ways()), currentVersionExtractor, 3.278848662d);
+                    storage, storage.db().internalColumnFamily(storage.ways()), currentVersionExtractor, 3.243015087d, threads);
             this.relationsWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.515070717d);
+                    storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.519971471d, threads);
             this.referencesWriteAccess = referencesWriteAccess;
 
             this.notifier = notifier;
-
-            this.visitedNodesPathHandle = storage.getTmpFilePath("visitedNodes", "flags");
-            this.visitedNodes = new OffHeapAtomicBitSet(this.visitedNodesPathHandle.get(), 1L << 40L);
         }
 
         private void writeNode(com.wolt.osm.parallelpbf.entity.Node in) throws Exception {
             this.notifier.step(Node.TYPE);
 
             if (in.getId() >= 1000000000L) {
-                return;
+                //return;
             }
 
             this.currentVersion.get().setValue(in.getInfo().getVersion());
 
             Node node = new Node(in);
-            //this.storage.putNode(this.storage.db().sstBatch(), node, new Point(in.getLon(), in.getLat()));
             this.storage.nodes().put(this.nodesWriteAccess, node.id(), node);
-            this.storage.points().put(this.pointsWriteAccess, node.id(), new Point(in.getLon(), in.getLat()));
+            //this.storage.points().put(this.pointsWriteAccess, node.id(), new Point(in.getLon(), in.getLat()));
             node.computeReferences(this.referencesWriteAccess, this.storage);
             node.erase();
         }
@@ -337,9 +333,10 @@ public class DigestPBF implements IMode {
 
             this.state.forEach((EConsumer<ThreadState>) ThreadState::flush);
 
-            //this.visitedNodes.close();
-            PFiles.rm(this.visitedNodesPathHandle.get());
-            this.visitedNodesPathHandle.close();
+            this.nodesWriteAccess.flush();
+            this.pointsWriteAccess.flush();
+            this.waysWriteAccess.flush();
+            this.relationsWriteAccess.flush();
 
             this.nodesWriteAccess.close();
             this.pointsWriteAccess.close();
@@ -356,14 +353,12 @@ public class DigestPBF implements IMode {
             public void accept(@NonNull com.wolt.osm.parallelpbf.entity.Node node) throws Exception {
                 checkState(this.way == null && this.relation == null);
 
-                boolean first = true;
                 if (this.node != null) {
                     if (this.node.getId() == node.getId()) {
                         checkState(this.node.getInfo().getVersion() < node.getInfo().getVersion(), "node %d goes from version %d to %d",
                                 node.getId(), this.node.getInfo().getVersion(), node.getInfo().getVersion());
 
                         //replace the node with the new one
-                        first = false;
                     } else {
                         checkState(this.node.getId() < node.getId(), "nodes out-of-order: %d to %d", this.node.getId(), node.getId());
 
@@ -376,12 +371,6 @@ public class DigestPBF implements IMode {
                     //store the first node
                 }
                 this.node = node;
-
-                //logger.debug("[%s] Visiting node %d at version %d", Thread.currentThread(), node.getId(), node.getInfo().getVersion());
-
-                if (first) {
-                    //checkState(!PbfElementHandler.this.visitedNodes.set(node.getId()), "node %d was already visited by another thread?!?", node.getId());
-                }
             }
 
             public void accept(@NonNull com.wolt.osm.parallelpbf.entity.Way way) throws Exception {

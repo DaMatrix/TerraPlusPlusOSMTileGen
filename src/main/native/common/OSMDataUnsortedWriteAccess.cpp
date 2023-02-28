@@ -123,7 +123,9 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorted
     } while (!indexBegin[key]._value.compare_exchange_strong(currentValue, value));
 
     if (currentValue != nullptr) {
-        return currentValue->size;
+        jint size = currentValue->size;
+        free(const_cast<data_t*>(currentValue));
+        return size;
     } else {
         return 0;
     }
@@ -148,6 +150,8 @@ JNIEXPORT jboolean JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnso
             rocksdb::Status status = writer->Put(
                 rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
                 rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
+
+            free(const_cast<data_t*>(value));
 
             if (!status.ok()) {
                 throwRocksdbException(env, status);

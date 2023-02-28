@@ -20,49 +20,47 @@
 
 package net.daporkchop.tpposmtilegen.natives;
 
-import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
+import lombok.Builder;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.exception.EConsumer;
+import lombok.SneakyThrows;
+import lombok.ToString;
 import net.daporkchop.lib.common.function.exception.ESupplier;
+import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.pool.handle.Handle;
+import net.daporkchop.lib.logging.Logger;
+import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
-import net.daporkchop.tpposmtilegen.util.CloseableThreadLocal;
+import net.daporkchop.tpposmtilegen.util.IterableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
-import net.daporkchop.tpposmtilegen.util.mmap.alloc.dynamic.SequentialDynamicAllocator;
-import net.daporkchop.tpposmtilegen.util.mmap.alloc.sparse.SequentialSparseAllocator;
+import org.apache.commons.lang3.mutable.MutableLong;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.EnvOptions;
 import org.rocksdb.Options;
 import org.rocksdb.SstFileWriter;
 
-import java.io.Flushable;
-import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.LongAccumulator;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToIntFunction;
 import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.lib.common.util.PorkUtil.*;
-import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -83,22 +81,41 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final FileChannel indexChannel;
     private final MemoryMap indexMapping;
 
-    private final LongAccumulator maxIndexId = new LongAccumulator(Long::max, 0L);
+    private final LongAccumulator maxKey = new LongAccumulator(Long::max, 0L);
     private final LongAdder valueCount = new LongAdder();
     private final LongAdder valueSize = new LongAdder();
 
-    private final Handle<Path> dataPathHandle;
-    private final SequentialSparseAllocator dataMapping;
+    private final Logger logger;
 
     private final double compressionRatio;
+    private final long flushTriggerThreshold;
+
+    private final int threads;
+    private final IterableThreadLocal<MutableLong> lastKeyPerThread = IterableThreadLocal.of(MutableLong::new);
+
+    private volatile FlushInfo lastFlush;
+    private volatile FlushInfo pendingFlush;
+
+    private final Options options;
+    private final List<CompletableFuture<Handle<Path>>> flushes = Collections.synchronizedList(new ArrayList<>());
+
+    private final Semaphore ongoingFlushes = new Semaphore(0);
 
     private volatile boolean flushing = false;
+    private volatile boolean flushException = false;
 
-    public OSMDataUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ToIntFunction<ByteBuffer> versionFromValueExtractor, double compressionRatio) throws Exception {
+    public OSMDataUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ToIntFunction<ByteBuffer> versionFromValueExtractor, double compressionRatio, int threads) throws Exception {
         this.storage = storage;
         this.columnFamilyHandle = columnFamilyHandle;
         this.versionFromValueExtractor = versionFromValueExtractor;
         this.compressionRatio = compressionRatio;
+        this.threads = threads;
+
+        this.ongoingFlushes.release(threads);
+
+        this.options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions());
+
+        this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
         this.indexPathHandle = storage.getTmpFilePath(
                 OSMDataUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "index");
@@ -108,9 +125,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.indexMapping = new MemoryMap(this.indexChannel, FileChannel.MapMode.READ_WRITE, 0L, this.indexChannel.size());
         Memory.madvise(this.indexMapping.addr(), this.indexMapping.size(), Memory.Usage.MADV_REMOVE);
 
-        this.dataPathHandle = storage.getTmpFilePath(
-                OSMDataUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "data");
-        this.dataMapping = new SequentialSparseAllocator(this.dataPathHandle.get(), 1L << 40L);
+        this.lastFlush = FlushInfo.builder().valueSize(0L).targetKey(0L).build();
+        this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
+
+        Memory.releaseMemoryToSystem();
     }
 
     @Override
@@ -125,18 +143,28 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
 
+        if (this.ongoingFlushes.availablePermits() == 0) { //the work queue is full
+            this.logger.debug("work queue is full, blocking...");
+            this.ongoingFlushes.acquireUninterruptibly();
+            this.ongoingFlushes.release();
+        }
+
+        if (this.flushException) {
+            this.flushes.forEach(f -> {
+                if (f.isCompletedExceptionally()) {
+                    f.join();
+                }
+            });
+        }
+
         checkArg(key.remaining() == 8, key.remaining());
         long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
 
-        this.maxIndexId.accumulate(realKey);
-
         //allocate space for the value
-        long valueAddr = this.dataMapping.addr() + this.dataMapping.alloc(value.remaining() + 4L + 4L);
+        long valueAddr = Memory.malloc(value.remaining() + 4L + 4L);
         PUnsafe.putUnalignedIntLE(valueAddr, this.versionFromValueExtractor.applyAsInt(value));
         PUnsafe.putUnalignedIntLE(valueAddr + 4L, value.remaining());
         PUnsafe.copyMemory(PUnsafe.pork_directBufferAddress(value) + value.position(), valueAddr + 8L, value.remaining());
-
-        //logger.info("putting entry with key %d of size %d", realKey, value.remaining());
 
         int oldSize = trySwapIndexEntry(this.indexMapping.addr(), realKey, valueAddr);
         if (oldSize >= 0) { //we successfully replaced the previous value
@@ -147,7 +175,14 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
                 this.valueCount.increment();
             }
             this.valueSize.add(d);
+
+            long valueSize;
+            if (this.pendingFlush == null && (valueSize = this.valueSize.sum()) - this.lastFlush.valueSize >= this.flushTriggerThreshold) {
+                this.scheduleFlush(realKey, valueSize);
+            }
         }
+
+        this.visitKey(realKey);
     }
 
     @Override
@@ -176,75 +211,85 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         return this.valueSize.sum();
     }
 
+    private synchronized void scheduleFlush(long currentKey, long valueSize) {
+        if (this.pendingFlush == null) {
+            this.logger.debug("scheduling flush from key %d @ %d B to key %d @ %d B", this.lastFlush.targetKey, this.lastFlush.valueSize, currentKey, valueSize);
+            this.pendingFlush = FlushInfo.builder().valueSize(valueSize).targetKey(currentKey).build();
+        }
+    }
+
+    private void visitKey(long currentKey) {
+        checkArg(currentKey >= 0L);
+
+        this.maxKey.accumulate(currentKey);
+
+        MutableLong lastKeyPerThread = this.lastKeyPerThread.get();
+        long lastKey = lastKeyPerThread.longValue();
+        lastKeyPerThread.setValue(currentKey);
+
+        FlushInfo pendingFlush = this.pendingFlush;
+        if (pendingFlush != null) {
+            if (lastKey <= pendingFlush.targetKey && currentKey > pendingFlush.targetKey) {
+                //this thread has advanced to its first key beyond the target key
+                List<MutableLong> otherThreadsLastKey = this.lastKeyPerThread.snapshotValues();
+                checkState(otherThreadsLastKey.size() <= this.threads, otherThreadsLastKey.size());
+                if (otherThreadsLastKey.size() == this.threads && otherThreadsLastKey.stream().allMatch(l -> l.longValue() >= pendingFlush.targetKey)) {
+                    //every other thread has already been started and has passed the target key
+                    this.executePendingFlush(pendingFlush);
+                } else {
+                    int i = 0;
+                }
+            }
+        }
+    }
+
+    private void executePendingFlush(@NonNull FlushInfo pendingFlush) {
+
+        FlushInfo lastFlush;
+        synchronized (this) {
+            if (this.pendingFlush != pendingFlush) {
+                this.logger.debug("not executing flush " + pendingFlush + " as it's already been started by another thread");
+                return;
+            }
+
+            lastFlush = this.lastFlush;
+            this.lastFlush = pendingFlush;
+            this.pendingFlush = null;
+        }
+
+        this.logger.debug("executing flush: " + pendingFlush);
+
+        this.flushes.add(CompletableFuture.supplyAsync((ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(
+                this.indexMapping.addr() + (lastFlush.targetKey + 1L) * 16L,
+                (pendingFlush.targetKey - lastFlush.targetKey) * 16L)));
+
+        /*CompletableFuture<Handle<Path>> flushFuture = new CompletableFuture<>();
+        this.flushes.add(flushFuture);
+        try {
+            flushFuture.complete(this.buildSstFileFromRange(
+                    this.indexMapping.addr() + (lastFlush.targetKey + 1L) * 16L,
+                    (pendingFlush.targetKey - lastFlush.targetKey) * 16L));
+        } catch (Throwable t) {
+            flushFuture.completeExceptionally(t);
+            throw PUnsafe.throwException(t);
+        }*/
+    }
+
     @Override
-    public synchronized void flush() throws Exception {
+    public synchronized void flush() throws Exception { //this is actually only allowed to be called once
+        checkState(!this.flushing, "already flushing?!?");
         this.flushing = true;
 
-        final long highestIndexId = this.maxIndexId.getThenReset();
+        checkState(this.lastKeyPerThread.snapshotValues().isEmpty(), "some worker threads are still alive?!?");
 
-        final long indexBeginAddr = this.indexMapping.addr();
-        final long indexEndAddr = this.indexMapping.addr() + ((highestIndexId + 1L) * 16L);
-
-        final long dataBeginAddr = this.dataMapping.addr();
-        final long dataEndAddr = this.dataMapping.addr() + this.dataMapping.size();
-
-        final long valueSize = this.valueSize.sumThenReset();
-        final long valueCount = this.valueCount.sumThenReset();
-        final double averageEntrySize = (double) valueSize / valueCount;
-        final double averageEntryDensity = (double) (indexEndAddr - indexBeginAddr) / valueCount;
-
-        //split the buffer's contents and build SST files out of it
-        List<Handle<Path>> paths;
-        try (TimedOperation sstOperation = new TimedOperation("Build SST files");
-             Options options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions())) {
-            EnvOptions envOptions = this.storage.db().config().envOptions();
-
-            long targetBlockSize = PMath.roundUp((long) (this.compressionRatio * options.targetFileSizeBase() / averageEntrySize * averageEntryDensity), 16L);
-            long[] blockStartAddrs = partitionSortedRange(indexBeginAddr, indexEndAddr - indexBeginAddr, targetBlockSize);
-
-            Memory.madvise(indexBeginAddr, indexEndAddr - indexBeginAddr, Memory.Usage.MADV_SEQUENTIAL);
-            Memory.madvise(dataBeginAddr, dataEndAddr - dataBeginAddr, Memory.Usage.MADV_SEQUENTIAL);
-
-            CompletableFuture<Handle<Path>>[] pathFutures = uncheckedCast(new CompletableFuture[blockStartAddrs.length >> 1]);
-            for (int i = 0; i < blockStartAddrs.length; i += 2) {
-                long blockAddr = blockStartAddrs[i];
-                long blockSize = blockStartAddrs[i + 1];
-
-                pathFutures[i >> 1] = CompletableFuture.supplyAsync(
-                        (ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(envOptions, options, blockAddr, blockSize));
-            }
-
-            CompletableFuture.allOf(pathFutures);
-            try {
-                paths = Stream.of(pathFutures).map(CompletableFuture::join).collect(Collectors.toList());
-            } catch (Exception e) {
-                while (!Stream.of(pathFutures).allMatch(CompletableFuture::isDone)) {
-                    try {
-                        Stream.of(pathFutures).filter(f -> !f.isDone()).forEach(CompletableFuture::join);
-                    } catch (Exception e1) {
-                        e1.addSuppressed(e);
-                    }
-                }
-                throw e;
-            }
-        } finally {
-            Memory.madvise(indexBeginAddr, indexEndAddr - indexBeginAddr, Memory.Usage.MADV_NORMAL);
-            Memory.madvise(dataBeginAddr, dataEndAddr - dataBeginAddr, Memory.Usage.MADV_NORMAL);
+        if (this.pendingFlush != null) {
+            this.executePendingFlush(this.pendingFlush);
         }
 
-        this.clear();
-        paths.removeIf(Objects::isNull);
-
-        //ingest the SST files
-        try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files")) {
-            this.storage.db().delegate().ingestExternalFile(this.columnFamilyHandle,
-                    paths.stream().map(Handle::get).map(Path::toString).collect(Collectors.toList()),
-                    this.storage.db().config().ingestOptions(DatabaseConfig.IngestType.MOVE));
-            paths.forEach(Handle::release);
-            paths.clear();
-        }
-
-        this.flushing = false;
+        //long lastKey = this.lastKeyPerThread.snapshotValues().stream().mapToLong(MutableLong::longValue).max().getAsLong();
+        long lastKey = this.maxKey.get();
+        this.scheduleFlush(lastKey, this.valueSize.sum());
+        this.executePendingFlush(this.pendingFlush);
     }
 
     private static native long[] partitionSortedRange(long addr, long size, long targetBlockSize) throws OutOfMemoryError;
@@ -253,50 +298,111 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private static native boolean appendKeys(long writerHandle, long begin, long end);
 
-    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, long indexAddr, long indexSize) throws Exception {
-        checkArg(indexSize % 16L == 0L, indexSize);
+    @SneakyThrows
+    private Handle<Path> buildSstFileFromRange(long indexAddr, long indexSize) throws Exception {
+        this.ongoingFlushes.acquireUninterruptibly();
+        try {
+            checkArg(indexSize % 16L == 0L, indexSize);
 
-        Handle<Path> pathHandle = this.storage.getTmpFilePath(new String(this.columnFamilyHandle.getName(), StandardCharsets.UTF_8), "sst");
-
-        try (SstFileWriter writer = new SstFileWriter(envOptions, options)) {
-            writer.open(pathHandle.get().toString());
-            if (!appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize)) {
-                //no keys were appended
-                PFiles.rm(pathHandle.get());
-                pathHandle.close();
+            if (indexSize == 0L) {
+                this.logger.warn("attempted to build empty sst file!");
                 return null;
             }
-            writer.finish();
-        }
 
-        return pathHandle;
+            Handle<Path> pathHandle = this.storage.getTmpFilePath(new String(this.columnFamilyHandle.getName(), StandardCharsets.UTF_8), "sst");
+
+            try (SstFileWriter writer = new SstFileWriter(this.storage.db().config().envOptions(), this.options)) {
+                writer.open(pathHandle.get().toString());
+                if (!appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize)) {
+                    //no keys were appended
+                    PFiles.rm(pathHandle.get());
+                    pathHandle.close();
+                    return null;
+                }
+                writer.finish();
+            } finally {
+                long start = PMath.roundUp(indexAddr, PUnsafe.pageSize());
+                long size = PMath.roundUp(indexSize - 3L * PUnsafe.pageSize(), PUnsafe.pageSize());
+                if (size > 0L) {
+                    checkRangeLen(indexAddr, indexAddr + indexSize, start, size);
+                    Memory.madvise(start, size, Memory.Usage.MADV_REMOVE);
+                }
+            }
+
+            return pathHandle;
+        } catch (Throwable t) {
+            this.flushException = true;
+            throw t;
+        } finally {
+            this.ongoingFlushes.release();
+        }
     }
 
     @Override
     public synchronized void clear() throws Exception {
-        Memory.madvise(this.indexMapping.addr(), this.indexMapping.size(), Memory.Usage.MADV_REMOVE);
-        this.dataMapping.clear();
-        this.maxIndexId.reset();
-        this.valueSize.reset();
-        this.valueCount.reset();
+        throw new UnsupportedOperationException();
     }
 
     @Override
     public synchronized void close() throws Exception {
-        this.flush();
+        if (!this.flushing) {
+            this.flush();
+        }
+
+        List<Handle<Path>> paths;
+        try {
+            paths = this.flushes.stream().map(CompletableFuture::join).collect(Collectors.toList());
+        } catch (Exception e) {
+            while (!this.flushes.stream().allMatch(CompletableFuture::isDone)) {
+                try {
+                    this.flushes.stream().filter(f -> !f.isDone()).forEach(CompletableFuture::join);
+                } catch (Exception e1) {
+                    e1.addSuppressed(e);
+                }
+            }
+            throw e;
+        } finally {
+            Memory.madvise(this.indexMapping.addr(), this.indexMapping.size(), Memory.Usage.MADV_NORMAL);
+        }
+
+        paths.removeIf(Objects::isNull);
+        int totalCount = paths.size();
+        long totalSize = paths.stream().map(Handle::get).map((IOFunction<Path, Long>) Files::size).mapToLong(Long::longValue).sum();
+
+        if (totalCount != 0) {
+            //ingest the SST files
+            try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files", this.logger)) {
+                this.storage.db().delegate().ingestExternalFile(this.columnFamilyHandle,
+                        paths.stream().map(Handle::get).map(Path::toString).collect(Collectors.toList()),
+                        this.storage.db().config().ingestOptions(DatabaseConfig.IngestType.MOVE));
+                paths.forEach(Handle::release);
+                paths.clear();
+            }
+        }
+
+        this.logger.success("ingested %d bytes (%.2f MiB) in %d SST files totalling %d bytes (%.2f MiB)",
+                this.getDataSize(), this.getDataSize() / (1024.0d * 1024.0d),
+                totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
 
         this.indexMapping.close();
         this.indexChannel.close();
         PFiles.rm(this.indexPathHandle.get());
         this.indexPathHandle.release();
 
-        this.dataMapping.close();
-        PFiles.rm(this.dataPathHandle.get());
-        this.dataPathHandle.release();
+        this.options.close();
+
+        Memory.releaseMemoryToSystem();
     }
 
     @Override
     public boolean threadSafe() {
         return true;
+    }
+
+    @Builder
+    @ToString
+    private static final class FlushInfo {
+        private final long valueSize;
+        private final long targetKey;
     }
 }

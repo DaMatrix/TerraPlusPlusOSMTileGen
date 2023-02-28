@@ -1,5 +1,7 @@
 #include "tpposmtilegen_common.h"
+#include "malloc_extension.h"
 
+#include <string>
 #include <cstring>
 #include <stdexcept>
 
@@ -107,6 +109,36 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0
         (JNIEnv *env, jclass cla, jlong addr, jlong size, jint usage) {
     static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE };
     return madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
+}
+
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_malloc__J
+        (JNIEnv *env, jclass cla, jlong size) {
+    void* ptr = malloc(size);
+    if (ptr == 0) {
+        std::string msg = std::to_string(size);
+        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
+    }
+    return reinterpret_cast<jlong>(ptr);
+}
+
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_realloc__JJ
+        (JNIEnv *env, jclass cla, jlong addr, jlong size) {
+    void* ptr = realloc(reinterpret_cast<void*>(addr), size);
+    if (ptr == 0) {
+        std::string msg = std::to_string(size);
+        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
+    }
+    return reinterpret_cast<jlong>(ptr);
+}
+
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__J
+        (JNIEnv *env, jclass cla, jlong addr) {
+    free(reinterpret_cast<void*>(addr));
+}
+
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_releaseMemoryToSystem
+        (JNIEnv *env, jclass cla) {
+    MallocExtension::instance()->ReleaseFreeMemory();
 }
 
 }
