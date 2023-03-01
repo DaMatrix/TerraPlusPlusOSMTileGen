@@ -25,12 +25,12 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.SneakyThrows;
 import lombok.ToString;
-import net.daporkchop.lib.common.function.exception.ESupplier;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.pool.handle.Handle;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.common.util.exception.AlreadyReleasedException;
 import net.daporkchop.lib.logging.Logger;
 import net.daporkchop.lib.logging.Logging;
@@ -52,8 +52,11 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Semaphore;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAccumulator;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToIntFunction;
@@ -98,7 +101,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final Options options;
     private final List<CompletableFuture<Handle<Path>>> flushes = Collections.synchronizedList(new ArrayList<>());
 
-    private final Semaphore ongoingFlushes = new Semaphore(0);
+    private static final Set<Thread> ONGOING_FLUSHES_GLOBAL = ConcurrentHashMap.newKeySet(PorkUtil.CPU_COUNT << 1);
+    private final AtomicInteger ongoingFlushesLocal = new AtomicInteger();
 
     private volatile boolean flushing = false;
     private volatile boolean flushException = false;
@@ -109,8 +113,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.versionFromValueExtractor = versionFromValueExtractor;
         this.compressionRatio = compressionRatio;
         this.threads = threads;
-
-        this.ongoingFlushes.release(threads);
 
         this.options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions());
 
@@ -135,12 +137,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
-
-        if (this.ongoingFlushes.availablePermits() == 0) { //the work queue is full
-            this.logger.debug("work queue is full, blocking...");
-            this.ongoingFlushes.acquireUninterruptibly();
-            this.ongoingFlushes.release();
-        }
 
         if (this.flushException) {
             while (true) {
@@ -242,11 +238,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         List<ThreadState> otherThreadsStates = this.threadStates.snapshotValues();
         if (otherThreadsStates.size() == this.threads && otherThreadsStates.stream().allMatch(otherState -> otherState.state == ThreadState.State.ACTIVELY_FLUSHING
                                                                                                             || otherState.state == ThreadState.State.QUIT
-                                                                                                            || otherState.lastKey > pendingFlush.targetKeyExclusive)) {
+                                                                                                            || otherState.lastKey > pendingFlush.targetKeyExclusive
+                                                                                                            || ONGOING_FLUSHES_GLOBAL.contains(otherState.thread))) {
             //every other thread has already been started and has passed the target key
             this.executePendingFlush(pendingFlush);
-        } else {
-            int i = 0;
         }
     }
 
@@ -263,7 +258,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             this.pendingFlush = null;
         }
 
-        this.logger.debug("executing flush: " + pendingFlush + " (" + (this.threadStates.snapshotValues().size() - this.ongoingFlushes.availablePermits()) + " flushes active)");
+        int ongoingFlushesLocal = this.ongoingFlushesLocal.incrementAndGet();
+        ONGOING_FLUSHES_GLOBAL.add(Thread.currentThread());
+
+        this.logger.debug("executing flush: %s (%d flushes active, %d across all column families)", pendingFlush, ongoingFlushesLocal, ONGOING_FLUSHES_GLOBAL.size());
 
         /*this.flushes.add(CompletableFuture.supplyAsync((ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(
                 this.indexAddr + (lastFlush.targetKey + 1L) * 16L,
@@ -278,6 +276,9 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         } catch (Throwable t) {
             flushFuture.completeExceptionally(t);
             throw PUnsafe.throwException(t);
+        } finally {
+            ONGOING_FLUSHES_GLOBAL.remove(Thread.currentThread());
+            this.ongoingFlushesLocal.decrementAndGet();
         }
     }
 
@@ -313,7 +314,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkState(!this.flushing, "already flushing?!?");
         this.flushing = true;
 
-        checkState(this.threadStates.snapshotValues().stream().anyMatch(state -> state.state != ThreadState.State.QUIT), "some worker threads are still alive?!?");
+        checkState(this.threadStates.snapshotValues().stream().allMatch(state -> !state.thread().isAlive() || state.state == ThreadState.State.QUIT), "some worker threads are still alive?!?");
 
         if (this.pendingFlush != null) {
             this.executePendingFlush(this.pendingFlush);
@@ -334,7 +335,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkState(indexSize % PUnsafe.pageSize() == 0L, indexSize);
         Memory.mprotect(indexAddr, indexSize, Memory.MapProtection.READ);
 
-        this.ongoingFlushes.acquireUninterruptibly();
         try {
             checkArg(indexSize % 16L == 0L, indexSize);
 
@@ -366,7 +366,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         } finally {
             Memory.madvise(indexAddr, indexSize, Memory.Usage.MADV_DONTNEED);
             Memory.mprotect(indexAddr, indexSize, Memory.MapProtection.NONE);
-            this.ongoingFlushes.release();
         }
     }
 
@@ -438,6 +437,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     @Getter
     private static final class ThreadState {
+        private final Thread thread = Thread.currentThread();
         private State state = State.INACTIVE;
 
         private long lastKey = 0L;

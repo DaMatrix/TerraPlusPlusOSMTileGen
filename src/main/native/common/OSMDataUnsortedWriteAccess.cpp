@@ -3,14 +3,9 @@
 
 #include <lib-rocksdb/include/rocksdb/sst_file_writer.h>
 
-#define TBB_USE_EXCEPTIONS (0)
-
-#include <algorithm>
 #include <atomic>
-#include <execution>
 #include <new>
 #include <utility>
-#include <vector>
 
 #include <cassert>
 #include <sys/mman.h>
@@ -96,14 +91,24 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorte
         jlong writtenKeys = 0;
 
         for (const keyvalue_t* it = begin; it != end; it++) {
+            size_t free_interval = 16 << 20;
+            if (((it - begin) & (free_interval - 1)) == 0) { // 4 MiKeys since last unmap, free up some pages
+                //std::cout << "freeing " << free_interval << " index entries starting at " << begin << std::endl;
+                auto res = madvise(const_cast<keyvalue_t*>(begin), (it - begin) * sizeof(keyvalue_t), MADV_DONTNEED);
+                if (UNLIKELY(res < 0)) {
+                    env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), "failed to unmap memory");
+                    return 0;
+                }
+            }
+
             uint64_t key = it->key;
-            if (key == 0) {
+            const data_t* value = it->value_ptr();
+            if (key == 0 && value == nullptr) { //also check if value is nullptr, because key 0 has a key of 0
                 continue;
             }
 
             uint64be key_be = key;
 
-            const data_t* value = it->value_ptr();
             rocksdb::Status status = writer->Put(
                 rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
                 rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
@@ -113,7 +118,7 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorte
 
             if (!status.ok()) {
                 throwRocksdbException(env, status);
-                return false;
+                return 0;
             }
 
             writtenKeys++;
