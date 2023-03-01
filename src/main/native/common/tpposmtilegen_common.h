@@ -12,6 +12,12 @@
 #define DEBUG_MSG(msg)
 #endif //NATIVES_DEBUG
 
+#define EMPTY()
+#define LIKELY(x)   __builtin_expect(!!(x), 1)
+#define UNLIKELY(x) __builtin_expect(!!(x), 0)
+//#define LIKELY(x)   x) [[likely]] EMPTY(
+//#define UNLIKELY(x) x) [[unlikely]] EMPTY(
+
 jint throwNPE(JNIEnv* env, const char* msg);
 
 jint throwISE(JNIEnv* env, const char* msg);

@@ -117,7 +117,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
         this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
-        Memory.madvise(this.indexAddr, this.indexSize, Memory.Usage.MADV_HUGEPAGE);
 
         this.lastFlush = FlushInfo.builder().valueSize(0L).targetKeyExclusive(0L).build();
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
@@ -162,8 +161,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
         //allocate space for the value
         long valueAddr = Memory.malloc(value.remaining() + 4L + 4L);
-        PUnsafe.putUnalignedIntLE(valueAddr, this.versionFromValueExtractor.applyAsInt(value));
-        PUnsafe.putUnalignedIntLE(valueAddr + 4L, value.remaining());
+        PUnsafe.putUnalignedInt(valueAddr, this.versionFromValueExtractor.applyAsInt(value));
+        PUnsafe.putUnalignedInt(valueAddr + 4L, value.remaining());
         PUnsafe.copyMemory(PUnsafe.pork_directBufferAddress(value) + value.position(), valueAddr + 8L, value.remaining());
 
         int oldSize = trySwapIndexEntry(this.indexAddr, realKey, valueAddr);
@@ -325,7 +324,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.executePendingFlush(this.pendingFlush);
     }
 
-    private static native int trySwapIndexEntry(long indexBegin, long key, long valueOffset);
+    private static native int trySwapIndexEntry(long indexBegin, long key, long value);
 
     private static native long appendKeys(long writerHandle, long begin, long end);
 

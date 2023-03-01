@@ -160,6 +160,10 @@ public class Memory {
 
     public static native long realloc(long addr, long size) throws OutOfMemoryError;
 
+    public static long realloc(long addr, long new_size, long old_size) throws OutOfMemoryError {
+        return realloc(addr, new_size);
+    }
+
     public static native void free(long addr);
 
     public static native void free(long addr, long size);

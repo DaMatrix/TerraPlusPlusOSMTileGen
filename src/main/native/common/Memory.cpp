@@ -112,7 +112,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0
         (JNIEnv *env, jclass cla, jlong addr, jlong size, jint usage) {
     static constexpr int USAGE_TABLE[] = { MADV_NORMAL, MADV_RANDOM, MADV_SEQUENTIAL, MADV_WILLNEED, MADV_DONTNEED, MADV_REMOVE, MADV_HUGEPAGE };
     auto res = madvise(reinterpret_cast<void*>(addr), size, USAGE_TABLE[usage]);
-    if (res < 0) {
+    if (UNLIKELY(res < 0)) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
 }
@@ -120,7 +120,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_malloc__J
         (JNIEnv *env, jclass cla, jlong size) {
     void* ptr = malloc(size);
-    if (ptr == 0) {
+    if (UNLIKELY(ptr == 0)) {
         std::string msg = std::to_string(size);
         env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
     }
@@ -130,7 +130,7 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_malloc_
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_realloc__JJ
         (JNIEnv *env, jclass cla, jlong addr, jlong size) {
     void* ptr = realloc(reinterpret_cast<void*>(addr), size);
-    if (ptr == 0) {
+    if (UNLIKELY(ptr == 0)) {
         std::string msg = std::to_string(size);
         env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg.c_str());
     }
@@ -150,7 +150,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__JJ
 
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_releaseMemoryToSystem
         (JNIEnv *env, jclass cla) {
-    MallocExtension::instance()->ReleaseFreeMemory();
+    //MallocExtension::instance()->ReleaseFreeMemory();
 }
 
 JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1EXEC(JNIEnv *env, jclass cla) { return PROT_EXEC; }
@@ -177,7 +177,7 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024Map
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mmap0__JJIIIJ
         (JNIEnv *env, jclass cla, jlong addr, jlong length, jint prot, jint flags, jint fd, jlong offset) {
     void* ptr = mmap(reinterpret_cast<void*>(addr), length, prot, flags, fd, offset);
-    if (ptr == MAP_FAILED) {
+    if (UNLIKELY(ptr == MAP_FAILED)) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
     return reinterpret_cast<jlong>(ptr);
@@ -190,7 +190,7 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024Rem
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mremap0__JJJIJ
         (JNIEnv *env, jclass cla, jlong old_address, jlong old_size, jlong new_size, jint flags, jlong new_address) {
     void* ptr = mremap(reinterpret_cast<void*>(old_address), old_size, new_size, flags, new_address);
-    if (ptr == MAP_FAILED) {
+    if (UNLIKELY(ptr == MAP_FAILED)) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
     return reinterpret_cast<jlong>(ptr);
@@ -199,7 +199,7 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mremap0
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mprotect0__JJI
         (JNIEnv *env, jclass cla, jlong addr, jlong length, jint prot) {
     auto res = mprotect(reinterpret_cast<void*>(addr), length, prot);
-    if (res < 0) {
+    if (UNLIKELY(res < 0)) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
 }
@@ -207,7 +207,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_mprotect
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_munmap__JJ
         (JNIEnv *env, jclass cla, jlong addr, jlong length) {
     auto res = munmap(reinterpret_cast<void*>(addr), length);
-    if (res < 0) {
+    if (UNLIKELY(res < 0)) {
         env->ThrowNew(env->FindClass("java/lang/RuntimeException"), strerror(errno));
     }
 }

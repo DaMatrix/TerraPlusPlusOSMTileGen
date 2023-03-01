@@ -19,8 +19,8 @@
 
 class data_t {
 public:
-    uint32le version;
-    uint32le size;
+    uint32_t version;
+    uint32_t size;
     char data[];
 };
 
