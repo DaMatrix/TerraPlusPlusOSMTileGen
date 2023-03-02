@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.mode;
 import lombok.NonNull;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
+import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
@@ -62,13 +63,15 @@ public class RecomputeReferences implements IMode {
                 storage.references().clear();
             }
 
-            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
+            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
+                    storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
+                 ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                     .build()) {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
-                        element.computeReferences(storage.db().batch(), storage);
+                        element.computeReferences(referencesWriteAccess, storage);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

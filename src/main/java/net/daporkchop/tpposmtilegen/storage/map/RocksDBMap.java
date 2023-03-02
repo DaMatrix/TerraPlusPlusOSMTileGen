@@ -29,6 +29,7 @@ import lombok.NonNull;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
@@ -37,16 +38,25 @@ import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.ColumnFamilyMetaData;
+import org.rocksdb.Options;
+import org.rocksdb.Snapshot;
+import org.rocksdb.SstFileMetaData;
+import org.rocksdb.SstFileReader;
+import org.rocksdb.SstFileReaderIterator;
 
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.LongStream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
+import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -143,6 +153,44 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     }
 
     public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
+        if (access.isDirectRead()) {
+            Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
+            try (Snapshot temporarySnapshotToCloseLater = optionalInternalSnapshot.isPresent() ? null : this.database.delegate().getSnapshot();
+                 Options options = new Options(this.database.config().dbOptions(), this.database.columns().get(this.column).getOptions())) {
+                Snapshot snapshot = optionalInternalSnapshot.orElse(temporarySnapshotToCloseLater);
+                long sequenceNumber = snapshot.getSequenceNumber();
+
+                ColumnFamilyMetaData columnMeta = this.database.delegate().getColumnFamilyMetaData(this.column);
+                switch (toInt(columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).count())) {
+                    case 0: //nothing to do
+                        return;
+                    case 1: //there's exactly one non-empty level, we can simply iterate over all the SST files in the level in parallel
+                        Threading.<SstFileMetaData>iterateParallel(CPU_COUNT,
+                                c -> columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).findAny().get().files().stream().forEach(c),
+                                fileMeta -> {
+                                    if (fileMeta.smallestSeqno() > sequenceNumber) { //the file is newer than this snapshot
+                                        //TODO: we could improve the detection for this by a lot
+                                        return;
+                                    }
+
+                                    try (SstFileReader reader = new SstFileReader(options)) {
+                                        reader.open(fileMeta.path() + fileMeta.fileName());
+                                        try (SstFileReaderIterator iterator = reader.newIterator(this.database.config().readOptions(DatabaseConfig.ReadType.BULK_ITERATE))) {
+                                            for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
+                                                long key = PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0));
+                                                callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(iterator.value())));
+                                            }
+                                        }
+                                    }
+                                });
+                        return;
+                }
+            }
+
+            logger.warn("column family '%s' isn't compacted, can't use fast parallel iteration! consider compacting the db first.",
+                    new String(this.column.getName(), StandardCharsets.UTF_8));
+        }
+
         @AllArgsConstructor
         class ValueWithKey {
             final byte[] key;

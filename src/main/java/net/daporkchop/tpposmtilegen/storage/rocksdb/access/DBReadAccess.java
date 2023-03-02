@@ -22,8 +22,10 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb.access;
 
 import lombok.NonNull;
 import org.rocksdb.ColumnFamilyHandle;
+import org.rocksdb.Snapshot;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * @author DaPorkchop_
@@ -38,4 +40,16 @@ public interface DBReadAccess extends DBBaseAccess {
     DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception;
 
     DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception;
+
+    /**
+     * @return {@code true} if this instance performs reads directly from the underlying database. Should return false for any implementations which could return
+     *         buffered, unwritten data
+     */
+    default boolean isDirectRead() {
+        return false;
+    }
+
+    default Optional<Snapshot> internalSnapshot() {
+        return Optional.empty();
+    }
 }

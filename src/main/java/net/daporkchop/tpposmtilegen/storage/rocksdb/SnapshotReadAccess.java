@@ -31,6 +31,7 @@ import org.rocksdb.Snapshot;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * @author DaPorkchop_
@@ -66,6 +67,16 @@ final class SnapshotReadAccess implements DBReadAccess {
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
         return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.readOptions.get(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
+    }
+
+    @Override
+    public boolean isDirectRead() {
+        return true;
+    }
+
+    @Override
+    public Optional<Snapshot> internalSnapshot() {
+        return Optional.of(this.snapshot);
     }
 
     @Override

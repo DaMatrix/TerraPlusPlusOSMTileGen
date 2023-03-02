@@ -63,6 +63,11 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
+    public boolean isDirectRead() {
+        return true;
+    }
+
+    @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.writeDelegate.put(columnFamilyHandle, key, value);
     }

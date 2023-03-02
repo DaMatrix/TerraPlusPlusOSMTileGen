@@ -26,8 +26,10 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
+import org.rocksdb.Snapshot;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * @author DaPorkchop_
@@ -57,6 +59,11 @@ final class DirectReadAccess implements DBReadAccess {
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
         return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
+    }
+
+    @Override
+    public boolean isDirectRead() {
+        return true;
     }
 
     @Override
