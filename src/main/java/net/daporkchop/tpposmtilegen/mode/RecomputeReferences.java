@@ -26,6 +26,7 @@ import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
@@ -58,7 +59,7 @@ public class RecomputeReferences implements IMode {
         checkArg(args.length == 1, "Usage: recompute_references <index_dir>");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src)) {
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD)) {
             try (TimedOperation clearOperation = new TimedOperation("Clear references")) {
                 storage.references().clear();
             }
@@ -66,8 +67,8 @@ public class RecomputeReferences implements IMode {
             try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
                     storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")
-                    .slot("nodes").slot("ways").slot("relations").slot("coastlines")
-                    .build()) {
+                         .slot("nodes").slot("ways").slot("relations").slot("coastlines")
+                         .build()) {
                 LongObjConsumer<Element> func = (id, element) -> {
                     int type = element.type();
                     try {
@@ -83,6 +84,10 @@ public class RecomputeReferences implements IMode {
                 storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);
+            }
+
+            try (TimedOperation compactReferences = new TimedOperation("References compaction")) {
+                storage.references().compact();
             }
         }
     }

@@ -134,9 +134,8 @@ public class DigestPBF implements IMode {
 
         Header header = getHeader(src, Function.identity());
         logger.info("PBF header: " + header);
-        //TODO: uncomment this
-        /*checkArg(header.getReplicationSequenceNumber() != null || header.getReplicationTimestamp() != null,
-                "'%s' doesn't contain a replication timestamp or sequence number!", src);*/
+        checkArg(header.getReplicationSequenceNumber() != null || header.getReplicationTimestamp() != null,
+                "'%s' doesn't contain a replication timestamp or sequence number!", src);
 
         //we need this in order to make sure that every element which exists is actually present in the db (i.e. deleted elements should have visible=false)
         checkArg(header.getRequiredFeatures().contains(Header.FEATURE_HISTORICAL_INFORMATION),
@@ -214,7 +213,8 @@ public class DigestPBF implements IMode {
 
                     try (Storage storage = new Storage(dst, DatabaseConfig.RW_LITE)) {
                         //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
-                        Purge.purge(storage, Purge.DataType.osm);
+                        //Purge.purge(storage, Purge.DataType.osm);
+                        storage.points().clear();
                     }
                 }
             }
@@ -227,10 +227,16 @@ public class DigestPBF implements IMode {
                 //write replication information from the headers
                 if (header.getReplicationSequenceNumber() != null) {
                     storage.sequenceNumberProperty().set(batch, header.getReplicationSequenceNumber().longValue());
+                } else {
+                    storage.sequenceNumberProperty().remove(batch);
                 }
+
                 if (header.getReplicationTimestamp() != null) {
                     storage.replicationTimestampProperty().set(batch, header.getReplicationTimestamp().longValue());
+                } else {
+                    storage.replicationTimestampProperty().remove(batch);
                 }
+
                 if (header.getReplicationBaseUrl() != null) {
                     storage.replicationBaseUrlProperty().set(batch, header.getReplicationBaseUrl());
                 } else {
@@ -335,7 +341,9 @@ public class DigestPBF implements IMode {
 
             Node node = new Node(in);
             this.storage.nodes().put(this.nodesWriteAccess, node.id(), node);
-            this.storage.points().put(this.pointsWriteAccess, node.id(), new Point(in.getLonFixedPoint(), in.getLatFixedPoint()));
+            if (node.visible()) { //only store the point if the node is actually visible
+                this.storage.points().put(this.pointsWriteAccess, node.id(), new Point(in.getLonFixedPoint(), in.getLatFixedPoint()));
+            }
             node.computeReferences(this.referencesWriteAccess, this.storage);
             node.erase();
         }

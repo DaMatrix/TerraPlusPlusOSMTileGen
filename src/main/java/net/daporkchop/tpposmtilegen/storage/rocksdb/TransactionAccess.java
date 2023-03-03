@@ -22,8 +22,10 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
@@ -33,7 +35,10 @@ import org.rocksdb.Slice;
 import org.rocksdb.Transaction;
 
 import java.nio.ByteBuffer;
+import java.util.ArrayDeque;
 import java.util.Arrays;
+import java.util.Collections;
+import java.util.Deque;
 import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -42,7 +47,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-final class TransactionAccess implements DBAccess {
+final class TransactionAccess implements DBAccess, DBWriteAccess.Transactional {
     private static byte[] toByteArray(@NonNull ByteBuffer buf) {
         byte[] arr = new byte[buf.remaining()];
         buf.get(arr);
@@ -55,6 +60,8 @@ final class TransactionAccess implements DBAccess {
     protected final OptimisticTransactionDB db;
     @NonNull
     protected final Transaction transaction;
+
+    protected int checkpointDepth = 0;
 
     @Override
     public byte[] get(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
@@ -158,7 +165,7 @@ final class TransactionAccess implements DBAccess {
 
     @Override
     public long getDataSize() throws Exception {
-        return this.transaction.getWriteBatch().getWriteBatch().getDataSize();
+        return this.transaction.getWriteBatch().getWriteBatch().getDataSize() - NativeRocksHelper.writeBatchHeaderSize();
     }
 
     @Override
@@ -169,18 +176,33 @@ final class TransactionAccess implements DBAccess {
     @Override
     public void flush() throws Exception {
         this.transaction.commit();
+        this.checkpointDepth = 0;
     }
 
     @Override
     public void clear() throws Exception {
         this.transaction.rollback();
+        this.checkpointDepth = 0;
+    }
+
+    @Override
+    public void pushCheckpoint() throws Exception {
+        this.checkpointDepth = Math.incrementExact(this.checkpointDepth);
+        this.transaction.setSavePoint();
+    }
+
+    @Override
+    public void popCheckpoint() throws Exception {
+        checkState(this.checkpointDepth > 0, "no checkpoint is currently active!");
+        this.checkpointDepth--;
+        this.transaction.rollbackToSavePoint();
     }
 
     @Override
     public void close() throws Exception {
-        this.clear();
-
-        this.transaction.close();
+        try (Transaction transaction = this.transaction) {
+            this.clear();
+        }
     }
 
     @Override

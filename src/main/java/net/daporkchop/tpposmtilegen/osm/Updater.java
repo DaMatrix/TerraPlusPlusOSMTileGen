@@ -25,7 +25,9 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Data;
+import lombok.Getter;
 import lombok.NonNull;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
@@ -54,6 +56,7 @@ import static net.daporkchop.lib.logging.Logging.*;
  *
  * @author DaPorkchop_
  */
+@Getter
 public class Updater {
     protected final ChangesetState globalState;
 
@@ -134,10 +137,21 @@ public class Updater {
         ChangesetState nextState = nextStateFuture.join();
         logger.trace("updating from %d (%s) to %d (%s)\n", sequenceNumber, state.timestamp(), next, nextState.timestamp());
 
+        if (access instanceof DBWriteAccess.Transactional) {
+            ((DBWriteAccess.Transactional) access).pushCheckpoint();
+        }
+
         Changeset changeset = changesetFuture.join();
-        this.applyChanges(storage, access, now, changeset);
-        storage.sequenceNumberProperty().set(access, next);
-        return true;
+        try {
+            this.applyChanges(storage, access, now, changeset);
+            storage.sequenceNumberProperty().set(access, next);
+            return true;
+        } catch (Exception e) {
+            if (access instanceof DBWriteAccess.Transactional) { //roll back uncommitted changes in the transaction which resulted in the error
+                ((DBWriteAccess.Transactional) access).popCheckpoint();
+            }
+            throw PUnsafe.throwException(e);
+        }
     }
 
     private void applyChanges(Storage storage, DBAccess access, Instant now, Changeset changeset) throws Exception {
@@ -202,7 +216,7 @@ public class Updater {
         long combinedId = Element.addTypeToId(type, id);
 
         if (element.version() != 1) {
-            logger.alert("attempting to create %s with id %d at non-one version %d!", Element.typeName(type), id, element.version());
+            logger.alert("attempting to create %s with id %d at non-one version %d! element: %s", Element.typeName(type), id, element.version(), element);
             throw new UpdateImpossibleException();
         }
 
@@ -236,18 +250,22 @@ public class Updater {
         Element oldElement = storage.getElement(access, combinedId);
         if (oldElement == null) {
             if (false) { //TODO: decide whether or not to keep this
-                logger.warn("attempting to modify non-existent %s with id %d, assuming that it's newly re-created!", Element.typeName(type), id);
+                logger.warn("attempting to modify non-existent %s with id %d, assuming that it's newly re-created!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
                 this.create(storage, access, element, changedIds);
                 return;
             } else {
-                logger.alert("attempting to modify non-existent %s with id %d!", Element.typeName(type), id);
+                logger.alert("attempting to modify non-existent %s with id %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
                 throw new UpdateImpossibleException();
             }
         } else if (!oldElement.visible()) {
-            logger.alert("attempting to modify deleted %s with id %d!", Element.typeName(type), id);
-            throw new UpdateImpossibleException();
+            if (false) {
+                logger.alert("attempting to modify deleted %s with id %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
+                throw new UpdateImpossibleException();
+            } else {
+                logger.warn("modified previously deleted %s with id %d, it will now be marked as visible again!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
+            }
         } else if (element.version() != oldElement.version() + 1) {
-            logger.alert("attempting to modify %s with id %d from version %d to %d!", Element.typeName(type), id, oldElement.version(), element.version());
+            logger.alert("attempting to modify %s with id %d from version %d to %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement.version(), element.version(), oldElement, element);
             throw new UpdateImpossibleException();
         }
 
@@ -255,7 +273,16 @@ public class Updater {
             Changeset.Node changedNode = (Changeset.Node) element;
             Node oldNode = (Node) oldElement;
 
-            storage.putNode(access, new Node(id, changedNode.tags(), changedNode.version(), true), new Point(changedNode.lon(), changedNode.lat()));
+            if (!oldNode.visible()) {
+                Point oldPoint = storage.points().get(access, id);
+                if (oldPoint != null) {
+                    logger.alert("while attempting to modify deleted node with id %d: node was marked as deleted, but still has an associated point!\nold element: %s\nold point: %s\nelement: %s", id, oldElement, oldPoint, element);
+                    throw new UpdateImpossibleException();
+                }
+            }
+
+            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
+            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), true));
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way oldWay = (Way) oldElement;
@@ -304,23 +331,50 @@ public class Updater {
 
         Element oldElement = storage.getElement(access, combinedId);
         if (oldElement == null) {
-            logger.alert("attempting to delete non-existent %s with id %d", Element.typeName(type), id);
+            logger.alert("attempting to delete non-existent %s with id %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
             throw new UpdateImpossibleException();
         }
 
         if (element instanceof Changeset.Node) {
+            Changeset.Node changedNode = (Changeset.Node) element;
             Node oldNode = (Node) oldElement;
 
-            storage.points().delete(access, id);
-            storage.nodes().delete(access, id);
+            storage.points().delete(access, id); //delete the associated point
+            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), false));
         } else if (element instanceof Changeset.Way) {
+            Changeset.Way changedWay = (Changeset.Way) element;
             Way oldWay = (Way) oldElement;
 
-            storage.ways().delete(access, id);
+            LongSet oldNodes = new LongOpenHashSet(oldWay.nodes());
+            LongSet newNodes = new LongOpenHashSet(changedWay.refs());
+            for (long node : newNodes) {
+                if (!oldNodes.remove(node)) { //node was newly added to this way
+                    storage.references().addReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
+                }
+            }
+            for (long node : oldNodes) { //all nodes that remain are no longer referenced
+                storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
+            }
+
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), false, changedWay.refs().toLongArray()));
         } else if (element instanceof Changeset.Relation) {
+            Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation oldRelation = (Relation) oldElement;
 
-            storage.relations().delete(access, id);
+            Relation.Member[] newMembers = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
+
+            LongSet oldRefs = new LongOpenHashSet(Stream.of(oldRelation.members()).mapToLong(Relation.Member::combinedId).toArray());
+            LongSet newRefs = new LongOpenHashSet(Stream.of(newMembers).mapToLong(Relation.Member::combinedId).toArray());
+            for (long ref : newRefs) {
+                if (!oldRefs.remove(ref)) { //element was newly added to this relation
+                    storage.references().addReference(access, ref, combinedId);
+                }
+            }
+            for (long ref : oldRefs) { //all elements that remain are no longer referenced
+                storage.references().deleteReference(access, ref, combinedId);
+            }
+
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), false, newMembers));
         }
 
         //this will force the element's tile intersections and references to be re-computed

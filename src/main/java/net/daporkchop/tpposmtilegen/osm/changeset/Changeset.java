@@ -128,6 +128,9 @@ public final class Changeset {
         @JsonProperty
         protected int version = -1;
 
+        @JsonProperty
+        protected int changeset = -1;
+
         protected Instant timestamp;
 
         protected final Map<String, String> tags = new HashMap<>();

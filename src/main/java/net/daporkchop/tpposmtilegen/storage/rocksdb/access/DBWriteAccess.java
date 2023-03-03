@@ -24,7 +24,6 @@ import lombok.NonNull;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.ByteBuffer;
-import java.util.Collection;
 
 /**
  * @author DaPorkchop_
@@ -53,4 +52,24 @@ public interface DBWriteAccess extends DBBaseAccess {
     void flush() throws Exception;
 
     void clear() throws Exception;
+
+    /**
+     * A {@link DBWriteAccess} which allows setting intermediate "checkpoints", allowing for partial resets.
+     *
+     * @author DaPorkchop_
+     */
+    interface Transactional extends DBWriteAccess {
+        void pushCheckpoint() throws Exception;
+
+        void popCheckpoint() throws Exception;
+    }
+
+    /**
+     * A {@link DBWriteAccess} which delegates to multiple separate instances per-thread.
+     *
+     * @author DaPorkchop_
+     */
+    interface ThreadLocal extends DBWriteAccess {
+        DBWriteAccess getWriteDelegateForCurrentThread();
+    }
 }

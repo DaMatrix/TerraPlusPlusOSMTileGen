@@ -91,9 +91,10 @@ public final class Database implements AutoCloseable {
         this.batch = new ThreadLocalDBWriteAccess(new CloseableThreadLocal<DBWriteAccess>() {
             @Override
             protected DBWriteAccess initialValue0() throws Exception {
+                DatabaseConfig.WriteType writeType = DatabaseConfig.WriteType.NO_WAL;
                 return autoFlush
-                        ? new FlushableWriteBatch.AutoFlushing(config, delegate, 64L << 20L)
-                        : new FlushableWriteBatch(config, delegate);
+                        ? new FlushableWriteBatch.AutoFlushing(config, writeType, delegate, 64L << 20L)
+                        : new FlushableWriteBatch.Regular(config, writeType, delegate);
             }
         });
         this.sstBatch = new ThreadLocalDBWriteAccess(new CloseableThreadLocal<DBWriteAccess>() {
@@ -122,8 +123,19 @@ public final class Database implements AutoCloseable {
      * @return a new batched write operation
      */
     public DBWriteAccess beginLocalBatch() {
+        return this.beginLocalBatch(DatabaseConfig.WriteType.NO_WAL);
+    }
+
+    /**
+     * Creates a new batched write operation which is managed by the caller.
+     * <p>
+     * The returned {@link DBWriteAccess} <strong>must</strong> be explicitly closed by the caller.
+     *
+     * @return a new batched write operation
+     */
+    public DBWriteAccess beginLocalBatch(@NonNull DatabaseConfig.WriteType writeType) {
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
-        return new FlushableWriteBatch(this.config, this.delegate);
+        return new FlushableWriteBatch.Regular(this.config, writeType, this.delegate);
     }
 
     public DBAccess readWriteBatch() {

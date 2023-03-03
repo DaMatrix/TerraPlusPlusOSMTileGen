@@ -26,6 +26,8 @@ import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
+import net.daporkchop.lib.primitive.lambda.LongLongObjConsumer;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -153,6 +155,12 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     }
 
     public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
+        this.forEachParallel(access, callback, (firstKey, lastKey) -> {}, (firstKey, lastKey, t) -> {});
+    }
+
+    public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback,
+                                @NonNull LongLongConsumer beginThreadLocalSortedCallback,
+                                @NonNull LongLongObjConsumer<? super Throwable> endThreadLocalSortedBlockCallback) throws Exception {
         if (access.isDirectRead()) {
             Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
             try (Snapshot temporarySnapshotToCloseLater = optionalInternalSnapshot.isPresent() ? null : this.database.delegate().getSnapshot();
@@ -173,6 +181,10 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                                         return;
                                     }
 
+                                    long firstKey = PUnsafe.getUnalignedLongBE(fileMeta.smallestKey(), PUnsafe.arrayByteElementOffset(0));
+                                    long lastKey = PUnsafe.getUnalignedLongBE(fileMeta.largestKey(), PUnsafe.arrayByteElementOffset(0));
+                                    beginThreadLocalSortedCallback.accept(firstKey, lastKey);
+
                                     try (SstFileReader reader = new SstFileReader(options)) {
                                         reader.open(fileMeta.path() + fileMeta.fileName());
                                         try (SstFileReaderIterator iterator = reader.newIterator(this.database.config().readOptions(DatabaseConfig.ReadType.BULK_ITERATE))) {
@@ -181,7 +193,15 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                                                 callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(iterator.value())));
                                             }
                                         }
+                                    } catch (Throwable t) {
+                                        try {
+                                            endThreadLocalSortedBlockCallback.accept(firstKey, lastKey, t);
+                                        } catch (Throwable t1) {
+                                            t.addSuppressed(t1);
+                                        }
+                                        throw PUnsafe.throwException(t);
                                     }
+                                    endThreadLocalSortedBlockCallback.accept(firstKey, lastKey, null);
                                 });
                         return;
                 }

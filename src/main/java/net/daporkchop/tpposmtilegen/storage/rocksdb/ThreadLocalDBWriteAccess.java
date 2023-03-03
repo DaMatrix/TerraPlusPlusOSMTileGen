@@ -38,7 +38,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-final class ThreadLocalDBWriteAccess implements DBWriteAccess {
+final class ThreadLocalDBWriteAccess implements DBWriteAccess.ThreadLocal {
     @NonNull
     protected final CloseableThreadLocal<DBWriteAccess> delegate;
 
@@ -65,6 +65,11 @@ final class ThreadLocalDBWriteAccess implements DBWriteAccess {
     @Override
     public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
         this.delegate.get().deleteRange(columnFamilyHandle, beginKey, endKey);
+    }
+
+    @Override
+    public DBWriteAccess getWriteDelegateForCurrentThread() {
+        return this.delegate.get();
     }
 
     @Override

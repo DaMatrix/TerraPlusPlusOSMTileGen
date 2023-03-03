@@ -22,6 +22,7 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
@@ -35,84 +36,97 @@ import static net.daporkchop.lib.common.util.PValidation.*;
  * @author DaPorkchop_
  */
 @RequiredArgsConstructor
-class FlushableWriteBatch implements DBWriteAccess {
+abstract class FlushableWriteBatch implements DBWriteAccess {
     @NonNull
     protected final DatabaseConfig config;
     @NonNull
+    protected final DatabaseConfig.WriteType writeType;
+    @NonNull
     protected final RocksDB db;
     protected final WriteBatch batch = new WriteBatch();
-    protected boolean dirty = false;
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.batch.put(columnFamilyHandle, key, value);
-        this.dirty = true;
     }
 
     @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         this.batch.put(columnFamilyHandle, key, value);
-        this.dirty = true;
     }
 
     @Override
     public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
         this.batch.merge(columnFamilyHandle, key, value);
-        this.dirty = true;
     }
 
     @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.batch.delete(columnFamilyHandle, key);
-        this.dirty = true;
     }
 
     @Override
     public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
         this.batch.deleteRange(columnFamilyHandle, beginKey, endKey);
-        this.dirty = true;
     }
 
     @Override
     public long getDataSize() throws Exception {
-        return this.batch.getDataSize();
+        return this.batch.getDataSize() - NativeRocksHelper.writeBatchHeaderSize();
     }
 
     @Override
     public boolean isDirty() throws Exception {
-        return this.dirty;
+        return this.batch.count() != 0;
     }
 
     @Override
     public void flush() throws Exception {
-        if (this.dirty) {
+        if (this.isDirty()) {
             try {
-                this.db.write(this.config.writeOptions(DatabaseConfig.WriteType.NO_WAL), this.batch);
+                this.db.write(this.config.writeOptions(this.writeType), this.batch);
             } finally {
                 this.batch.clear();
-                this.dirty = false;
             }
         }
     }
 
     @Override
     public void clear() throws Exception {
-        if (this.dirty) {
-            this.batch.clear();
-            this.dirty = false;
-        }
+        this.batch.clear();
     }
 
     @Override
     public void close() throws Exception {
-        this.flush();
-
-        this.batch.close();
+        try (WriteBatch batch = this.batch) {
+            this.flush();
+        }
     }
 
     @Override
     public boolean threadSafe() {
         return true;
+    }
+
+    /**
+     * Wrapper around a RocksDB {@link WriteBatch}.
+     *
+     * @author DaPorkchop_
+     */
+    public static class Regular extends FlushableWriteBatch implements DBWriteAccess.Transactional {
+        public Regular(DatabaseConfig config, DatabaseConfig.WriteType writeType, RocksDB db) {
+            super(config, writeType, db);
+        }
+
+        @Override
+        public void pushCheckpoint() throws Exception {
+            this.batch.setSavePoint();
+        }
+
+        @Override
+        public void popCheckpoint() throws Exception {
+            this.batch.rollbackToSavePoint();
+        }
     }
 
     /**
@@ -123,8 +137,8 @@ class FlushableWriteBatch implements DBWriteAccess {
     public static class AutoFlushing extends FlushableWriteBatch {
         protected final long threshold;
 
-        public AutoFlushing(DatabaseConfig config, RocksDB db, long threshold) {
-            super(config, db);
+        public AutoFlushing(DatabaseConfig config, DatabaseConfig.WriteType writeType, RocksDB db, long threshold) {
+            super(config, writeType, db);
 
             this.threshold = positive(threshold, "threshold");
         }
