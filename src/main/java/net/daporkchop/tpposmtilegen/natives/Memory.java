@@ -48,6 +48,12 @@ public class Memory {
 
     private static native int memcmp0(long s1, long s2, long n);
 
+    public static int memcmp(@NonNull byte[] s1, @NonNull byte[] s2) {
+        checkArg(s1.length == s2.length);
+
+        return memcmp0(s1, 0, s2, 0, s1.length);
+    }
+
     public static int memcmp(@NonNull byte[] s1, int offset1, @NonNull byte[] s2, int offset2, int n) {
         notNegative(n);
         checkArrayRange(s1, offset1, n);
