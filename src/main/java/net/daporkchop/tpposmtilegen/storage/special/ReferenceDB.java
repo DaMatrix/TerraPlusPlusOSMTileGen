@@ -20,30 +20,33 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
+import io.netty.buffer.Unpooled;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.exception.EBiConsumer;
-import net.daporkchop.lib.common.function.exception.EConsumer;
-import net.daporkchop.lib.common.system.PlatformInfo;
+import net.daporkchop.lib.common.function.exception.EFunction;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
-import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksIterator;
-import org.rocksdb.Slice;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.function.LongConsumer;
+import java.util.stream.Collectors;
 
+import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
+import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
  * Tracks references between elements.
@@ -55,13 +58,13 @@ public class ReferenceDB extends WrappedRocksDB {
         super(database, column, desc);
     }
 
-    public void addReference(@NonNull DBWriteAccess access, long id, long referentCombined) throws Exception {
+    public void addReference(@NonNull DBWriteAccess access, long combinedId, long referentCombined) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         ByteArrayRecycler mergeOpRecycler = BYTE_ARRAY_RECYCLER_24.get();
         byte[] key = keyArrayRecycler.get();
         byte[] mergeOp = mergeOpRecycler.get();
         try {
-            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
             UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
             access.merge(this.column, key, mergeOp);
         } finally {
@@ -70,8 +73,8 @@ public class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList ids, long referentCombined) throws Exception {
-        int size = ids.size();
+    public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList combinedIds, long referentCombined) throws Exception {
+        int size = combinedIds.size();
         if (size == 0) {
             return;
         }
@@ -83,30 +86,7 @@ public class ReferenceDB extends WrappedRocksDB {
         try {
             UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
             for (int i = 0; i < size; i++) {
-                long id = ids.getLong(i);
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
-                access.merge(this.column, key, mergeOp);
-            }
-        } finally {
-            mergeOpRecycler.release(mergeOp);
-            keyArrayRecycler.release(key);
-        }
-    }
-
-    public void addReferences(@NonNull DBWriteAccess access, int type, @NonNull LongList ids, long referentCombined) throws Exception {
-        int size = ids.size();
-        if (size == 0) {
-            return;
-        }
-
-        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
-        ByteArrayRecycler mergeOpRecycler = BYTE_ARRAY_RECYCLER_24.get();
-        byte[] key = keyArrayRecycler.get();
-        byte[] mergeOp = mergeOpRecycler.get();
-        try {
-            UInt64SetMergeOperator.setSingleAdd(mergeOp, referentCombined);
-            for (int i = 0; i < size; i++) {
-                long id = Element.addTypeToId(type, ids.getLong(i));
+                long id = combinedIds.getLong(i);
                 PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                 access.merge(this.column, key, mergeOp);
             }
@@ -131,7 +111,7 @@ public class ReferenceDB extends WrappedRocksDB {
         }
     }
 
-    public void deleteReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
+    public void deleteAllReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] key = keyArrayRecycler.get();
         try {
@@ -159,6 +139,76 @@ public class ReferenceDB extends WrappedRocksDB {
         }
     }
 
+    public LongList getReferencesTo(@NonNull DBReadAccess access, long combinedId) throws Exception {
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+        byte[] key = keyArrayRecycler.get();
+        try {
+            PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
+            byte[] listBytes = access.get(this.column, key);
+            if (listBytes != null) {
+                checkState(listBytes.length % 8 == 0, listBytes.length);
+                long[] out = new long[listBytes.length / 8];
+                for (int i = 0; i < listBytes.length; i += 8) {
+                    out[i / 8] = PUnsafe.getUnalignedLongLE(listBytes, PUnsafe.arrayByteElementOffset(i));
+                }
+                return LongArrayList.wrap(out);
+            }
+            return LongLists.EMPTY_LIST;
+        } finally {
+            keyArrayRecycler.release(key);
+        }
+    }
+
+    public List<LongList> getReferencesTo(@NonNull DBReadAccess access, @NonNull LongList combinedIds) throws Exception {
+        int size = combinedIds.size();
+        if (size == 0) {
+            return Collections.emptyList();
+        } else if (size > 10000) { //split into smaller gets (prevents what i can only assume is a rocksdbjni bug where it will throw an NPE when requesting too many elements at once
+            List<LongList> dst = new ArrayList<>(size);
+            for (int i = 0; i < size; i += 10000) {
+                dst.addAll(this.getReferencesTo(access, combinedIds.subList(i, min(i + 10000, size))));
+            }
+            return dst;
+        }
+
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+        List<byte[]> keyBytes = new ArrayList<>(size);
+        List<byte[]> valueBytes;
+        try {
+            //serialize keys to bytes
+            for (int i = 0; i < size; i++) {
+                byte[] keyArray = keyArrayRecycler.get();
+                long key = combinedIds.getLong(i);
+                PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
+                keyBytes.add(keyArray);
+            }
+
+            //look up values from key
+            valueBytes = access.multiGetAsList(new DuplicatedList<>(this.column, size), keyBytes);
+        } finally {
+            keyBytes.forEach(keyArrayRecycler::release);
+        }
+
+        //re-use list that was previously used for storing encoded keys and store deserialized values in it
+        keyBytes.clear();
+        List<LongList> values = uncheckedCast(keyBytes);
+
+        for (int i = 0; i < size; i++) {
+            byte[] value = valueBytes.get(i);
+            if (value != null) {
+                checkState(value.length % 8 == 0, value.length);
+                long[] out = new long[value.length / 8];
+                for (int j = 0; j < value.length; j += 8) {
+                    out[j / 8] = PUnsafe.getUnalignedLongLE(value, PUnsafe.arrayByteElementOffset(j));
+                }
+                values.add(LongArrayList.wrap(out));
+            } else {
+                values.add(LongLists.EMPTY_LIST);
+            }
+        }
+        return values;
+    }
+
     public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
         try (DBIterator iterator = access.iterator(this.column)) {
             for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
@@ -173,11 +223,11 @@ public class ReferenceDB extends WrappedRocksDB {
         }
 
         @Override
-        public void addReference(@NonNull DBWriteAccess access, long id, long referent) throws Exception {
+        public void addReference(@NonNull DBWriteAccess access, long combinedId, long referent) throws Exception {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] key = recycler.get();
             try {
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
+                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
                 PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referent);
                 access.put(this.column, key, EMPTY_BYTE_ARRAY);
             } finally {
@@ -186,8 +236,8 @@ public class ReferenceDB extends WrappedRocksDB {
         }
 
         @Override
-        public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList ids, long referentCombined) throws Exception {
-            int size = ids.size();
+        public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList combinedIds, long referentCombined) throws Exception {
+            int size = combinedIds.size();
             if (size == 0) {
                 return;
             }
@@ -197,28 +247,7 @@ public class ReferenceDB extends WrappedRocksDB {
             try {
                 PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
                 for (int i = 0; i < size; i++) {
-                    long id = ids.getLong(i);
-                    PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
-                    access.put(this.column, key, EMPTY_BYTE_ARRAY);
-                }
-            } finally {
-                recycler.release(key);
-            }
-        }
-
-        @Override
-        public void addReferences(@NonNull DBWriteAccess access, int type, @NonNull LongList ids, long referentCombined) throws Exception {
-            int size = ids.size();
-            if (size == 0) {
-                return;
-            }
-
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] key = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
-                for (int i = 0; i < size; i++) {
-                    long id = Element.addTypeToId(type, ids.getLong(i));
+                    long id = combinedIds.getLong(i);
                     PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
                     access.put(this.column, key, EMPTY_BYTE_ARRAY);
                 }
@@ -241,7 +270,7 @@ public class ReferenceDB extends WrappedRocksDB {
         }
 
         @Override
-        public void deleteReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
+        public void deleteAllReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
             ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
             byte[] from = recycler.get();
             byte[] to = recycler.get();
@@ -282,6 +311,18 @@ public class ReferenceDB extends WrappedRocksDB {
                 recycler.release(from);
                 recycler.release(to);
             }
+        }
+
+        @Override
+        public LongList getReferencesTo(@NonNull DBReadAccess access, long combinedId) throws Exception {
+            LongList list = new LongArrayList();
+            this.getReferencesTo(access, combinedId, list);
+            return list;
+        }
+
+        @Override
+        public List<LongList> getReferencesTo(@NonNull DBReadAccess access, @NonNull LongList combinedIds) throws Exception {
+            return combinedIds.stream().map((EFunction<Long, LongList>) combinedId -> this.getReferencesTo(access, combinedId)).collect(Collectors.toList());
         }
 
         @Override

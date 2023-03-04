@@ -38,13 +38,11 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.io.FileNotFoundException;
 import java.time.Instant;
-import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.LongPredicate;
-import java.util.stream.Collector;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -62,17 +60,6 @@ public class Updater {
 
     public Updater(@NonNull Storage storage) throws Exception {
         this.globalState = storage.getLatestChangesetState().join();
-
-        try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
-            //storage.sequenceNumberProperty().remove(batch);
-            //storage.replicationTimestampProperty().set(batch, Instant.parse("2022-06-19T23:59:47Z").toEpochMilli() / 1000L);
-        }
-
-        /*try (RocksIterator iter = storage.db().delegate().newIterator(storage.db().internalColumnFamily(storage.properties()))) {
-            for (iter.seekToFirst(); iter.isValid(); iter.next()) {
-                logger.info("'%s'=0x%s", new String(iter.key(), StandardCharsets.UTF_8), Hexadecimal.encode(iter.value()));
-            }
-        }*/
 
         OptionalLong sequenceNumber = storage.sequenceNumberProperty().getLong(storage.db().read());
         if (!sequenceNumber.isPresent()) { //compute sequence number
@@ -164,44 +151,44 @@ public class Updater {
         }
 
         //pass 1: find all elements affected by this change, and write out modified elements
+        List<TaggedElement> taggedElements = changeset.entries().stream()
+                .flatMap(entry -> entry.elements().stream().map(element -> new TaggedElement(entry.op(), element)))
+                .filter(taggedElement -> taggedElement.element().timestamp().isAfter(now))
+                .sorted(Comparator.comparingInt(taggedElement -> taggedElement.element().version()))
+                .collect(Collectors.toList());
+        logger.info("processing %d/%d changes in %d entries", taggedElements.size(), changeset.entries().stream().mapToInt(entry -> entry.elements().size()).sum(), changeset.entries().size());
+
         LongSet changedIds = new LongOpenHashSet();
-        {
-            int originalSize = changeset.entries().stream().mapToInt(entry -> entry.elements().size()).sum();
-            List<TaggedElement> taggedElements = changeset.entries().stream()
-                    .flatMap(entry -> entry.elements().stream().map(element -> new TaggedElement(entry.op(), element)))
-                    .filter(taggedElement -> taggedElement.element().timestamp().isAfter(now))
-                    .sorted(Comparator.comparingInt(taggedElement -> taggedElement.element().version()))
-                    .collect(Collectors.toList());
-            logger.info("processing %d/%d changes in %d entries", taggedElements.size(), originalSize, changeset.entries().size());
-            for (TaggedElement taggedElement : taggedElements) {
-                Changeset.Element element = taggedElement.element();
-                switch (taggedElement.op()) {
-                    case CREATE:
-                        this.create(storage, access, element, changedIds);
-                        break;
-                    case MODIFY:
-                        this.modify(storage, access, element, changedIds);
-                        break;
-                    case DELETE:
-                        this.delete(storage, access, element, changedIds);
-                        break;
-                    default:
-                        throw new UnsupportedOperationException(taggedElement.op().name());
-                }
+        for (TaggedElement taggedElement : taggedElements) {
+            Changeset.Element element = taggedElement.element();
+            switch (taggedElement.op()) {
+                case CREATE:
+                    this.create(storage, access, element, changedIds);
+                    break;
+                case MODIFY:
+                    this.modify(storage, access, element, changedIds);
+                    break;
+                case DELETE:
+                    this.delete(storage, access, element, changedIds);
+                    break;
+                default:
+                    throw new UnsupportedOperationException(taggedElement.op().name());
             }
         }
         logger.trace("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 2: update element references
-        for (long combinedId : changedIds) {
-            storage.references().deleteReferencesTo(access, combinedId);
+        if (false) {
+            for (long combinedId : changedIds) {
+                storage.references().deleteAllReferencesTo(access, combinedId);
 
-            Element element = storage.getElement(access, combinedId);
-            if (element != null) {
-                element.computeReferences(access, storage);
+                Element element = storage.getElement(access, combinedId);
+                if (element != null) {
+                    element.computeReferences(access, storage);
+                }
             }
+            logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
         }
-        logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 3: convert geometry of all changed elements to GeoJSON and recompute relations
         for (long combinedId : changedIds) {
@@ -218,6 +205,9 @@ public class Updater {
         if (element.version() != 1) {
             logger.alert("attempting to create %s with id %d at non-one version %d! element: %s", Element.typeName(type), id, element.version(), element);
             throw new UpdateImpossibleException();
+        } else if (!storage.references().getReferencesTo(access, combinedId).isEmpty()) {
+            logger.alert("attempting to create %s with id %d, but it's already referenced?!? element: %s\nreferences: %s", Element.typeName(type), id, element.version(), element, storage.references().getReferencesTo(access, combinedId));
+            throw new UpdateImpossibleException();
         }
 
         //we assume that an element which has just been created isn't immediately deleted, lol
@@ -226,16 +216,23 @@ public class Updater {
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
 
-            storage.putNode(access, new Node(id, changedNode.tags(), changedNode.version(), visible), new Point(changedNode.lon(), changedNode.lat()));
+            Node newNode = new Node(id, changedNode.tags(), changedNode.version(), visible);
+            storage.nodes().put(access, id, newNode);
+            storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
+            newNode.computeReferences(access, storage);
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
 
-            storage.putWay(access, new Way(id, changedWay.tags(), changedWay.version(), visible, changedWay.refs().toLongArray()));
+            Way newWay = new Way(id, changedWay.tags(), changedWay.version(), visible, changedWay.refs().toLongArray());
+            storage.ways().put(access, id, newWay);
+            newWay.computeReferences(access, storage);
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
 
             Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-            storage.putRelation(access, new Relation(id, changedRelation.tags(), changedRelation.version(), visible, members));
+            Relation newRelation = new Relation(id, changedRelation.tags(), changedRelation.version(), visible, members);
+            storage.relations().put(access, id, newRelation);
+            newRelation.computeReferences(access, storage);
         }
 
         //this will force the element's tile intersections and references to be re-computed
@@ -267,6 +264,21 @@ public class Updater {
         } else if (element.version() != oldElement.version() + 1) {
             logger.alert("attempting to modify %s with id %d from version %d to %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement.version(), element.version(), oldElement, element);
             throw new UpdateImpossibleException();
+        } else { //make sure that every element referenced by this element still knows that it's being referenced
+            LongList oldReferences = oldElement.getReferencesCombinedIds();
+            List<LongList> storedReferencesToElementsWeReference = storage.references().getReferencesTo(access, oldReferences);
+            LongList oldReferencesWhichAreNoLongerReferenced = new LongArrayList();
+            for (int i = 0; i < oldReferences.size(); i++) {
+                long oldReference = oldReferences.getLong(i);
+                if (!storedReferencesToElementsWeReference.get(i).contains(combinedId)) {
+                    oldReferencesWhichAreNoLongerReferenced.add(oldReference);
+                }
+            }
+            if (!oldReferencesWhichAreNoLongerReferenced.isEmpty()) {
+                logger.alert("attempting to modify %s with id %d, but some elements it references are not actually referenced: %s!\nold element: %s\nelement: %s",
+                        Element.typeName(type), id, oldReferencesWhichAreNoLongerReferenced, oldElement, element);
+                throw new UpdateImpossibleException();
+            }
         }
 
         if (element instanceof Changeset.Node) {
@@ -320,8 +332,7 @@ public class Updater {
         }
 
         //this will force the element's tile intersections and references to be re-computed
-        changedIds.add(combinedId);
-        this.markReferentsDirty(storage, access, changedIds, combinedId);
+        this.markDirty(storage, access, changedIds, combinedId);
     }
 
     private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
@@ -333,6 +344,21 @@ public class Updater {
         if (oldElement == null) {
             logger.alert("attempting to delete non-existent %s with id %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
             throw new UpdateImpossibleException();
+        } else { //make sure that every element referenced by this element still knows that it's being referenced
+            LongList oldReferences = oldElement.getReferencesCombinedIds();
+            List<LongList> storedReferencesToElementsWeReference = storage.references().getReferencesTo(access, oldReferences);
+            LongList oldReferencesWhichAreNoLongerReferenced = new LongArrayList();
+            for (int i = 0; i < oldReferences.size(); i++) {
+                long oldReference = oldReferences.getLong(i);
+                if (!storedReferencesToElementsWeReference.get(i).contains(combinedId)) {
+                    oldReferencesWhichAreNoLongerReferenced.add(oldReference);
+                }
+            }
+            if (!oldReferencesWhichAreNoLongerReferenced.isEmpty()) {
+                logger.alert("attempting to modify %s with id %d, but some elements it references are not actually referenced: %s!\nold element: %s\nelement: %s",
+                        Element.typeName(type), id, oldReferencesWhichAreNoLongerReferenced, oldElement, element);
+                throw new UpdateImpossibleException();
+            }
         }
 
         if (element instanceof Changeset.Node) {
@@ -345,56 +371,44 @@ public class Updater {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way oldWay = (Way) oldElement;
 
-            LongSet oldNodes = new LongOpenHashSet(oldWay.nodes());
-            LongSet newNodes = new LongOpenHashSet(changedWay.refs());
-            for (long node : newNodes) {
-                if (!oldNodes.remove(node)) { //node was newly added to this way
-                    storage.references().addReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
-                }
+            if (!changedWay.refs().isEmpty()) {
+                logger.alert("deleted way %d still has some references!\nold element: %s\nelement: %s", id, oldElement, element);
+                throw new UpdateImpossibleException();
             }
-            for (long node : oldNodes) { //all nodes that remain are no longer referenced
+
+            for (long node : oldWay.nodes()) { //all nodes that remain are no longer referenced
                 storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), false, changedWay.refs().toLongArray()));
+            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), false, new long[0]));
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation oldRelation = (Relation) oldElement;
 
-            Relation.Member[] newMembers = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
-
-            LongSet oldRefs = new LongOpenHashSet(Stream.of(oldRelation.members()).mapToLong(Relation.Member::combinedId).toArray());
-            LongSet newRefs = new LongOpenHashSet(Stream.of(newMembers).mapToLong(Relation.Member::combinedId).toArray());
-            for (long ref : newRefs) {
-                if (!oldRefs.remove(ref)) { //element was newly added to this relation
-                    storage.references().addReference(access, ref, combinedId);
-                }
+            if (!changedRelation.members().isEmpty()) {
+                logger.alert("deleted relation %d still has some members!\nold element: %s\nelement: %s", id, oldElement, element);
+                throw new UpdateImpossibleException();
             }
-            for (long ref : oldRefs) { //all elements that remain are no longer referenced
+
+            for (long ref : Stream.of(oldRelation.members()).mapToLong(Relation.Member::combinedId).toArray()) { //all elements that remain are no longer referenced
                 storage.references().deleteReference(access, ref, combinedId);
             }
 
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), false, newMembers));
+            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), false, new Relation.Member[0]));
         }
 
         //this will force the element's tile intersections and references to be re-computed
-        changedIds.add(combinedId);
-        this.markReferentsDirty(storage, access, changedIds, combinedId);
+        this.markDirty(storage, access, changedIds, combinedId);
     }
 
-    private void markReferentsDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
-        LongList referents = new LongArrayList();
-        storage.references().getReferencesTo(access, combinedId, referents);
-
-        referents.removeIf((LongPredicate) l -> !changedIds.add(l));
-
-        for (int i = 0, size = referents.size(); i < size; i++) {
-            long referent = referents.getLong(i);
-            if (changedIds.add(referent)) {
-                this.markReferentsDirty(storage, access, changedIds, referent);
+    private void markDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
+        if (changedIds.add(combinedId)) {
+            for (long referent : storage.references().getReferencesTo(access, combinedId)) {
+                this.markDirty(storage, access, changedIds, referent);
             }
         }
     }
+
 
     private static final class UpdateImpossibleException extends RuntimeException {
     }

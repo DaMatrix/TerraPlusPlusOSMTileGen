@@ -52,6 +52,13 @@ public abstract class WrappedRocksDB {
     @NonNull
     protected final ColumnFamilyDescriptor desc;
 
+    /**
+     * @return {@code true} if the column family wrapped by this instance is empty. May return false negatives, but never a false positive
+     */
+    public boolean isGuaranteedEmpty() {
+        return this.database.delegate().getColumnFamilyMetaData(this.column).size() == 0L;
+    }
+
     public void clear() throws Exception {
         this.column = this.database.nukeAndReplaceColumnFamily(this.column, this.desc);
     }

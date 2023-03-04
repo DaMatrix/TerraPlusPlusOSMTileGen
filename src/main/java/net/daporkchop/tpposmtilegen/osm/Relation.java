@@ -35,7 +35,6 @@ import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
@@ -108,14 +107,12 @@ public final class Relation extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
+    public LongList getReferencesCombinedIds() {
         LongList ids = new LongArrayList(this.members.length);
         for (Member member : this.members) {
             ids.add(member.combinedId);
         }
-
-        //first parameter (type) is 0 because the ids are already combined with their type
-        storage.references().addReferences(access, ids, addTypeToId(TYPE, this.id));
+        return ids;
     }
 
     @Override

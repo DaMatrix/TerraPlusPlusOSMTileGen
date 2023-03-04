@@ -22,9 +22,9 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import com.wolt.osm.parallelpbf.entity.OsmEntity;
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
-import lombok.RequiredArgsConstructor;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
@@ -134,7 +134,11 @@ public abstract class Element implements Persistent {
         this.tags = Persistent.readTags(src);
     }
 
-    public abstract void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception;
+    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
+        storage.references().addReferences(access, this.getReferencesCombinedIds(), addTypeToId(this.type(), this.id));
+    }
+
+    public abstract LongList getReferencesCombinedIds();
 
     public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception;
 

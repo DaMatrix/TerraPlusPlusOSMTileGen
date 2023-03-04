@@ -21,12 +21,13 @@
 package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.util.Collections;
 import java.util.Map;
@@ -68,8 +69,9 @@ public final class Coastline extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
+    public LongList getReferencesCombinedIds() {
         //coastline isn't a real OpenStreetMap primitive type, so it has no references
+        return LongLists.EMPTY_LIST;
     }
 
     @Override

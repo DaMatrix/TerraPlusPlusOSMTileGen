@@ -21,13 +21,14 @@
 package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.util.Map;
 
@@ -62,8 +63,9 @@ public final class Node extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
+    public LongList getReferencesCombinedIds() {
         //a node doesn't reference anything
+        return LongLists.EMPTY_LIST;
     }
 
     @Override

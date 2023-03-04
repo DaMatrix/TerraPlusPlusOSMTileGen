@@ -213,8 +213,7 @@ public class DigestPBF implements IMode {
 
                     try (Storage storage = new Storage(dst, DatabaseConfig.RW_LITE)) {
                         //purge all OSM data from the storage to ensure that we aren't writing over existing stuff
-                        //Purge.purge(storage, Purge.DataType.osm);
-                        storage.points().clear();
+                        Purge.purge(storage, Purge.DataType.osm);
                     }
                 }
             }

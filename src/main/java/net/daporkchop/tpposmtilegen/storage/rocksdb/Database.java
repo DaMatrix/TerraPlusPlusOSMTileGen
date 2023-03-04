@@ -171,7 +171,13 @@ public final class Database implements AutoCloseable {
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         checkArg(toClear.stream().allMatch(wrapper -> wrapper.database == this), "all wrappers must belong to this database instance!");
 
-        toClear = toClear.stream().distinct().collect(Collectors.toList());
+        toClear = toClear.stream().distinct()
+                .filter(wrapper -> !wrapper.isGuaranteedEmpty()) //skip processing any wrappers which are already empty
+                .collect(Collectors.toList());
+
+        if (toClear.isEmpty()) { //all the wrappers were empty, we don't have to do anything
+            return;
+        }
 
         List<ColumnFamilyHandle> oldColumns = toClear.stream().map(wrapper -> wrapper.column).distinct().collect(Collectors.toList());
         checkState(oldColumns.size() == toClear.size(), "number of distinct columns (%d) != number of distinct wrappers to clear (%d)",
@@ -196,6 +202,10 @@ public final class Database implements AutoCloseable {
     }
 
     public ColumnFamilyHandle nukeAndReplaceColumnFamily(@NonNull ColumnFamilyHandle old, @NonNull ColumnFamilyDescriptor desc) throws Exception {
+        if (this.delegate.getColumnFamilyMetaData(old).size() == 0L) { //skip and do nothing
+            return old;
+        }
+
         checkState(this.columns.remove(old) != null, "column doesn't exist?!?");
         this.flush();
         this.delegate.dropColumnFamily(old);

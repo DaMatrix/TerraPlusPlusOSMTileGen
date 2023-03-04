@@ -59,11 +59,12 @@ public class RecomputeReferences implements IMode {
         checkArg(args.length == 1, "Usage: recompute_references <index_dir>");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD)) {
-            try (TimedOperation clearOperation = new TimedOperation("Clear references")) {
-                storage.references().clear();
-            }
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_LITE);
+             TimedOperation clearOperation = new TimedOperation("Clear references")) {
+            storage.references().clear();
+        }
 
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD)) {
             try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
                     storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Recompute references")

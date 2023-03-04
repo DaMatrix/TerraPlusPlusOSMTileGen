@@ -22,6 +22,8 @@ package net.daporkchop.tpposmtilegen.osm;
 
 import io.netty.buffer.ByteBuf;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
+import it.unimi.dsi.fastutil.longs.LongList;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
@@ -33,11 +35,11 @@ import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.PolygonAssembler;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 
 import java.util.List;
 import java.util.Map;
 
+import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
 
 /**
@@ -102,8 +104,9 @@ public final class Way extends Element {
     }
 
     @Override
-    public void computeReferences(@NonNull DBWriteAccess access, @NonNull Storage storage) throws Exception {
-        storage.references().addReferences(access, Node.TYPE, LongArrayList.wrap(this.nodes), addTypeToId(TYPE, this.id));
+    public LongList getReferencesCombinedIds() {
+        checkState(Element.addTypeToId(Node.TYPE, 0L) == 0L);
+        return LongLists.unmodifiable(LongArrayList.wrap(this.nodes));
     }
 
     @Override
