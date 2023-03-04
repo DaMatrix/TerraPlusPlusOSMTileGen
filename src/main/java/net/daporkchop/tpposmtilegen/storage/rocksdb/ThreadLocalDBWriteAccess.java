@@ -58,6 +58,11 @@ final class ThreadLocalDBWriteAccess implements DBWriteAccess.ThreadLocal {
     }
 
     @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        this.delegate.get().merge(columnFamilyHandle, key, value);
+    }
+
+    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.delegate.get().delete(columnFamilyHandle, key);
     }

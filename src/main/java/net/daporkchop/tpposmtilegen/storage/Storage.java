@@ -45,6 +45,7 @@ import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
+import net.daporkchop.tpposmtilegen.natives.UInt64ToBlobMapMergeOperator;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
@@ -140,6 +141,8 @@ public final class Storage implements AutoCloseable {
     protected final Object2ObjectLinkedOpenHashMap<String, CompletableFuture<byte[]>> replicationBlobs
             = new Object2ObjectLinkedOpenHashMap<>(REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD);
 
+    public final boolean legacy;
+
     public Storage(@NonNull Path root) throws Exception {
         this(root, DatabaseConfig.RW_GENERAL);
     }
@@ -154,11 +157,13 @@ public final class Storage implements AutoCloseable {
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())) {
             legacy = false;
         } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())
-                   || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())) {
+                   || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())
+                   || "/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
             legacy = true;
         } else {
             throw new IllegalArgumentException(root.toString());
         }
+        this.legacy = legacy;
 
         if (!config.readOnly() && PFiles.checkFileExists(root.resolve("db").resolve("IDENTITY"))) {
             //if we're trying to open the storage read-write, we should first open and close it read-only in order to double-check the version number without breaking
@@ -178,20 +183,20 @@ public final class Storage implements AutoCloseable {
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
                 .add("references", (database, handle, descriptor) -> this.references = legacy ? new ReferenceDB.Legacy(database, handle, descriptor) : new ReferenceDB(database, handle, descriptor), legacy ? null : UInt64SetMergeOperator.INSTANCE);
 
-        if (legacy) {
+        if (legacy && !"/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
             builder.add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         } else {
             builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor));
         }
 
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor)));
+        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = legacy ? new TileDB.Legacy(database, handle, descriptor) : new TileDB(database, handle, descriptor), legacy ? null : UInt64ToBlobMapMergeOperator.INSTANCE));
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         try (TimedOperation operation = new TimedOperation("Open DB")) {
             this.db = builder.build(root.resolve("db"));
         }
 
-        if (!legacy) {
+        if (!legacy || "/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
             this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
             this.sequenceNumberProperty = this.properties.getLongProperty("sequenceNumber");
             this.replicationTimestampProperty = this.properties.getLongProperty("replicationTimestamp");

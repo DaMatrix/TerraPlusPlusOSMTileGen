@@ -61,6 +61,11 @@ abstract class FlushableWriteBatch implements DBWriteAccess {
     }
 
     @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        NativeRocksHelper.merge(this.batch, columnFamilyHandle, key, value);
+    }
+
+    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.batch.delete(columnFamilyHandle, key);
     }
@@ -157,6 +162,12 @@ abstract class FlushableWriteBatch implements DBWriteAccess {
 
         @Override
         public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+            super.merge(columnFamilyHandle, key, value);
+            this.checkFlush();
+        }
+
+        @Override
+        public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
             super.merge(columnFamilyHandle, key, value);
             this.checkFlush();
         }

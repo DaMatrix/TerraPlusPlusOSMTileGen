@@ -20,37 +20,34 @@
 
 package net.daporkchop.tpposmtilegen;
 
+import it.unimi.dsi.fastutil.longs.AbstractLong2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import net.daporkchop.lib.common.math.PMath;
+import net.daporkchop.lib.common.function.exception.EConsumer;
+import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.primitive.lambda.LongIntConsumer;
-import net.daporkchop.lib.unsafe.PUnsafe;
-import net.daporkchop.tpposmtilegen.natives.Natives;
-import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
-import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.osm.Element;
-import net.daporkchop.tpposmtilegen.osm.Node;
-import net.daporkchop.tpposmtilegen.osm.Relation;
-import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.map.RocksDBMap;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.mmap.MemoryMap;
+import net.daporkchop.tpposmtilegen.util.Tile;
+import net.daporkchop.tpposmtilegen.util.Utils;
 
 import java.io.File;
-import java.nio.channels.FileChannel;
 import java.nio.file.Paths;
-import java.nio.file.StandardOpenOption;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
 import java.util.function.Function;
 import java.util.stream.Collectors;
+import java.util.stream.IntStream;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
 
 /**
@@ -60,33 +57,82 @@ public class VerifyMergeOpReferences {
     private static native void findAndPrintReferences(long begin, long end, long key);
 
     public static void main(String... args) throws Exception {
-        /*if (false) {
-            PUnsafe.ensureClassInitialized(Natives.class);
-            try (FileChannel channel = FileChannel.open(Paths.get("/media/daporkchop/data/planet-test/references-sorted.buf"), StandardOpenOption.READ);
-                 MemoryMap mmap = new MemoryMap(channel, FileChannel.MapMode.READ_ONLY, 0L, channel.size())) {
-                findAndPrintReferences(mmap.addr(), mmap.addr() + mmap.size(), Element.addTypeToId(Way.TYPE, 78529221L));
-
-                final long targetBlockSize = PMath.roundUp((long) (4.266666667d * (65536L << 10L)), 16L);
-                UInt64SetUnsortedWriteAccess.partitionSortedRange(mmap.addr(), mmap.size(), targetBlockSize);
-            }
-            return;
-        }*/
-
         logger.redirectStdOut().enableANSI()
                 .addFile(new File("logs/" + Instant.now() + ".log"), LogAmount.DEBUG)
                 .setLogAmount(LogAmount.DEBUG);
 
-        try (Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
+        try (//Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
-             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
 
-             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland-reference"), DatabaseConfig.RO_GENERAL);
-             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland"), DatabaseConfig.RO_GENERAL);
+             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland-legacy"), DatabaseConfig.RO_GENERAL);
+             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland"), DatabaseConfig.RO_GENERAL);
         ) {
-            long properVersion = properStorage.sequenceNumber().get(properStorage.db().read());
+            //long properVersion = properStorage.sequenceNumber().get(properStorage.db().read());
             //long properVersion = properStorage.sequenceNumberProperty().getLong(properStorage.db().read()).getAsLong();
-            long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
-            checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
+            //long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
+            //checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
+
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Verify geometry")
+                    .slot("tiles").slot("blobs")
+                    .build();
+                 DBReadAccess properReadAccess = properStorage.db().snapshot();
+                 DBReadAccess testReadAccess = testStorage.db().snapshot()) {
+
+                CompletableFuture<?> verifyBlobsTask = CompletableFuture.runAsync(() -> IntStream.range(0, Utils.MAX_LEVELS)
+                        .parallel()
+                        .boxed()
+                        .forEach((EConsumer<Integer>) level -> {
+                            try (DBIterator it1 = properStorage.db().read().iterator(properStorage.db().internalColumnFamily(properStorage.externalJsonStorage()[level]));
+                                 DBIterator it2 = testStorage.db().read().iterator(testStorage.db().internalColumnFamily(testStorage.externalJsonStorage()[level]))) {
+                                for (it1.seekToFirst(), it2.seekToFirst(); it1.isValid() && it2.isValid(); it1.next(), it2.next()) {
+                                    if (!Arrays.equals(it1.key(), it2.key())) {
+                                        throw new IllegalStateException("key");
+                                    }
+                                    if (!Arrays.equals(it1.value(), it2.value())) {
+                                        throw new IllegalStateException("value");
+                                    }
+                                    notifier.step(1);
+                                }
+                                if (it1.isValid() != it2.isValid()) {
+                                    throw new IllegalStateException("lengths differ");
+                                }
+                            }
+                        }));
+
+                IntStream.range(0, Utils.MAX_LEVELS).parallel().forEach(level -> Tile.levelTiles(level, true).forEach(tilePos -> {
+                    try {
+                        List<Long2ObjectMap.Entry<byte[]>> properValues = new ArrayList<>();
+                        List<Long2ObjectMap.Entry<byte[]>> testValues = new ArrayList<>();
+                        properStorage.tileJsonStorage()[level].getElementsInTile(properReadAccess, tilePos, (key, value) -> properValues.add(new AbstractLong2ObjectMap.BasicEntry<>(key, value)));
+                        testStorage.tileJsonStorage()[level].getElementsInTile(testReadAccess, tilePos, (key, value) -> testValues.add(new AbstractLong2ObjectMap.BasicEntry<>(key, value)));
+
+                        notifier.incrementTotal(0);
+                        if (!properValues.isEmpty()) {
+                            notifier.step(0);
+                        }
+
+                        if (properValues.size() != testValues.size()) {
+                            throw new IllegalStateException("size mismatch");
+                        }
+                        for (int i = 0; i < properValues.size(); i++) {
+                            Long2ObjectMap.Entry<byte[]> properValue = properValues.get(i);
+                            Long2ObjectMap.Entry<byte[]> testValue = testValues.get(i);
+                            if (properValue.getLongKey() != testValue.getLongKey() || !Arrays.equals(properValue.getValue(), testValue.getValue())) {
+                                throw new IllegalStateException("value mismatch at #" + i);
+                            }
+                        }
+                    } catch (Exception e) {
+                        throw new RuntimeException(PStrings.fastFormat("tile (%d, %d) at level %d", Tile.tileX(tilePos), Tile.tileY(tilePos), level), e);
+                    }
+                }));
+
+                verifyBlobsTask.join();
+
+                if (true) {
+                    return;
+                }
+            }
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Verify references")
                     .slot("nodes").slot("ways").slot("relations").slot("coastlines").slot("references")
@@ -112,9 +158,9 @@ public class VerifyMergeOpReferences {
                 };
 
                 //properStorage.nodes().forEachKeyParallel(properReadAccess, id -> func.accept(id, Node.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
-                properStorage.ways().forEachKeyParallel(properReadAccess, id -> func.accept(id, Way.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
-                properStorage.relations().forEachKeyParallel(properReadAccess, id -> func.accept(id, Relation.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
-                properStorage.coastlines().forEachKeyParallel(properReadAccess, id -> func.accept(id, Coastline.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
+                //properStorage.ways().forEachKeyParallel(properReadAccess, id -> func.accept(id, Way.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
+                //properStorage.relations().forEachKeyParallel(properReadAccess, id -> func.accept(id, Relation.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
+                //properStorage.coastlines().forEachKeyParallel(properReadAccess, id -> func.accept(id, Coastline.TYPE), RocksDBMap.KeyDistribution.EVEN_DENSE);
 
                 if (false) {
                     try (DBIterator it1 = properStorage.db().read().iterator(properStorage.db().internalColumnFamily(properStorage.references()));

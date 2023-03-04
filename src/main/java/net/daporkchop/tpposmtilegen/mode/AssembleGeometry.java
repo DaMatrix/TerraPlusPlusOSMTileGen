@@ -25,6 +25,7 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 
 import java.nio.file.Path;
@@ -56,7 +57,11 @@ public class AssembleGeometry implements IMode {
         checkArg(args.length == 1, "Usage: assemble_geometry <index_dir>");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src);
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_LITE)) {
+            Purge.purge(storage, Purge.DataType.geometry);
+        }
+
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_GENERAL);
              ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
                      .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                      .build()) {

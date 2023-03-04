@@ -134,7 +134,7 @@ public class DigestPBF implements IMode {
 
         Header header = getHeader(src, Function.identity());
         logger.info("PBF header: " + header);
-        checkArg(header.getReplicationSequenceNumber() != null || header.getReplicationTimestamp() != null,
+        checkArg(true || header.getReplicationSequenceNumber() != null || header.getReplicationTimestamp() != null,
                 "'%s' doesn't contain a replication timestamp or sequence number!", src);
 
         //we need this in order to make sure that every element which exists is actually present in the db (i.e. deleted elements should have visible=false)
@@ -253,7 +253,7 @@ public class DigestPBF implements IMode {
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
                          .build();
-                 PbfElementHandler elementHandler = new PbfElementHandler(storage, referencesWriteAccess, notifier, threads);
+                 PbfElementHandler elementHandler = new PbfElementHandler(storage, storage.legacy ? storage.db().batch() : referencesWriteAccess, notifier, threads);
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker")) {
                 new ParallelBinaryParser(is, threads)
                         .setThreadFactory(threadFactory)
@@ -355,7 +355,7 @@ public class DigestPBF implements IMode {
 
             Way way = new Way(in);
             this.storage.putWay(this.waysWriteAccess, way);
-            //way.computeReferences(this.referencesWriteAccess, this.storage);
+            way.computeReferences(this.referencesWriteAccess, this.storage);
             way.erase();
         }
 
@@ -366,7 +366,7 @@ public class DigestPBF implements IMode {
 
             Relation relation = new Relation(in);
             this.storage.putRelation(this.relationsWriteAccess, relation);
-            //relation.computeReferences(this.referencesWriteAccess, this.storage);
+            relation.computeReferences(this.referencesWriteAccess, this.storage);
             relation.erase();
         }
 

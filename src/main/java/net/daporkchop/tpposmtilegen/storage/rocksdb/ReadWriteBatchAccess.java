@@ -83,6 +83,11 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        this.writeDelegate.merge(columnFamilyHandle, key, value);
+    }
+
+    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.writeDelegate.delete(columnFamilyHandle, key);
     }

@@ -145,6 +145,11 @@ final class TransactionAccess implements DBAccess, DBWriteAccess.Transactional {
     }
 
     @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        this.transaction.merge(columnFamilyHandle, toByteArray(key), toByteArray(value));
+    }
+
+    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         this.transaction.delete(columnFamilyHandle, key);
     }

@@ -1,5 +1,7 @@
 #include "tpposmtilegen_common.h"
 
+#include <lib-rocksdb/include/rocksdb/iterator.h>
+#include <lib-rocksdb/include/rocksdb/sst_file_writer.h>
 #include <lib-rocksdb/include/rocksdb/write_batch.h>
 
 #include <cassert>

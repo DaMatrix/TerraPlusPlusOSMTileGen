@@ -85,3 +85,46 @@ static_assert(sizeof(uint32be) == sizeof(uint32_t));
 
 using uint32le = bo_uint32<std::endian::little>;
 static_assert(sizeof(uint32le) == sizeof(uint32_t));
+
+template<std::endian ORDER>
+class bo_int32 {
+    static_assert(std::endian::big == std::endian::native || std::endian::little == std::endian::native);
+
+private:
+    constexpr static bool is_native = ORDER == std::endian::native;
+
+    int32_t _payload;
+
+public:
+    constexpr bo_int32() noexcept : _payload() {}
+    constexpr bo_int32(int32_t payload) noexcept : _payload(is_native ? payload : __builtin_bswap32(payload)) {}
+    constexpr bo_int32(const bo_int32& other) noexcept = default;
+    constexpr bo_int32(bo_int32&& other) noexcept = default;
+
+    constexpr ~bo_int32() noexcept = default;
+
+    constexpr bo_int32& operator =(const bo_int32& other) noexcept = default;
+    constexpr bo_int32& operator =(bo_int32&& other) noexcept = default;
+
+    constexpr operator int32_t() const noexcept {
+        if constexpr (is_native)
+            return _payload;
+        else
+            return __builtin_bswap32(_payload);
+    }
+
+    constexpr bo_int32& operator =(int32_t value) noexcept {
+        if constexpr (is_native) {
+            _payload = value;
+        } else {
+            _payload = __builtin_bswap32(value);
+        }
+        return *this;
+    }
+};
+
+using int32be = bo_int32<std::endian::big>;
+static_assert(sizeof(int32be) == sizeof(int32_t));
+
+using int32le = bo_int32<std::endian::little>;
+static_assert(sizeof(int32le) == sizeof(int32_t));

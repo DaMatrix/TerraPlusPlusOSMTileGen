@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -24,8 +24,8 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 
-import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.tpposmtilegen.util.Utils.*;
 
 /**
@@ -62,5 +62,21 @@ public class Tile {
 
     public static int tileY(long tilePos) {
         return Utils.uninterleaveY(tilePos);
+    }
+
+    public static Bounds2d levelBounds(int level) {
+        return Bounds2d.of(
+                point2tile(level, -180 * Point.PRECISION),
+                point2tile(level, 180 * Point.PRECISION),
+                point2tile(level, -90 * Point.PRECISION),
+                point2tile(level, 90 * Point.PRECISION));
+    }
+
+    public static LongStream levelTiles(int level, boolean parallel) {
+        Bounds2d bounds = levelBounds(level);
+        return (parallel ? IntStream.rangeClosed(bounds.minX(), bounds.maxX()).parallel() : IntStream.rangeClosed(bounds.minX(), bounds.maxX()))
+                .boxed()
+                .flatMapToLong(x -> (parallel ? IntStream.rangeClosed(bounds.minY(), bounds.maxY()).parallel() : IntStream.rangeClosed(bounds.minY(), bounds.maxY()))
+                        .mapToLong(y -> xy2tilePos(x, y)));
     }
 }

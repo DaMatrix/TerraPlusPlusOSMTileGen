@@ -27,6 +27,7 @@ import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.function.exception.EPredicate;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.natives.Memory;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.BulkFlushable;
 import org.rocksdb.ColumnFamilyHandle;
@@ -72,6 +73,11 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
 
     @Override
     public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+        this.getColumnState(columnFamilyHandle).merge(columnFamilyHandle, key, value);
+    }
+
+    @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         this.getColumnState(columnFamilyHandle).merge(columnFamilyHandle, key, value);
     }
 
@@ -217,6 +223,15 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
             checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
             this.getOpenWriter().merge(key, value);
             this.dataSize += OPERATION_OVERHEAD + key.length + value.length;
+        }
+
+        @Override
+        public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+            checkArg(columnFamilyHandle.equals(this.column), "mismatched column families!");
+            int keyRemaining = key.remaining();
+            int valueRemaining = value.remaining();
+            NativeRocksHelper.merge(this.getOpenWriter(), key, value);
+            this.dataSize += OPERATION_OVERHEAD + keyRemaining + valueRemaining;
         }
 
         @Override
@@ -370,6 +385,12 @@ class FlushableSstFileWriterBatch implements DBWriteAccess, BulkFlushable<Flusha
 
             @Override
             public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+                super.merge(columnFamilyHandle, key, value);
+                this.checkFlush();
+            }
+
+            @Override
+            public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
                 super.merge(columnFamilyHandle, key, value);
                 this.checkFlush();
             }

@@ -26,6 +26,7 @@ import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
 import net.daporkchop.lib.primitive.lambda.LongLongObjConsumer;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
@@ -161,6 +162,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback,
                                 @NonNull LongLongConsumer beginThreadLocalSortedCallback,
                                 @NonNull LongLongObjConsumer<? super Throwable> endThreadLocalSortedBlockCallback) throws Exception {
+        DIRECT_READ:
         if (access.isDirectRead()) {
             Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
             try (Snapshot temporarySnapshotToCloseLater = optionalInternalSnapshot.isPresent() ? null : this.database.delegate().getSnapshot();
@@ -173,6 +175,10 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                     case 0: //nothing to do
                         return;
                     case 1: //there's exactly one non-empty level, we can simply iterate over all the SST files in the level in parallel
+                        if (columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).findAny().get().files().size() < CPU_COUNT << 1) {
+                            break DIRECT_READ;
+                        }
+
                         Threading.<SstFileMetaData>iterateParallel(CPU_COUNT,
                                 c -> columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).findAny().get().files().stream().forEach(c),
                                 fileMeta -> {

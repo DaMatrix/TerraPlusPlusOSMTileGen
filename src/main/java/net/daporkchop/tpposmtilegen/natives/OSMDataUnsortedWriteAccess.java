@@ -188,6 +188,13 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     }
 
     @Override
+    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
+        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
+        checkState(!this.flushing, "currently flushing?!?");
+        throw new UnsupportedOperationException();
+    }
+
+    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
