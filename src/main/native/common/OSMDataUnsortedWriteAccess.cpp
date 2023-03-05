@@ -15,11 +15,11 @@
 class data_t {
 public:
     uint32_t version;
-    uint32_t size;
+    int32_t size; //negative if removed
     char data[];
 };
 
-static_assert(sizeof(data_t) == sizeof(uint32_t) * 2);
+static_assert(sizeof(data_t) == sizeof(uint32_t) + sizeof(int32_t));
 
 class keyvalue_t {
 public:
@@ -27,14 +27,6 @@ public:
     std::atomic<const data_t*> _value;
 
     const data_t* value_ptr() const noexcept { return _value.load(); }
-
-    constexpr auto operator <(const keyvalue_t& other) const noexcept {
-        if (key == 0 && other.key == 0) return key < other.key;
-        else if (key == 0 && other.key != 0) return true;
-        else if (key != 0 && other.key == 0) return false;
-        else return false;
-    }
-    constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
 };
 
 static_assert(sizeof(keyvalue_t) == sizeof(uint64_t) * 2);
@@ -74,7 +66,7 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorted
     } while (!indexBegin[key]._value.compare_exchange_strong(currentValue, value));
 
     if (currentValue != nullptr) {
-        jint size = currentValue->size;
+        jint size = std::max(currentValue->size, 0);
         //free(const_cast<data_t*>(currentValue));
         ::operator delete(static_cast<void*>(const_cast<data_t*>(currentValue)), size + sizeof(data_t));
         return size;
@@ -84,7 +76,7 @@ JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorted
 }
 
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsortedWriteAccess_appendKeys
-        (JNIEnv *env, jobject instance, rocksdb::SstFileWriter* writer, const keyvalue_t* begin, const keyvalue_t* end) {
+        (JNIEnv *env, jobject instance, rocksdb::SstFileWriter* writer, const keyvalue_t* begin, const keyvalue_t* end, jboolean assumeEmpty) {
     try {
         assert(begin < end);
 
@@ -109,12 +101,22 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_OSMDataUnsorte
 
             uint64be key_be = key;
 
-            rocksdb::Status status = writer->Put(
-                rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
-                rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
+            rocksdb::Status status = rocksdb::Status::OK();
+            if (value->size >= 0) { //put
+                status = writer->Put(
+                        rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
+                        rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
+            } else { //delete
+                if (assumeEmpty) { //we assume the db is empty, therefore we can safely omit any deletes
+                    status = rocksdb::Status::OK();
+                } else { //the db isn't empty, thus we need to include a deletion entry in case the key is already present
+                    status = writer->Delete(
+                            rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)));
+                }
+            }
 
             //free(const_cast<data_t*>(value));
-            ::operator delete(static_cast<void*>(const_cast<data_t*>(value)), value->size + sizeof(data_t));
+            ::operator delete(static_cast<void*>(const_cast<data_t*>(value)), std::max(value->size, 0) + sizeof(data_t));
 
             if (!status.ok()) {
                 throwRocksdbException(env, status);

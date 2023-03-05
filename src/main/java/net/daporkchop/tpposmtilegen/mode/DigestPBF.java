@@ -314,13 +314,13 @@ public class DigestPBF implements IMode {
             ToIntFunction<ByteBuffer> currentVersionExtractor = buf -> this.currentVersion.get().intValue();
 
             this.nodesWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.nodes()), Node::getVersionFromSerialized, 6.394704777d, threads);
+                    storage, storage.db().internalColumnFamily(storage.nodes()), currentVersionExtractor, 6.394704777d, threads, true);
             this.pointsWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.points()), currentVersionExtractor, 2.154728129d, threads);
+                    storage, storage.db().internalColumnFamily(storage.points()), currentVersionExtractor, 2.154728129d, threads, true);
             this.waysWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.ways()), currentVersionExtractor, 3.243015087d, threads);
+                    storage, storage.db().internalColumnFamily(storage.ways()), currentVersionExtractor, 3.243015087d, threads, true);
             this.relationsWriteAccess = new OSMDataUnsortedWriteAccess(
-                    storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.519971471d, threads);
+                    storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.519971471d, threads, true);
             this.referencesWriteAccess = referencesWriteAccess;
 
             this.osmDataWriteAccesses = new OSMDataUnsortedWriteAccess[] {
@@ -342,6 +342,8 @@ public class DigestPBF implements IMode {
             this.storage.nodes().put(this.nodesWriteAccess, node.id(), node);
             if (node.visible()) { //only store the point if the node is actually visible
                 this.storage.points().put(this.pointsWriteAccess, node.id(), new Point(in.getLonFixedPoint(), in.getLatFixedPoint()));
+            } else { //we need to explicitly delete the point in order to replace any older versions of the point for which the node was visible
+                this.storage.points().delete(this.pointsWriteAccess, node.id());
             }
             node.computeReferences(this.referencesWriteAccess, this.storage);
             node.erase();

@@ -104,15 +104,18 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private static final Set<Thread> ONGOING_FLUSHES_GLOBAL = ConcurrentHashMap.newKeySet(PorkUtil.CPU_COUNT << 1);
     private final AtomicInteger ongoingFlushesLocal = new AtomicInteger();
 
+    private final boolean assumeEmpty;
+
     private volatile boolean flushing = false;
     private volatile boolean flushException = false;
 
-    public OSMDataUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ToIntFunction<ByteBuffer> versionFromValueExtractor, double compressionRatio, int threads) throws Exception {
+    public OSMDataUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ToIntFunction<ByteBuffer> versionFromValueExtractor, double compressionRatio, int threads, boolean assumeEmpty) throws Exception {
         this.storage = storage;
         this.columnFamilyHandle = columnFamilyHandle;
         this.versionFromValueExtractor = versionFromValueExtractor;
         this.compressionRatio = compressionRatio;
         this.threads = threads;
+        this.assumeEmpty = assumeEmpty;
 
         this.options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions());
 
@@ -124,6 +127,42 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         this.flushTriggerThreshold = (long) (compressionRatio * this.options.targetFileSizeBase());
 
         Memory.releaseMemoryToSystem();
+    }
+
+    private void preWrite(long key) {
+        if (this.flushException) {
+            while (true) {
+                this.flushes.forEach(f -> {
+                    if (f.isCompletedExceptionally()) {
+                        f.join();
+                    }
+                });
+            }
+        }
+
+        FlushInfo lastFlush = this.lastFlush;
+        checkArg(key >= lastFlush.targetKeyExclusive,
+                "tried to put key %d, which has already been flushed (last flush was up to and excluding key %d)", key, lastFlush.targetKeyExclusive);
+    }
+
+    private void swapEntry(long key, long valueAddr, long valueSize) throws Exception {
+        int oldSize = trySwapIndexEntry(this.indexAddr, key, valueAddr);
+        if (oldSize >= 0) { //we successfully replaced the previous value
+            long d = valueSize;
+            if (oldSize > 0) { //a previous value existed
+                d -= oldSize + 4L + 4L;
+            } else {
+                this.valueCount.increment();
+            }
+            this.valueSize.add(d);
+
+            long totalValueSize;
+            if (this.pendingFlush == null && (totalValueSize = this.valueSize.sum()) - this.lastFlush.valueSize >= this.flushTriggerThreshold) {
+                this.scheduleFlush(key, totalValueSize);
+            }
+        }
+
+        this.visitKey(key);
     }
 
     @Override
@@ -138,22 +177,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
 
-        if (this.flushException) {
-            while (true) {
-                this.flushes.forEach(f -> {
-                    if (f.isCompletedExceptionally()) {
-                        f.join();
-                    }
-                });
-            }
-        }
-
         checkArg(key.remaining() == 8, key.remaining());
         long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
 
-        FlushInfo lastFlush = this.lastFlush;
-        checkArg(realKey >= lastFlush.targetKeyExclusive,
-                "tried to put key %d, which has already been flushed (last flush was up to and excluding key %d)", realKey, lastFlush.targetKeyExclusive);
+        this.preWrite(realKey);
 
         //allocate space for the value
         long valueAddr = Memory.malloc(value.remaining() + 4L + 4L);
@@ -161,23 +188,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         PUnsafe.putUnalignedInt(valueAddr + 4L, value.remaining());
         PUnsafe.copyMemory(PUnsafe.pork_directBufferAddress(value) + value.position(), valueAddr + 8L, value.remaining());
 
-        int oldSize = trySwapIndexEntry(this.indexAddr, realKey, valueAddr);
-        if (oldSize >= 0) { //we successfully replaced the previous value
-            long d = value.remaining() + 4L + 4L;
-            if (oldSize > 0) { //a previous value existed
-                d -= oldSize + 4L + 4L;
-            } else {
-                this.valueCount.increment();
-            }
-            this.valueSize.add(d);
-
-            long valueSize;
-            if (this.pendingFlush == null && (valueSize = this.valueSize.sum()) - this.lastFlush.valueSize >= this.flushTriggerThreshold) {
-                this.scheduleFlush(realKey, valueSize);
-            }
-        }
-
-        this.visitKey(realKey);
+        this.swapEntry(realKey, valueAddr, value.remaining() + 4L + 4L);
     }
 
     @Override
@@ -198,7 +209,18 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
         checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
         checkState(!this.flushing, "currently flushing?!?");
-        throw new UnsupportedOperationException();
+
+        checkArg(key.length == 8, key.length);
+        long realKey = PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0));
+
+        this.preWrite(realKey);
+
+        //allocate space for the value
+        long valueAddr = Memory.malloc(4L + 4L);
+        PUnsafe.putUnalignedInt(valueAddr, this.versionFromValueExtractor.applyAsInt(null));
+        PUnsafe.putUnalignedInt(valueAddr + 4L, -1); //size of -1 indicates removal
+
+        this.swapEntry(realKey, valueAddr, 4L + 4L);
     }
 
     @Override
@@ -334,7 +356,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private static native int trySwapIndexEntry(long indexBegin, long key, long value);
 
-    private static native long appendKeys(long writerHandle, long begin, long end);
+    private static native long appendKeys(long writerHandle, long begin, long end, boolean assumeEmpty);
 
     @SneakyThrows
     private Handle<Path> buildSstFileFromRange(long indexAddr, long indexSize) throws Exception {
@@ -354,7 +376,7 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
             try (SstFileWriter writer = new SstFileWriter(this.storage.db().config().envOptions(), this.options)) {
                 writer.open(pathHandle.get().toString());
-                long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize);
+                long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize, this.assumeEmpty);
                 if (writtenKeys == 0L) {
                     //no keys were appended
                     PFiles.rm(pathHandle.get());
