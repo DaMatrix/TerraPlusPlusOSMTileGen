@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import it.unimi.dsi.fastutil.longs.LongSet;
 import it.unimi.dsi.fastutil.longs.LongSets;
@@ -123,8 +124,8 @@ public final class Shape extends ComplexGeometry {
         try {
             LongSet tilePositions = LongSets.synchronize(new LongOpenHashSet(tileCount));
 
-            IntStream stream = IntStream.rangeClosed(tileMinX, tileMaxY);
-            if (tileMaxY - tileMinX > 16) {
+            IntStream stream = IntStream.rangeClosed(tileMinX, tileMaxX);
+            if (tileMaxX - tileMinX > 16) {
                 stream = stream.parallel();
             }
             stream.forEach(x -> {
@@ -147,6 +148,51 @@ public final class Shape extends ComplexGeometry {
                 recycler.release(innerPolys[i]);
             }
             recycler.release(outerPoly);
+        }
+    }
+
+    protected void listIntersectedTilesComplex(int targetLevel, LongList tilePositions, Polygon outerPoly, Polygon[] innerPolys, int currLevel, int currX, int currY) {
+        int tileSizePointScale = TILE_SIZE_POINT_SCALE[currLevel];
+
+        if (outerPoly.intersects(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) {
+            for (Polygon innerPoly : innerPolys) {
+                if (innerPoly.contains(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) { //tile is entirely contained within a hole
+                    return;
+                }
+            }
+
+            if (currLevel == targetLevel) { //we can't recurse any further, add the tile to the output list and stop
+                tilePositions.add(xy2tilePos(currX, currY));
+                return;
+            }
+
+            CONTAINED:
+            if (outerPoly.contains(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) {
+                for (Polygon innerPoly : innerPolys) {
+                    if (innerPoly.intersects(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) { //tile intersects a hole, so we might not entirely contain the whole thing
+                        break CONTAINED;
+                    }
+                }
+
+                //we're entirely contained by the polygon, so we can immediately add every tile!
+                int shift = currLevel - targetLevel;
+                checkState(shift > 0);
+
+                int count = 1 << shift;
+                for (int dx = 0; dx < count; dx++) {
+                    for (int dy = 0; dy < count; dy++) {
+                        tilePositions.add(xy2tilePos((currX << count) + dx, (currY << count) + dy));
+                    }
+                }
+                return;
+            }
+
+            //we intersect the polygon partially, recurse into each of the 4 children and try again
+            for (int dx = 0; dx <= 1; dx++) {
+                for (int dy = 0; dy <= 1; dy++) {
+                    this.listIntersectedTilesComplex(targetLevel, tilePositions, outerPoly, innerPolys, currLevel - 1, (currX << 1) + dx, (currY << 1) + dy);
+                }
+            }
         }
     }
 

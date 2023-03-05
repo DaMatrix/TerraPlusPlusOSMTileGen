@@ -177,19 +177,6 @@ public class Updater {
         }
         logger.trace("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
-        //pass 2: update element references
-        if (false) {
-            for (long combinedId : changedIds) {
-                storage.references().deleteAllReferencesTo(access, combinedId);
-
-                Element element = storage.getElement(access, combinedId);
-                if (element != null) {
-                    element.computeReferences(access, storage);
-                }
-            }
-            logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
-        }
-
         //pass 3: convert geometry of all changed elements to GeoJSON and recompute relations
         for (long combinedId : changedIds) {
             storage.convertToGeoJSONAndStoreInDB(access, combinedId, null, true);

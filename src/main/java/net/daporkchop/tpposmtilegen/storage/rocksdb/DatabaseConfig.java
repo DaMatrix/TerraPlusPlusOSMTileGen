@@ -29,6 +29,7 @@ import net.daporkchop.lib.common.util.PValidation;
 import org.rocksdb.AccessHint;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.Cache;
+import org.rocksdb.ClockCache;
 import org.rocksdb.ColumnFamilyOptions;
 import org.rocksdb.CompactRangeOptions;
 import org.rocksdb.CompactionOptionsUniversal;
@@ -40,7 +41,6 @@ import org.rocksdb.Env;
 import org.rocksdb.EnvOptions;
 import org.rocksdb.FlushOptions;
 import org.rocksdb.IngestExternalFileOptions;
-import org.rocksdb.LRUCache;
 import org.rocksdb.Priority;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -87,7 +87,7 @@ public final class DatabaseConfig {
                 this.dataBlockSizeBytes = dataBlockSizeKib << 10L;
                 this.cacheShardBits = cacheShardBits;
 
-                this.blockCache = new LRUCache((dataBlockSizeKib << 11L) * (1L << (long) cacheShardBits), cacheShardBits);
+                this.blockCache = new ClockCache((dataBlockSizeKib << 11L) * (1L << (long) cacheShardBits), cacheShardBits);
             }
         }
 

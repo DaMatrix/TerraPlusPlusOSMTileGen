@@ -159,7 +159,8 @@ public final class Storage implements AutoCloseable {
         if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
             || "/media/daporkchop/data/switzerland".equals(root.toString())
-            || "/media/daporkchop/data/switzerland-reference".equals(root.toString())) {
+            || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
+            || "/mnt/planet".equals(root.toString())) {
             legacy = false;
         } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())
                    || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())
@@ -267,7 +268,7 @@ public final class Storage implements AutoCloseable {
         return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element element, boolean allowUnknown) throws Exception {
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element element, boolean allowUnknown, boolean assumeEmpty) throws Exception {
         int type = Element.extractType(combinedId);
         String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
@@ -281,20 +282,22 @@ public final class Storage implements AutoCloseable {
 
         String location = Geometry.externalStorageLocation(type, id);
 
-        //pass 1: delete element from everything
-        for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
-            long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
-            if (oldIntersected != null) { //the element previously existed at this level, delete it
-                //element should no longer intersect any tiles
-                this.intersectedTiles[lvl].delete(access, combinedId);
+        //pass 1: delete element from everything (we skip this step if the database is initially empty)
+        if (!assumeEmpty) {
+            for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
+                long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
+                if (oldIntersected != null) { //the element previously existed at this level, delete it
+                    //element should no longer intersect any tiles
+                    this.intersectedTiles[lvl].delete(access, combinedId);
 
-                //remove the element's json data from all tiles it previously intersected
-                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+                    //remove the element's json data from all tiles it previously intersected
+                    this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
 
-                //delete element's external json data, if it was present
-                this.externalJsonStorage[lvl].delete(access, combinedId);
-            } else { //if the element wasn't present at this level, it won't be at any other levels either
-                break;
+                    //delete element's external json data, if it was present
+                    this.externalJsonStorage[lvl].delete(access, combinedId);
+                } else { //if the element wasn't present at this level, it won't be at any other levels either
+                    break;
+                }
             }
         }
 

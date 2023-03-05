@@ -26,10 +26,16 @@ import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.Threading;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -61,14 +67,18 @@ public class AssembleGeometry implements IMode {
             Purge.purge(storage, Purge.DataType.geometry);
         }
 
-        try (Storage storage = new Storage(src, DatabaseConfig.RW_GENERAL);
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD);
              ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
                      .slot("nodes").slot("ways").slot("relations").slot("coastlines")
                      .build()) {
             LongObjConsumer<Element> func = (id, element) -> {
+                if (!element.visible()) {
+                    return;
+                }
+
                 int type = element.type();
                 try {
-                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false);
+                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false, true);
                 } catch (Exception e) {
                     throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                 }
@@ -79,6 +89,13 @@ public class AssembleGeometry implements IMode {
             storage.ways().forEachParallel(storage.db().read(), func);
             storage.relations().forEachParallel(storage.db().read(), func);
             storage.coastlines().forEachParallel(storage.db().read(), func);
+
+            try (TimedOperation compactOperation = new TimedOperation("Compaction")) {
+                List<WrappedRocksDB> toCompact = Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
+                        .flatMap(Stream::of).collect(Collectors.toList());
+
+                Threading.iterateParallel(toCompact.size(), toCompact.size(), toCompact::forEach, WrappedRocksDB::compact);
+            }
         }
     }
 }
