@@ -22,14 +22,13 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.RocksDB;
-import org.rocksdb.Snapshot;
 
 import java.util.List;
-import java.util.Optional;
 
 /**
  * @author DaPorkchop_
@@ -48,7 +47,8 @@ final class DirectReadAccess implements DBReadAccess {
 
     @Override
     public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
-        return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
+        //return this.db.multiGetAsList(this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
+        return NativeRocksHelper.multiGetAsList(this.db, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override

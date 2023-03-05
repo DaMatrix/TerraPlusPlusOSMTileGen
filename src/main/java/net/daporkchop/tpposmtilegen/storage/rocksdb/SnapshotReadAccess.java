@@ -21,6 +21,7 @@
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
 import lombok.NonNull;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import org.rocksdb.ColumnFamilyHandle;
@@ -56,7 +57,8 @@ final class SnapshotReadAccess implements DBReadAccess {
 
     @Override
     public List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception {
-        return this.db.multiGetAsList(this.readOptions.get(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
+        //return this.db.multiGetAsList(this.readOptions.get(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
+        return NativeRocksHelper.multiGetAsList(this.db, this.readOptions.get(DatabaseConfig.ReadType.GENERAL), columnFamilyHandleList, keys);
     }
 
     @Override

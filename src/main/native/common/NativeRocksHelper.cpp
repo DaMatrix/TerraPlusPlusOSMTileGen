@@ -1,10 +1,25 @@
 #include "tpposmtilegen_common.h"
 
+#include <lib-rocksdb/include/rocksdb/db.h>
 #include <lib-rocksdb/include/rocksdb/iterator.h>
 #include <lib-rocksdb/include/rocksdb/sst_file_writer.h>
 #include <lib-rocksdb/include/rocksdb/write_batch.h>
 
 #include <cassert>
+#include <stdexcept>
+#include <vector>
+
+static void throwOutOfMemory(JNIEnv* env, const char* msg = "") noexcept {
+    if (!env->ExceptionCheck()) {
+        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), msg);
+    }
+}
+
+static void throwOutOfMemory(JNIEnv* env, const std::bad_alloc& e) noexcept {
+    if (!env->ExceptionCheck()) {
+        env->ThrowNew(env->FindClass("java/lang/OutOfMemoryError"), e.what());
+    }
+}
 
 static void throwRocksdbException(JNIEnv* env, const rocksdb::Status& status) noexcept {
     if (!env->ExceptionCheck()) {
@@ -59,6 +74,53 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelp
     rocksdb::Slice value(reinterpret_cast<const char*>(valueAddr), valueSize);
     if (auto status = writer->Merge(key, value); UNLIKELY(!status.ok())) {
         throwRocksdbException(env, status);
+    }
+}
+
+static_assert(sizeof(rocksdb::Slice) >= alignof(rocksdb::Slice));
+static_assert(alignof(const void*) >= alignof(rocksdb::Slice));
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_00024OffHeapSliceArray_SIZE(JNIEnv *env, jclass cla) { return sizeof(rocksdb::Slice); }
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_00024OffHeapSliceArray_DATA_1OFFSET(JNIEnv *env, jclass cla) { return offsetof(rocksdb::Slice, data_); }
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_00024OffHeapSliceArray_DATA_1SIZE(JNIEnv *env, jclass cla) { return sizeof(rocksdb::Slice().data_); }
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_00024OffHeapSliceArray_SIZE_1OFFSET(JNIEnv *env, jclass cla) { return offsetof(rocksdb::Slice, size_); }
+JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_00024OffHeapSliceArray_SIZE_1SIZE(JNIEnv *env, jclass cla) { return sizeof(rocksdb::Slice().size_); }
+
+JNIEXPORT jobjectArray JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeRocksHelper_multiGetToArrays0__JJJIJZ
+        (JNIEnv *env, jclass cla, jlong dbHandle, jlong optionsHandle, jlong columnFamilyHandle, jint numKeys, jlong keySlicesAddr, jboolean sortedInput) {
+    auto* db = reinterpret_cast<rocksdb::DB*>(dbHandle);
+    auto* options = reinterpret_cast<const rocksdb::ReadOptions*>(optionsHandle);
+    auto* column_family = reinterpret_cast<rocksdb::ColumnFamilyHandle*>(columnFamilyHandle);
+    auto* keys = reinterpret_cast<const rocksdb::Slice*>(keySlicesAddr);
+
+    try {
+        std::vector<rocksdb::PinnableSlice> values(numKeys);
+        std::vector<rocksdb::Status> statuses(numKeys);
+
+        db->MultiGet(*options, column_family, numKeys, keys, values.data(), statuses.data());
+
+        for (const auto& status : statuses) {
+            if (UNLIKELY(!status.ok())) {
+                throwRocksdbException(env, status);
+                return nullptr;
+            }
+        }
+
+        jobjectArray results = env->NewObjectArray(numKeys, env->FindClass("[B"), nullptr);
+        if (UNLIKELY(results == nullptr)) return nullptr;
+
+        for (decltype(numKeys) i = 0; i < numKeys; i++) {
+            jint size = static_cast<jint>(values[i].size());
+            jbyteArray arr = env->NewByteArray(size);
+            if (UNLIKELY(arr == nullptr)) return nullptr;
+
+            env->SetObjectArrayElement(results, i, arr);
+            env->SetByteArrayRegion(arr, 0, size, reinterpret_cast<const jbyte*>(values[i].data()));
+        }
+
+        return results;
+    } catch (const std::bad_alloc& e) {
+        throwOutOfMemory(env, e);
+        return nullptr;
     }
 }
 

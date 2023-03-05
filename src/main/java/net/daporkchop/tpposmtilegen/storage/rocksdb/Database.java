@@ -149,9 +149,13 @@ public final class Database implements AutoCloseable {
     }
 
     public DBAccess newTransaction() {
+        return this.newTransaction(DatabaseConfig.WriteType.GENERAL);
+    }
+
+    public DBAccess newTransaction(@NonNull DatabaseConfig.WriteType writeType) {
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         OptimisticTransactionDB delegate = (OptimisticTransactionDB) this.delegate;
-        return new TransactionAccess(this.config, delegate, delegate.beginTransaction(this.config.writeOptions(DatabaseConfig.WriteType.SYNC)));
+        return new TransactionAccess(this.config, delegate, delegate.beginTransaction(this.config.writeOptions(writeType)));
     }
 
     public DBReadAccess snapshot() throws Exception {

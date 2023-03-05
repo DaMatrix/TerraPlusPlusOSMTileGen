@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.natives;
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.unsafe.PUnsafe;
 
 import java.nio.BufferUnderflowException;
@@ -132,6 +133,41 @@ public class Memory {
 
     public static int memcmp(long s1, long s2, long n) {
         return memcmp0(s1, s2, notNegative(n));
+    }
+
+    private static final int MEMCPY_JNI_THRESHOLD = 256;
+
+    private static void memcpyJava(Object dstBase, long dstOffset, Object srcBase, long srcOffset, @NotNegative long n) {
+        long pos = 0L;
+        while (pos + Long.BYTES <= n) {
+            PUnsafe.putUnalignedLong(dstBase, dstOffset, PUnsafe.getUnalignedLong(srcBase, srcOffset));
+            pos += Long.BYTES;
+        }
+
+        if (pos + Integer.BYTES <= n) {
+            PUnsafe.putUnalignedIntLE(dstBase, dstOffset, PUnsafe.getUnalignedInt(srcBase, srcOffset));
+            pos += Integer.BYTES;
+        }
+
+        while (pos < n) {
+            PUnsafe.putByte(dstBase, dstOffset, PUnsafe.getByte(srcBase, srcOffset));
+            pos++;
+        }
+    }
+
+    private static native void memcpyNative(long dst, long src, @NotNegative long n);
+
+    public static void memcpy(long dst, long src, @NotNegative long n) {
+        if (n <= MEMCPY_JNI_THRESHOLD) {
+            memcpyJava(null, dst, null, src, n);
+        } else {
+            memcpyNative(dst, src, n);
+        }
+    }
+
+    public static void memcpy(long dst, byte[] src, int srcOffset, @NotNegative int n) {
+        checkRangeLen(src.length, srcOffset, n);
+        memcpyJava(null, dst, src, PUnsafe.arrayByteElementOffset(srcOffset), n);
     }
 
     private static void checkArrayRange(byte[] array, int offset, int n) {

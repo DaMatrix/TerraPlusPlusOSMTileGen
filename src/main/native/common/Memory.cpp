@@ -117,6 +117,11 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_madvise0
     }
 }
 
+JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_memcpyNative__JJJ
+        (JNIEnv *env, jclass cla, jlong dst, jlong src, jlong n) {
+    std::memcpy(reinterpret_cast<void*>(dst), reinterpret_cast<void*>(src), n);
+}
+
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_malloc__J
         (JNIEnv *env, jclass cla, jlong size) {
     void* ptr = malloc(size);
