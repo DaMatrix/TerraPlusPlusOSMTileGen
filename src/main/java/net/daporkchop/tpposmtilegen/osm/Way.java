@@ -48,7 +48,7 @@ import static net.daporkchop.lib.logging.Logging.*;
 @Getter
 @ToString(callSuper = true)
 public final class Way extends Element {
-    public static final int TYPE = 1;
+    public static final int TYPE = Element.WAY_TYPE;
 
     protected long[] nodes;
 

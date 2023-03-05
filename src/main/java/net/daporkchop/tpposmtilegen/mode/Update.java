@@ -21,7 +21,11 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
+import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.osm.changeset.ChangesetState;
 import net.daporkchop.tpposmtilegen.storage.Storage;
@@ -32,6 +36,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Scanner;
+import java.util.concurrent.CompletableFuture;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -40,6 +45,13 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 public class Update implements IMode {
+    protected Storage storage;
+    protected DBAccess txn;
+    protected Updater updater;
+
+    protected CompletableFuture<?> updateTask;
+    protected volatile boolean updateCancelled;
+
     @Override
     public String name() {
         return "update";
@@ -56,199 +68,269 @@ public class Update implements IMode {
     }
 
     @Override
-    public void run(@NonNull String... args) throws Exception {
+    public synchronized void run(@NonNull String... args) throws Exception {
         checkArg(args.length == 1 || args.length == 2, "Usage: update <index_dir> [lite=true]");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = args.length == 1 || Boolean.parseBoolean(args[1]);
 
         try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              DBAccess txn = storage.db().newTransaction()) {
-            Updater updater = new Updater(storage);
+            this.storage = storage;
+            this.txn = txn;
+            this.updater = new Updater(storage);
+
             try (Scanner scanner = new Scanner(System.in)) {
-                LOOP:
-                while (true) {
-                    String command = scanner.nextLine();
-                    String[] split = command.split(" ");
-                    switch (split[0]) {
-                        case "h":
-                        case "help":
-                        case "?":
-                            logger.info("Available commands:\n"
-                                        + "  'info'\n"
-                                        + "  'update'\n"
-                                        + "  'update_to ( <target_sequence_number> | latest )'\n"
-                                        + "  'commit'\n"
-                                        + "  'rollback_to ( <target_sequence_number> | prev )'\n"
-                                        + "  'rollback_all'\n"
-                                        + "  'stop'");
-                            break;
-                        case "info": {
-                            if (split.length != 1) {
-                                logger.warn("command '%s' expects no arguments", split[0]);
-                                break;
-                            }
-
-                            long databaseSequenceNumber = storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong();
-                            long txnSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong();
-                            ChangesetState databaseState = storage.getChangesetState(databaseSequenceNumber, null).join();
-                            ChangesetState txnState = storage.getChangesetState(txnSequenceNumber, null).join();
-                            //ChangesetState latestState = storage.getLatestChangesetState().join();
-                            ChangesetState latestState = updater.globalState();
-
-                            logger.info("Database state: %s", databaseState);
-                            logger.info("Current state:  %s (%s)", txnState, databaseSequenceNumber == txnSequenceNumber ? "no changes" : "uncommitted");
-                            logger.info("Latest state:   %s", latestState);
-                            break;
-                        }
-                        case "update": {
-                            if (split.length != 1) {
-                                logger.warn("command '%s' expects no arguments", split[0]);
-                                break;
-                            }
-
-                            long originalSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong();
-                            long originalDataSize = txn.getDataSize();
-                            long toSequenceNumber = originalSequenceNumber + 1L;
-
-                            try {
-                                logger.info("update result: %b", updater.update(storage, txn));
-                            } catch (RuntimeException e) {
-                                long currentSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong();
-                                checkState(originalSequenceNumber == currentSequenceNumber, "failed update still changed the sequence number?!? originally %s, currently %d", originalSequenceNumber, currentSequenceNumber);
-
-                                long currentDataSize = txn.getDataSize();
-                                checkState(originalDataSize == currentDataSize, "failed update still changed the data size?!? originally %s, currently %d", originalDataSize, currentDataSize);
-                                
-                                ChangesetState fromState = storage.getChangesetState(originalSequenceNumber, null).join();
-                                ChangesetState toState = storage.getChangesetState(toSequenceNumber, null).join();
-                                logger.alert("failed to update from '%s' to '%s'!", e, fromState, toState);
-                            }
-                            break;
-                        }
-                        case "update_to": {
-                            if (split.length != 2) {
-                                logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
-                                break;
-                            }
-
-                            long targetSequenceNumber;
-                            try {
-                                targetSequenceNumber = Long.parseUnsignedLong(split[1]);
-                            } catch (NumberFormatException e) {
-                                if ("latest".equals(split[1])) {
-                                    targetSequenceNumber = updater.globalState().sequenceNumber();
-                                } else {
-                                    logger.warn("unparseable sequence number, expected integer or 'latest': %s", split[1]);
-                                    break;
-                                }
-                            }
-
-                            if (storage.sequenceNumberProperty().getLong(txn).getAsLong() >= targetSequenceNumber) {
-                                logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!",
-                                        storage.sequenceNumberProperty().getLong(txn).getAsLong(), targetSequenceNumber);
-                                break;
-                            }
-
-                            do {
-                                long originalSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong();
-                                long originalDataSize = txn.getDataSize();
-                                long toSequenceNumber = originalSequenceNumber + 1L;
-
-                                try {
-                                    if (!updater.update(storage, txn)) {
-                                        logger.warn("updater returned false, sequence number %d isn't available yet! stopping at %d",
-                                                targetSequenceNumber, storage.sequenceNumberProperty().getLong(txn).getAsLong());
-                                        break;
-                                    }
-                                } catch (RuntimeException e) {
-                                    long currentSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong();
-                                    checkState(originalSequenceNumber == currentSequenceNumber, "failed update still changed the sequence number?!? originally %s, currently %d", originalSequenceNumber, currentSequenceNumber);
-
-                                    long currentDataSize = txn.getDataSize();
-                                    checkState(originalDataSize == currentDataSize, "failed update still changed the data size?!? originally %s, currently %d", originalDataSize, currentDataSize);
-
-                                    ChangesetState fromState = storage.getChangesetState(originalSequenceNumber, null).join();
-                                    ChangesetState toState = storage.getChangesetState(toSequenceNumber, null).join();
-                                    logger.alert("failed to update from '%s' to '%s'! stopping at %d", e, fromState, toState, currentSequenceNumber);
-                                    break;
-                                }
-                            } while (storage.sequenceNumberProperty().getLong(txn).getAsLong() < targetSequenceNumber);
-                            logger.info("update_to %d: done.", targetSequenceNumber);
-                            break;
-                        }
-                        case "commit":
-                            if (split.length != 1) {
-                                logger.warn("command '%s' expects no arguments", split[0]);
-                                break;
-                            }
-
-                            logger.info("Committing...");
-                            txn.flush();
-                            logger.success("Committed.");
-                            break;
-                        case "rollback_to": {
-                            if (split.length != 2) {
-                                logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
-                                break;
-                            }
-
-                            long targetSequenceNumber;
-                            try {
-                                targetSequenceNumber = Long.parseUnsignedLong(split[1]);
-                            } catch (NumberFormatException e) {
-                                if ("prev".equals(split[1])) {
-                                    targetSequenceNumber = storage.sequenceNumberProperty().getLong(txn).getAsLong() - 1;
-                                } else {
-                                    logger.warn("unparseable sequence number, expected integer or 'prev': %s", split[1]);
-                                    break;
-                                }
-                            }
-
-                            if (storage.sequenceNumberProperty().getLong(txn).getAsLong() <= targetSequenceNumber) {
-                                logger.warn("already at sequence number %d, cannot go forward in time to reach sequence number %d!",
-                                        storage.sequenceNumberProperty().getLong(txn).getAsLong(), targetSequenceNumber);
-                                break;
-                            } else if (storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong() >= targetSequenceNumber) {
-                                logger.warn("changes up to and including sequence number %d are already committed, cannot un-commit transactions to reach sequence number %d!",
-                                        storage.sequenceNumberProperty().getLong(storage.db().read()).getAsLong(), targetSequenceNumber);
-                                break;
-                            }
-
-                            do {
-                                ((DBWriteAccess.Transactional) txn).popCheckpoint();
-                            } while (storage.sequenceNumberProperty().getLong(txn).getAsLong() > targetSequenceNumber);
-                            logger.info("rollback_to %d: done.", targetSequenceNumber);
-                            break;
-                        }
-                        case "rollback_all":
-                            if (split.length != 1) {
-                                logger.warn("command '%s' expects no arguments", split[0]);
-                                break;
-                            } else if (!txn.isDirty()) {
-                                logger.warn("there are no uncommitted changes to roll back!");
-                                break;
-                            }
-
-                            txn.clear();
-                            logger.info("rolled back all uncommitted changes.");
-                            break;
-                        case "stop":
-                            if (split.length != 1) {
-                                logger.warn("command '%s' expects no arguments", split[0]);
-                                break;
-                            } else if (txn.isDirty()) {
-                                logger.warn("there are uncommitted changes which must be committed or rolled back before stopping!");
-                                break;
-                            }
-
-                            logger.info("stopping...");
-                            break LOOP;
-                        default:
-                            logger.error("Unknown command: '%s'", command);
-                    }
-                }
+                while (this.runCommand(scanner.nextLine())) {}
             }
             txn.clear();
+        } finally {
+            this.storage = null;
+            this.txn = null;
+            this.updater = null;
         }
+    }
+
+    private boolean runCommand(String command) throws Exception {
+        String[] split = command.split(" ");
+
+        if (this.updateTask != null) {
+            if (this.updateTask.isDone()) {
+                this.updateTask.join(); //this will rethrow any exceptions which may have been thrown
+                this.updateTask = null;
+            } else { //the update isn't done
+                switch (split[0]) {
+                    case "cancel":
+                        logger.info("waiting for the update to be cancelled...");
+                        this.updateCancelled = true;
+                        this.updateTask.join();
+                        this.updateTask = null;
+                        break;
+                    default:
+                        logger.warn("an update is currently ongoing; command '%s' isn't supported at this time! only available command is 'cancel'.");
+                        break;
+                }
+                return true;
+            }
+        }
+
+        switch (split[0]) {
+            case "h":
+            case "help":
+            case "?":
+                logger.info("Available commands:\n"
+                            + "  'info'\n"
+                            + "  'update'\n"
+                            + "  'update_to ( <target_sequence_number> | latest )'\n"
+                            + "  'commit'\n"
+                            + "  'rollback_to ( <target_sequence_number> | prev )'\n"
+                            + "  'rollback_all'\n"
+                            + "  'get ( node | way | relation | coastline ) <id>'\n"
+                            + "  'stop'");
+                break;
+            case "info": {
+                if (split.length != 1) {
+                    logger.warn("command '%s' expects no arguments", split[0]);
+                    break;
+                }
+
+                long databaseSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.storage.db().read()).getAsLong();
+                long txnSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong();
+                ChangesetState databaseState = this.storage.getChangesetState(databaseSequenceNumber, null).join();
+                ChangesetState txnState = this.storage.getChangesetState(txnSequenceNumber, null).join();
+                //ChangesetState latestState = storage.getLatestChangesetState().join();
+                ChangesetState latestState = this.updater.globalState();
+
+                logger.info("Database state: %s", databaseState);
+                logger.info("Current state:  %s (%s)", txnState, databaseSequenceNumber == txnSequenceNumber ? "no changes" : "uncommitted");
+                logger.info("Latest state:   %s", latestState);
+                break;
+            }
+            case "update": {
+                if (split.length != 1) {
+                    logger.warn("command '%s' expects no arguments", split[0]);
+                    break;
+                }
+
+                long originalSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong();
+                long originalDataSize = this.txn.getDataSize();
+                long toSequenceNumber = originalSequenceNumber + 1L;
+
+                try {
+                    logger.info("update result: %b", this.updater.update(this.storage, this.txn));
+                } catch (RuntimeException e) {
+                    long currentSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong();
+                    checkState(originalSequenceNumber == currentSequenceNumber, "failed update still changed the sequence number?!? originally %s, currently %d", originalSequenceNumber, currentSequenceNumber);
+
+                    long currentDataSize = this.txn.getDataSize();
+                    checkState(originalDataSize == currentDataSize, "failed update still changed the data size?!? originally %s, currently %d", originalDataSize, currentDataSize);
+
+                    ChangesetState fromState = this.storage.getChangesetState(originalSequenceNumber, null).join();
+                    ChangesetState toState = this.storage.getChangesetState(toSequenceNumber, null).join();
+                    logger.alert("failed to update from '%s' to '%s'!", e, fromState, toState);
+                }
+                break;
+            }
+            case "update_to": {
+                if (split.length != 2) {
+                    logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
+                    break;
+                }
+
+                long _targetSequenceNumber;
+                try {
+                    _targetSequenceNumber = Long.parseUnsignedLong(split[1]);
+                } catch (NumberFormatException e) {
+                    if ("latest".equals(split[1])) {
+                        _targetSequenceNumber = this.updater.globalState().sequenceNumber();
+                    } else {
+                        logger.warn("unparseable sequence number, expected integer or 'latest': %s", split[1]);
+                        break;
+                    }
+                }
+                long targetSequenceNumber = _targetSequenceNumber; //damn you java
+
+                if (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() >= targetSequenceNumber) {
+                    logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!",
+                            this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong(), targetSequenceNumber);
+                    break;
+                }
+
+                this.updateCancelled = false;
+                this.updateTask = CompletableFuture.runAsync((ERunnable) () -> {
+                    do {
+                        long originalSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong();
+                        long originalDataSize = this.txn.getDataSize();
+                        long toSequenceNumber = originalSequenceNumber + 1L;
+
+                        if (this.updateCancelled) {
+                            logger.info("update_to %d: cancelled by user! stoppping at %d", targetSequenceNumber, originalSequenceNumber);
+                            return;
+                        }
+
+                        try {
+                            if (!this.updater.update(this.storage, this.txn)) {
+                                logger.warn("updater returned false, sequence number %d isn't available yet! stopping at %d",
+                                        targetSequenceNumber, this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong());
+                                break;
+                            }
+                        } catch (RuntimeException e) {
+                            long currentSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong();
+                            checkState(originalSequenceNumber == currentSequenceNumber, "failed update still changed the sequence number?!? originally %s, currently %d", originalSequenceNumber, currentSequenceNumber);
+
+                            long currentDataSize = this.txn.getDataSize();
+                            checkState(originalDataSize == currentDataSize, "failed update still changed the data size?!? originally %s, currently %d", originalDataSize, currentDataSize);
+
+                            ChangesetState fromState = this.storage.getChangesetState(originalSequenceNumber, null).join();
+                            ChangesetState toState = this.storage.getChangesetState(toSequenceNumber, null).join();
+                            logger.alert("failed to update from '%s' to '%s'! stopping at %d", e, fromState, toState, currentSequenceNumber);
+                            break;
+                        }
+                    } while (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() < targetSequenceNumber);
+                    logger.info("update_to %d: done.", targetSequenceNumber);
+                });
+                break;
+            }
+            case "commit":
+                if (split.length != 1) {
+                    logger.warn("command '%s' expects no arguments", split[0]);
+                    break;
+                }
+
+                logger.info("Committing...");
+                this.txn.flush();
+                logger.success("Committed.");
+                break;
+            case "rollback_to": {
+                if (split.length != 2) {
+                    logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
+                    break;
+                }
+
+                long targetSequenceNumber;
+                try {
+                    targetSequenceNumber = Long.parseUnsignedLong(split[1]);
+                } catch (NumberFormatException e) {
+                    if ("prev".equals(split[1])) {
+                        targetSequenceNumber = this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() - 1;
+                    } else {
+                        logger.warn("unparseable sequence number, expected integer or 'prev': %s", split[1]);
+                        break;
+                    }
+                }
+
+                if (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() <= targetSequenceNumber) {
+                    logger.warn("already at sequence number %d, cannot go forward in time to reach sequence number %d!",
+                            this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong(), targetSequenceNumber);
+                    break;
+                } else if (this.storage.sequenceNumberProperty().getLong(this.storage.db().read()).getAsLong() >= targetSequenceNumber) {
+                    logger.warn("changes up to and including sequence number %d are already committed, cannot un-commit transactions to reach sequence number %d!",
+                            this.storage.sequenceNumberProperty().getLong(this.storage.db().read()).getAsLong(), targetSequenceNumber);
+                    break;
+                }
+
+                do {
+                    ((DBWriteAccess.Transactional) this.txn).popCheckpoint();
+                } while (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() > targetSequenceNumber);
+                logger.info("rollback_to %d: done.", targetSequenceNumber);
+                break;
+            }
+            case "rollback_all":
+                if (split.length != 1) {
+                    logger.warn("command '%s' expects no arguments", split[0]);
+                    break;
+                } else if (!this.txn.isDirty()) {
+                    logger.warn("there are no uncommitted changes to roll back!");
+                    break;
+                }
+
+                this.txn.clear();
+                logger.info("rolled back all uncommitted changes.");
+                break;
+            case "get": {
+                if (split.length != 3) {
+                    logger.warn("command '%s' expects 2 arguments: <type> <id>", split[0]);
+                    break;
+                }
+
+                int type;
+                try {
+                    type = Element.typeId(split[1]);
+                } catch (IllegalArgumentException e) {
+                    logger.warn("invalid element type, expected one of [%s]: %s", Element.typeNames(), split[1]);
+                    break;
+                }
+
+                long id;
+                try {
+                    id = Long.parseUnsignedLong(split[2]);
+                } catch (NumberFormatException e) {
+                    logger.warn("unparseable id: %s", split[2]);
+                    break;
+                }
+
+                Element element = this.storage.getElement(this.txn, Element.addTypeToId(type, id));
+                logger.info("%s id %d:\n  %s", Element.typeName(type), id, element);
+
+                if (type == Node.TYPE) {
+                    logger.info("  point: %s", this.storage.points().get(this.txn, id));
+                }
+                break;
+            }
+            case "stop":
+                if (split.length != 1) {
+                    logger.warn("command '%s' expects no arguments", split[0]);
+                    break;
+                } else if (this.txn.isDirty()) {
+                    logger.warn("there are uncommitted changes which must be committed or rolled back before stopping!");
+                    break;
+                }
+
+                logger.info("stopping...");
+                return false;
+            default:
+                logger.error("Unknown command: '%s'", command);
+        }
+
+        return true;
     }
 }

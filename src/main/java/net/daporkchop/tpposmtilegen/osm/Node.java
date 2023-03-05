@@ -38,7 +38,7 @@ import java.util.Map;
 @Getter
 @ToString(callSuper = true)
 public final class Node extends Element {
-    public static final int TYPE = 0;
+    public static final int TYPE = Element.NODE_TYPE;
 
     public Node(long id, Map<String, String> tags, int version, boolean visible) {
         super(id, tags, version, visible);

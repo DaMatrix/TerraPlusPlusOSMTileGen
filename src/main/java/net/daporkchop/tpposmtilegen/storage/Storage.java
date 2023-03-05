@@ -77,18 +77,23 @@ import org.rocksdb.OptimisticTransactionDB;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.ConnectException;
+import java.net.HttpURLConnection;
+import java.net.SocketTimeoutException;
 import java.net.URL;
 import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -160,6 +165,8 @@ public final class Storage implements AutoCloseable {
                    || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())
                    || "/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
             legacy = true;
+
+            logger.alert("storage at '%s' being opened in legacy mode!", root);
         } else {
             throw new IllegalArgumentException(root.toString());
         }
@@ -418,7 +425,7 @@ public final class Storage implements AutoCloseable {
 
     @Override
     public void close() throws Exception {
-        if (this.db.delegate() instanceof OptimisticTransactionDB) {
+        if (!this.db.config().readOnly()) {
             this.flush();
 
             this.db.delegate().flushWal(true);
@@ -542,16 +549,42 @@ public final class Storage implements AutoCloseable {
 
     private CompletableFuture<byte[]> downloadUrl(@NonNull String url) throws Exception {
         return CompletableFuture.supplyAsync((ESupplier<byte[]>) () -> {
-            logger.trace("downloading URL '%s'...", url);
-            try (InputStream in = new URL(url).openStream()) {
-                byte[] data = StreamUtil.toByteArray(in);
-                logger.info("downloaded data for URL '%s' (%d bytes)", url, data.length);
-                return data;
-            } catch (Throwable t) {
-                logger.alert("failed to download URL '%s'", t, url);
-                PUnsafe.throwException(t);
-                throw new AssertionError(); //impossible
-            }
+            long retryDelay = 0L;
+            do {
+                logger.trace("downloading URL '%s'...", url);
+                try {
+                    HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection();
+                    connection.setConnectTimeout((int) TimeUnit.SECONDS.toMillis(5L));
+                    connection.setReadTimeout((int) TimeUnit.SECONDS.toMillis(5L));
+                    connection.connect();
+
+                    switch (connection.getResponseCode()) {
+                        case 200:
+                            try (InputStream in = connection.getInputStream()) {
+                                byte[] data = StreamUtil.toByteArray(in);
+                                logger.info("downloaded data for URL '%s' (%d bytes)", url, data.length);
+                                return data;
+                            }
+                        default:
+                            logger.alert("URL '%s' responded with unexpected status code '%d %s'", url, connection.getResponseCode(), connection.getResponseMessage());
+                            throw new IOException(connection.getResponseCode() + " " + connection.getResponseMessage());
+                    }
+                } catch (SocketTimeoutException e) {
+                    //no-op, fall through to timeout handler code
+                } catch (IOException e) {
+                    if (!e.getMessage().toLowerCase(Locale.ROOT).contains("timed out")) {
+                        logger.alert("failed to download URL '%s'", e, url);
+                        throw PUnsafe.throwException(e);
+                    }
+                } catch (Throwable t) {
+                    logger.alert("failed to download URL '%s'", t, url);
+                    throw PUnsafe.throwException(t);
+                }
+
+                retryDelay = Math.min(retryDelay + 10L, 60L);
+                logger.warn("connection timed out while downloading URL '%s', trying again in %d seconds...", url, retryDelay);
+                PorkUtil.sleep(TimeUnit.SECONDS.toMillis(retryDelay));
+            } while (true);
         });
     }
 

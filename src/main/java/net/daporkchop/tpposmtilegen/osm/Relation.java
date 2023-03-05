@@ -51,7 +51,7 @@ import static net.daporkchop.lib.logging.Logging.*;
 @Getter
 @ToString(callSuper = true)
 public final class Relation extends Element {
-    public static final int TYPE = 2;
+    public static final int TYPE = Element.RELATION_TYPE;
 
     protected Member[] members;
 

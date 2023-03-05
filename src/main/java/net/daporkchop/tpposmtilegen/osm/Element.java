@@ -34,7 +34,9 @@ import net.daporkchop.tpposmtilegen.util.Persistent;
 
 import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
+import java.util.Arrays;
 import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -47,34 +49,29 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 @Getter
 @ToString
 public abstract class Element implements Persistent {
+    private static final List<String> TYPE_NAMES = Collections.unmodifiableList(Arrays.asList("node", "way", "relation", "coastline"));
+
+    protected static final int NODE_TYPE = 0;
+    protected static final int WAY_TYPE = 1;
+    protected static final int RELATION_TYPE = 2;
+    protected static final int COASTLINE_TYPE = 3;
+
+    public static List<String> typeNames() {
+        return TYPE_NAMES;
+    }
+
     public static String typeName(int type) {
-        switch (type) {
-            case Node.TYPE:
-                return "node";
-            case Way.TYPE:
-                return "way";
-            case Relation.TYPE:
-                return "relation";
-            case Coastline.TYPE:
-                return "coastline";
-            default:
-                return "unknown";
-        }
+        return TYPE_NAMES.get(type);
     }
 
     public static int typeId(@NonNull String typeName) {
-        switch (typeName) {
-            case "node":
-                return Node.TYPE;
-            case "way":
-                return Way.TYPE;
-            case "relation":
-                return Relation.TYPE;
-            case "coastline":
-                return Coastline.TYPE;
-            default:
-                throw new IllegalArgumentException(typeName);
-        }
+        int typeId = TYPE_NAMES.indexOf(typeName);
+        checkArg(typeId >= 0, typeName);
+        return typeId;
+    }
+
+    public static int typeCount() {
+        return TYPE_NAMES.size();
     }
 
     public static long addTypeToId(int type, long id) {

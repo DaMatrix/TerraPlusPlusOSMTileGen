@@ -37,7 +37,7 @@ import java.util.Map;
  */
 public final class Coastline extends Element {
     private static final Map<String, String> TAGS = Collections.singletonMap("natural", "coastline");
-    public static final int TYPE = 3;
+    public static final int TYPE = Element.COASTLINE_TYPE;
 
     protected Area area;
 
