@@ -189,19 +189,13 @@ public abstract class ComplexGeometry implements Geometry {
         } else if (tileCount == 1) { //only intersects a single tile
             return new long[]{ xy2tilePos(tileMinX, tileMinY) };
         } else if (tileMinX == tileMaxX || tileMinY == tileMaxY) { //only intersects a single row/column of tiles
-            long[] arr = new long[tileCount];
-            for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
-                for (int y = tileMinY; y <= tileMaxY; y++) {
-                    arr[i++] = xy2tilePos(x, y);
-                }
-            }
-            return arr;
+            return this.listIntersectedTilesSimpleAABB(level, tileMinX, tileMaxX, tileMinY, tileMaxY, tileCount);
         } else {
             return this.listIntersectedTilesComplex(level, tileMinX, tileMaxX, tileMinY, tileMaxY, tileCount);
         }
     }
 
-    protected long[] listIntersectedTilesComplex(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+    protected long[] listIntersectedTilesSimpleAABB(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
         long[] arr = new long[tileCount];
         for (int i = 0, x = tileMinX; x <= tileMaxX; x++) {
             for (int y = tileMinY; y <= tileMaxY; y++) {
@@ -209,6 +203,10 @@ public abstract class ComplexGeometry implements Geometry {
             }
         }
         return arr;
+    }
+
+    protected long[] listIntersectedTilesComplex(int level, int tileMinX, int tileMaxX, int tileMinY, int tileMaxY, int tileCount) {
+        return this.listIntersectedTilesSimpleAABB(level, tileMinX, tileMaxX, tileMinY, tileMaxY, tileCount);
     }
 
     protected static final class PolygonRecycler extends SimpleRecycler<Polygon> {

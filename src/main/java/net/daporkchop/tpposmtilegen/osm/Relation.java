@@ -128,8 +128,7 @@ public final class Relation extends Element {
             if (member.getType() == Way.TYPE) {
                 wayMembers.add(member);
             } else {
-                logger.warn("skipping invalid member of type %d (%s) in area relation %d",
-                        member.getType(), typeName(member.getType()), this.id);
+                //logger.warn("skipping invalid member of type %d (%s) in area relation %d", member.getType(), typeName(member.getType()), this.id);
             }
         }
         int wayCount = wayMembers.size();

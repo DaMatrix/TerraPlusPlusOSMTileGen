@@ -21,10 +21,9 @@
 package net.daporkchop.tpposmtilegen.geometry;
 
 import io.netty.buffer.ByteBuf;
+import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
-import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
-import it.unimi.dsi.fastutil.longs.LongSet;
-import it.unimi.dsi.fastutil.longs.LongSets;
+import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
@@ -33,6 +32,7 @@ import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 import java.awt.Polygon;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.CountedCompleter;
 import java.util.stream.IntStream;
 
 import static java.lang.Math.*;
@@ -122,26 +122,8 @@ public final class Shape extends ComplexGeometry {
         }
 
         try {
-            LongSet tilePositions = LongSets.synchronize(new LongOpenHashSet(tileCount));
-
-            IntStream stream = IntStream.rangeClosed(tileMinX, tileMaxX);
-            if (tileMaxX - tileMinX > 16) {
-                stream = stream.parallel();
-            }
-            stream.forEach(x -> {
-                        int tileSizePointScale = TILE_SIZE_POINT_SCALE[level];
-                        for (int y = tileMinY; y <= tileMaxY; y++) {
-                            ADD:
-                            if (outerPoly.intersects(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale)) {
-                                for (Polygon innerPoly : innerPolys) {
-                                    if (innerPoly.contains(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale)) { //tile is entirely contained within a hole
-                                        break ADD;
-                                    }
-                                }
-                                tilePositions.add(xy2tilePos(x, y));
-                            }
-                        }
-                    });
+            LongList tilePositions = new LongArrayList(tileCount);
+            listIntersectedTilesComplex(tilePositions, outerPoly, innerPolys, level, tileMinX, tileMinY, tileMaxX - tileMinX + 1, tileMaxY - tileMinY + 1);
             return tilePositions.toLongArray();
         } finally {
             for (int i = innerCount - 1; i >= 0; i--) {
@@ -151,37 +133,41 @@ public final class Shape extends ComplexGeometry {
         }
     }
 
-    protected void listIntersectedTilesComplex(int targetLevel, LongList tilePositions, Polygon outerPoly, Polygon[] innerPolys, int currLevel, int currX, int currY) {
-        int tileSizePointScale = TILE_SIZE_POINT_SCALE[currLevel];
+    private static void listIntersectedTilesComplex(LongList tilePositions, Polygon outerPoly, Polygon[] innerPolys, int level, int baseTileX, int baseTileY, int sizeX, int sizeY) {
+        positive(sizeX, "sizeX");
+        positive(sizeY, "sizeY");
 
-        if (outerPoly.intersects(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) {
+        int tileSizePointScale = tileSizePointScale(level);
+
+        int pointsBaseX = tile2point(level, baseTileX);
+        int pointsBaseY = tile2point(level, baseTileY);
+        int pointsSizeX = multiplyExact(tileSizePointScale, sizeX);
+        int pointsSizeY = multiplyExact(tileSizePointScale, sizeY);
+
+        if (outerPoly.intersects(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) {
             for (Polygon innerPoly : innerPolys) {
-                if (innerPoly.contains(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) { //tile is entirely contained within a hole
+                if (innerPoly.contains(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) { //tile is entirely contained within a hole
                     return;
                 }
             }
 
-            if (currLevel == targetLevel) { //we can't recurse any further, add the tile to the output list and stop
-                tilePositions.add(xy2tilePos(currX, currY));
+            if (sizeX == 1 && sizeY == 1) { //we can't recurse any further, add the tile to the output list and stop
+                tilePositions.add(xy2tilePos(baseTileX, baseTileY));
                 return;
             }
 
             CONTAINED:
-            if (outerPoly.contains(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) {
+            if (outerPoly.contains(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) {
                 for (Polygon innerPoly : innerPolys) {
-                    if (innerPoly.intersects(tile2point(currLevel, currX), tile2point(currLevel, currY), tileSizePointScale, tileSizePointScale)) { //tile intersects a hole, so we might not entirely contain the whole thing
+                    if (innerPoly.intersects(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) { //tile intersects a hole, so we might not entirely contain the whole thing
                         break CONTAINED;
                     }
                 }
 
                 //we're entirely contained by the polygon, so we can immediately add every tile!
-                int shift = currLevel - targetLevel;
-                checkState(shift > 0);
-
-                int count = 1 << shift;
-                for (int dx = 0; dx < count; dx++) {
-                    for (int dy = 0; dy < count; dy++) {
-                        tilePositions.add(xy2tilePos((currX << count) + dx, (currY << count) + dy));
+                for (int dx = 0; dx < sizeX; dx++) {
+                    for (int dy = 0; dy < sizeY; dy++) {
+                        tilePositions.add(xy2tilePos(baseTileX + dx, baseTileY + dy));
                     }
                 }
                 return;
@@ -190,9 +176,120 @@ public final class Shape extends ComplexGeometry {
             //we intersect the polygon partially, recurse into each of the 4 children and try again
             for (int dx = 0; dx <= 1; dx++) {
                 for (int dy = 0; dy <= 1; dy++) {
-                    this.listIntersectedTilesComplex(targetLevel, tilePositions, outerPoly, innerPolys, currLevel - 1, (currX << 1) + dx, (currY << 1) + dy);
+                    int subBaseX = baseTileX + ((sizeX >> 1) & -dx);
+                    int subBaseY = baseTileY + ((sizeY >> 1) & -dy);
+                    int subSizeX = (sizeX >> 1) + (sizeX & dx);
+                    int subSizeY = (sizeY >> 1) + (sizeY & dy);
+
+                    if (subSizeX != 0 && subSizeY != 0) {
+                        listIntersectedTilesComplex(tilePositions, outerPoly, innerPolys, level, subBaseX, subBaseY, subSizeX, subSizeY);
+                    }
                 }
             }
+        }
+    }
+
+    //TODO: determine whether this would be beneficial
+    private static class ListIntersectedTilesComplexTask extends CountedCompleter<Void> {
+        final LongList tilePositions;
+        final Polygon outerPoly;
+        final Polygon[] innerPolys;
+        final int level;
+        final int baseTileX;
+        final int baseTileY;
+        final int sizeX;
+        final int sizeY;
+
+        protected ListIntersectedTilesComplexTask(CountedCompleter<?> completer, LongList tilePositions, Polygon outerPoly, Polygon[] innerPolys, int level, int baseTileX, int baseTileY, int sizeX, int sizeY) {
+            super(completer, multiplyExact(positive(sizeX, "sizeX"), positive(sizeY, "sizeY")));
+
+            this.tilePositions = tilePositions;
+            this.outerPoly = outerPoly;
+            this.innerPolys = innerPolys;
+            this.level = level;
+            this.baseTileX = baseTileX;
+            this.baseTileY = baseTileY;
+            this.sizeX = sizeX;
+            this.sizeY = sizeY;
+        }
+
+        @Override
+        public void compute() {
+            int tileSizePointScale = tileSizePointScale(this.level);
+
+            int pointsBaseX = tile2point(this.level, this.baseTileX);
+            int pointsBaseY = tile2point(this.level, this.baseTileY);
+            int pointsSizeX = multiplyExact(tileSizePointScale, this.sizeX);
+            int pointsSizeY = multiplyExact(tileSizePointScale, this.sizeY);
+
+            if (this.outerPoly.intersects(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) {
+                for (Polygon innerPoly : this.innerPolys) {
+                    if (innerPoly.contains(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) { //tile is entirely contained within a hole
+                        this.tryComplete();
+                        return;
+                    }
+                }
+
+                if (this.sizeX == 1 && this.sizeY == 1) { //we can't recurse any further, add the tile to the output list and stop
+                    this.tilePositions.add(xy2tilePos(this.baseTileX, this.baseTileY));
+                    this.tryComplete();
+                    return;
+                }
+
+                CONTAINED:
+                if (this.outerPoly.contains(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) {
+                    for (Polygon innerPoly : this.innerPolys) {
+                        if (innerPoly.intersects(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) { //tile intersects a hole, so we might not entirely contain the whole thing
+                            break CONTAINED;
+                        }
+                    }
+
+                    //we're entirely contained by the polygon, so we can immediately add every tile!
+                    for (int dx = 0; dx < this.sizeX; dx++) {
+                        for (int dy = 0; dy < this.sizeY; dy++) {
+                            this.tilePositions.add(xy2tilePos(this.baseTileX + dx, this.baseTileY + dy));
+                        }
+                    }
+                    this.tryComplete();
+                    return;
+                }
+
+                //we intersect the polygon partially, recurse into each of the 4 children and try again
+                if (this.sizeX == 1) {
+                    this.setPendingCount(2);
+                    for (int dy = 0; dy <= 1; dy++) {
+                        int subBaseY = this.baseTileY + ((this.sizeY >> 1) & -dy);
+                        int subSizeY = (this.sizeY >> 1) + (this.sizeY & dy);
+                        checkState(subSizeY > 0, subSizeY);
+
+                        new ListIntersectedTilesComplexTask(this, this.tilePositions, this.outerPoly, this.innerPolys, this.level, this.baseTileX, subBaseY, this.sizeX, subSizeY).fork();
+                    }
+                } else if (this.sizeY == 1) {
+                    this.setPendingCount(2);
+                    for (int dx = 0; dx <= 1; dx++) {
+                        int subBaseX = this.baseTileX + ((this.sizeX >> 1) & -dx);
+                        int subSizeX = (this.sizeX >> 1) + (this.sizeX & dx);
+                        checkState(subSizeX > 0, subSizeX);
+
+                        new ListIntersectedTilesComplexTask(this, this.tilePositions, this.outerPoly, this.innerPolys, this.level, subBaseX, this.baseTileY, subSizeX, this.sizeY).fork();
+                    }
+                } else {
+                    this.setPendingCount(4);
+                    for (int dx = 0; dx <= 1; dx++) {
+                        for (int dy = 0; dy <= 1; dy++) {
+                            int subBaseX = this.baseTileX + ((this.sizeX >> 1) & -dx);
+                            int subBaseY = this.baseTileY + ((this.sizeY >> 1) & -dy);
+                            int subSizeX = (this.sizeX >> 1) + (this.sizeX & dx);
+                            int subSizeY = (this.sizeY >> 1) + (this.sizeY & dy);
+                            checkState(subSizeY > 0, subSizeY);
+                            checkState(subSizeX > 0, subSizeX);
+
+                            new ListIntersectedTilesComplexTask(this, this.tilePositions, this.outerPoly, this.innerPolys, this.level, subBaseX, subBaseY, subSizeX, subSizeY).fork();
+                        }
+                    }
+                }
+            }
+            this.tryComplete();
         }
     }
 

@@ -21,12 +21,13 @@
 package net.daporkchop.tpposmtilegen.util;
 
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 
 import java.util.stream.IntStream;
 import java.util.stream.LongStream;
 
-import static net.daporkchop.tpposmtilegen.util.Utils.*;
+import static net.daporkchop.lib.common.util.PValidation.*;
 
 /**
  * Helper methods for converting points to tile locations.
@@ -38,21 +39,23 @@ public class Tile {
     private static final int TILES_PER_DEGREE_LEVEL0 = 64;
     private static final int TILE_SIZE_POINT_SCALE_LEVEL0 = Point.PRECISION / TILES_PER_DEGREE_LEVEL0;
 
-    public static final int[] TILE_SIZE_POINT_SCALE = IntStream.range(0, MAX_LEVELS).map(lvl -> TILE_SIZE_POINT_SCALE_LEVEL0 * (1 << lvl)).toArray();
-
-    public static int point2tile(int level, int pointCoordinate) {
-        return Math.floorDiv(pointCoordinate, TILE_SIZE_POINT_SCALE[level]);
+    public static int tileSizePointScale(@NotNegative int level) {
+        return Math.multiplyExact(TILE_SIZE_POINT_SCALE_LEVEL0, 1 << notNegative(level, "level"));
     }
 
-    public static int tile2point(int level, int tileCoordinate) {
-        return tileCoordinate * TILE_SIZE_POINT_SCALE[level];
+    public static int point2tile(@NotNegative int level, int pointCoordinate) {
+        return Math.floorDiv(pointCoordinate, tileSizePointScale(level));
     }
 
-    public static long point2tile(int level, int x, int y) {
+    public static int tile2point(@NotNegative int level, int tileCoordinate) {
+        return Math.multiplyExact(tileCoordinate, tileSizePointScale(level));
+    }
+
+    public static long point2tile(@NotNegative int level, int x, int y) {
         return xy2tilePos(point2tile(level, x), point2tile(level, y));
     }
 
-    public static long xy2tilePos(int tileX, int tileY) {
+    public static long xy2tilePos(@NotNegative int tileX, int tileY) {
         return Utils.interleaveBits(tileX, tileY);
     }
 
@@ -64,7 +67,7 @@ public class Tile {
         return Utils.uninterleaveY(tilePos);
     }
 
-    public static Bounds2d levelBounds(int level) {
+    public static Bounds2d levelBounds(@NotNegative int level) {
         return Bounds2d.of(
                 point2tile(level, -180 * Point.PRECISION),
                 point2tile(level, 180 * Point.PRECISION),
@@ -72,7 +75,7 @@ public class Tile {
                 point2tile(level, 90 * Point.PRECISION));
     }
 
-    public static LongStream levelTiles(int level, boolean parallel) {
+    public static LongStream levelTiles(@NotNegative int level, boolean parallel) {
         Bounds2d bounds = levelBounds(level);
         return (parallel ? IntStream.rangeClosed(bounds.minX(), bounds.maxX()).parallel() : IntStream.rangeClosed(bounds.minX(), bounds.maxX()))
                 .boxed()

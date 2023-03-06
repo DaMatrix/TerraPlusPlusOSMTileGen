@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -99,7 +99,7 @@ public final class Line extends ComplexGeometry {
         Line2D.Double line = new Line2D.Double();
         Rectangle2D.Double rectangle = new Rectangle2D.Double();
 
-        int tileSizePointScale = TILE_SIZE_POINT_SCALE[level];
+        int tileSizePointScale = tileSizePointScale(level);
         for (int x = tileMinX; x <= tileMaxX; x++) { //iterate through every tile
             for (int y = tileMinY; y <= tileMaxY; y++) {
                 rectangle.setRect(tile2point(level, x), tile2point(level, y), tileSizePointScale, tileSizePointScale);

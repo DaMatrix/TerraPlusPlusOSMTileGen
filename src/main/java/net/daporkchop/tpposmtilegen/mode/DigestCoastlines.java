@@ -26,6 +26,7 @@ import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.geometry.Shape;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
 import net.daporkchop.tpposmtilegen.storage.Storage;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
 import org.geotools.data.FileDataStore;
@@ -72,7 +73,7 @@ public class DigestCoastlines implements IMode {
         try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines")
                 .slot("pieces")
                 .build();
-             Storage storage = new Storage(dst)) {
+             Storage storage = new Storage(dst, DatabaseConfig.RW_LITE)) {
             DBWriteAccess access = storage.db().batch();
             storage.coastlines().clear();
 
