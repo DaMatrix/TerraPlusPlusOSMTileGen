@@ -29,6 +29,7 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import org.geotools.data.FileDataStore;
 import org.geotools.data.FileDataStoreFinder;
 import org.geotools.data.simple.SimpleFeatureCollection;
@@ -70,30 +71,37 @@ public class DigestCoastlines implements IMode {
         Path src = PFiles.assertFileExists(Paths.get(args[0]));
         Path dst = PFiles.assertDirectoryExists(Paths.get(args[1]));
 
-        try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines")
-                .slot("pieces")
-                .build();
-             Storage storage = new Storage(dst, DatabaseConfig.RW_LITE)) {
-            DBWriteAccess access = storage.db().batch();
-            storage.coastlines().clear();
+        try (Storage storage = new Storage(dst, DatabaseConfig.RW_LITE_BULK_LOAD)) {
+            //remove all existing coastline data
+            try (TimedOperation compactOperation = new TimedOperation("Clear coastlines")) {
+                storage.coastlines().clear();
+            }
 
-            FileDataStore store = FileDataStoreFinder.getDataStore(src.toFile());
-            SimpleFeatureSource featureSource = store.getFeatureSource();
-            SimpleFeatureCollection featureCollection = featureSource.getFeatures();
-            notifier.setTotal(0, featureCollection.size());
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Digest coastlines")
+                    .slot("pieces")
+                    .build()) {
+                FileDataStore store = FileDataStoreFinder.getDataStore(src.toFile());
+                SimpleFeatureSource featureSource = store.getFeatureSource();
+                SimpleFeatureCollection featureCollection = featureSource.getFeatures();
+                notifier.setTotal(0, featureCollection.size());
 
-            FeatureIterator itr = featureCollection.features();
-            long id = 0L;
-            while (itr.hasNext()) {
-                Feature feature = itr.next();
-                int x = (Integer) feature.getProperty("x").getValue();
-                int y = (Integer) feature.getProperty("y").getValue();
-                MultiPolygon mp = (MultiPolygon) feature.getProperty((String) null).getValue();
+                FeatureIterator itr = featureCollection.features();
+                long id = 0L;
+                while (itr.hasNext()) {
+                    Feature feature = itr.next();
+                    int x = (Integer) feature.getProperty("x").getValue();
+                    int y = (Integer) feature.getProperty("y").getValue();
+                    MultiPolygon mp = (MultiPolygon) feature.getProperty((String) null).getValue();
 
-                Coastline.Area area = this.toArea(mp);
-                storage.coastlines().put(access, id, new Coastline(id, area));
-                id++;
-                notifier.step(0);
+                    Coastline.Area area = this.toArea(mp);
+                    storage.coastlines().put(storage.db().batch(), id, new Coastline(id, area));
+                    id++;
+                    notifier.step(0);
+                }
+            }
+
+            try (TimedOperation compactOperation = new TimedOperation("Compact coastlines")) {
+                storage.coastlines().compact();
             }
         }
     }

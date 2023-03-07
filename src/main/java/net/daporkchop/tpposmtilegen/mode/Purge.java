@@ -42,12 +42,22 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 public class Purge implements IMode {
+    public static void purge(@NonNull Path root, @NonNull DataType... types) throws Exception {
+        if (types.length == 0) {
+            return;
+        }
+
+        try (Storage storage = new Storage(root, DatabaseConfig.RW_LITE_BULK_LOAD)) {
+            purge(storage, types);
+        }
+    }
+
     public static void purge(@NonNull Storage storage, @NonNull DataType... types) throws Exception {
         if (types.length == 0) {
             return;
         }
 
-        try (TimedOperation purgeOperation = new TimedOperation("Purge")) {
+        try (TimedOperation purgeOperation = new TimedOperation("Purge " + (types.length == 1 ? types[0].toString() : Arrays.toString(types)))) {
             try (TimedOperation flushOperation = purgeOperation.pushChild("Flush DB")) {
                 storage.flush();
             }

@@ -23,6 +23,7 @@ package net.daporkchop.tpposmtilegen.natives;
 import lombok.AccessLevel;
 import lombok.AllArgsConstructor;
 import lombok.Getter;
+import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.unsafe.PUnsafe;
@@ -72,7 +73,8 @@ public final class NativeRocksHelper {
     /**
      * @author DaPorkchop_
      */
-    @AllArgsConstructor(access = AccessLevel.PRIVATE)
+    @NoArgsConstructor
+    @Getter
     public static final class KeyValueSlice {
         public static Comparator<KeyValueSlice> lexOrderKeyComparator() {
             return (a, b) -> {

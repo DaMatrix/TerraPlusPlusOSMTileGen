@@ -67,6 +67,7 @@ public final class DatabaseConfig {
     public static final DatabaseConfig RW_GENERAL;
     public static final DatabaseConfig RW_BULK_LOAD;
     public static final DatabaseConfig RW_LITE;
+    public static final DatabaseConfig RW_LITE_BULK_LOAD;
 
     public static final DatabaseConfig RO_GENERAL;
     public static final DatabaseConfig RO_LITE;
@@ -189,8 +190,6 @@ public final class DatabaseConfig {
 
         RW_BULK_LOAD = RW_GENERAL.toBuilder()
                 .transactional(false)
-                .dbOptions(new DBOptions(RW_GENERAL.dbOptions())
-                )
                 .columnFamilyOptions(ColumnFamilyType.FAST, new ColumnFamilyOptions(RW_GENERAL.columnFamilyOptions(ColumnFamilyType.FAST))
                         .setDisableAutoCompactions(true)
                         //never slowdown ingest
@@ -224,6 +223,10 @@ public final class DatabaseConfig {
                 .dbOptions(new DBOptions(RW_GENERAL.dbOptions())
                         .setMaxOpenFiles(CPU_COUNT << 1)
                 )
+                .build();
+
+        RW_LITE_BULK_LOAD = RW_BULK_LOAD.toBuilder()
+                .dbOptions(RW_LITE.dbOptions()) //inherit RW_LITE's lowered open file limit
                 .build();
 
         RO_GENERAL = RW_GENERAL.withReadOnly(true);

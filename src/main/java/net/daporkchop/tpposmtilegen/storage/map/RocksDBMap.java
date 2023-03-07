@@ -37,6 +37,7 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.iterate.RocksColumnSpliterator;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
@@ -163,7 +164,20 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                                 @NonNull LongLongConsumer beginThreadLocalSortedCallback,
                                 @NonNull LongLongObjConsumer<? super Throwable> endThreadLocalSortedBlockCallback) throws Exception {
         if (access.isDirectRead()) {
-            Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
+            try (RocksColumnSpliterator rootSpliterator = new RocksColumnSpliterator(this.database, this.column, access.internalSnapshot(),
+                    DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER)) {
+                Threading.forEachParallel(CPU_COUNT, spliterator -> {
+                    spliterator.forEachRemaining(slice -> {
+                        checkArg(slice.keySize() == 8, slice.keySize());
+
+                        long key = PUnsafe.getUnalignedLongBE(slice.keyAddr());
+                        callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(slice.valueAddr(), slice.valueSize(), false)));
+                    });
+                }, rootSpliterator);
+                return;
+            }
+
+            /*Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
             try (Snapshot temporarySnapshotToCloseLater = optionalInternalSnapshot.isPresent() ? null : this.database.delegate().getSnapshot();
                  Options options = new Options(this.database.config().dbOptions(), this.database.columns().get(this.column).getOptions())) {
                 Snapshot snapshot = optionalInternalSnapshot.orElse(temporarySnapshotToCloseLater);
@@ -209,7 +223,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
             }
 
             logger.warn("column family '%s' isn't compacted, can't use fast parallel iteration! consider compacting the db first.",
-                    new String(this.column.getName(), StandardCharsets.UTF_8));
+                    new String(this.column.getName(), StandardCharsets.UTF_8));*/
         }
 
         @AllArgsConstructor

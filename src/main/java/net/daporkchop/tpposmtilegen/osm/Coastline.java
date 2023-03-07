@@ -60,11 +60,15 @@ public final class Coastline extends Element {
 
     @Override
     public void toBytes(@NonNull ByteBuf dst) {
+        super.toBytes(dst);
+
         this.area.toBytes(dst);
     }
 
     @Override
     protected void fromBytes(@NonNull ByteBuf src) {
+        super.fromBytes(src);
+
         this.area = new Area(src);
     }
 
