@@ -59,7 +59,7 @@ public class Threading {
         try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
-                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 3), 1L);
+                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 6), 1L);
                         return forEachParallel0(executor, targetSize, spliterator, callback);
                     })
                     .toArray(CompletableFuture[]::new))
@@ -76,7 +76,7 @@ public class Threading {
             return CompletableFuture.completedFuture(null)
                     .thenComposeAsync(unused -> CompletableFuture.allOf(
                             forEachParallel0(executor, targetSize, spliterator, callback),
-                            forEachParallel0(executor, targetSize, leftSplit, callback)));
+                            forEachParallel0(executor, targetSize, leftSplit, callback)), executor);
         }
     }
 

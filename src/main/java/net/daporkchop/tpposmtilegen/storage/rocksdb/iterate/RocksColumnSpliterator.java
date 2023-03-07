@@ -54,7 +54,6 @@ import java.util.stream.Collectors;
 
 import static net.daporkchop.lib.common.math.PMath.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
-import static net.daporkchop.lib.common.util.PorkUtil.*;
 
 /**
  * @author DaPorkchop_
@@ -84,7 +83,16 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
     protected final byte[] totalLargestKey;
     protected final IntervalTree<byte[], WrappedSstFile> intervalTree;
 
-    protected IterationSegment currentSegment;
+    @Getter
+    protected byte[] smallestKeyInclusive;
+    @Getter
+    protected byte[] largestKeyInclusive;
+    @Getter
+    protected byte[] largestKeyExclusive; //may be null
+    protected BoundedReadOptions boundedReadOptions;
+    protected RocksIterator iterator;
+    protected NativeRocksHelper.KeyValueSlice cachedKeyValueSlice;
+    protected boolean reachedEnd = false;
 
     protected List<RocksColumnSpliterator> children = new ArrayList<>();
 
@@ -176,10 +184,12 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
 
         this.intervalTree = new IntervalTree<>(this.heapKeyComparator, keyOperations, this.wrappedSstFiles);
 
-        this.currentSegment = new IterationSegment(this.totalSmallestKey, this.totalLargestKey);
+        this.smallestKeyInclusive = this.totalSmallestKey;
+        this.largestKeyInclusive = this.totalLargestKey;
+        this.largestKeyExclusive = null;
     }
 
-    private RocksColumnSpliterator(@NonNull RocksColumnSpliterator parent, @NonNull IterationSegment segment) {
+    private RocksColumnSpliterator(@NonNull RocksColumnSpliterator parent, @NonNull byte[] smallestKeyInclusive, @NonNull byte[] largestKeyInclusive, byte[] largestKeyExclusive) {
         this.root = parent.root;
         this.parent = parent;
         this.database = parent.database;
@@ -202,7 +212,9 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
         this.totalLargestKey = parent.totalLargestKey;
         this.intervalTree = parent.intervalTree;
 
-        this.currentSegment = segment;
+        this.smallestKeyInclusive = smallestKeyInclusive;
+        this.largestKeyInclusive = largestKeyInclusive;
+        this.largestKeyExclusive = largestKeyExclusive;
     }
 
     protected boolean canBeSortedSequence(@NonNull List<SstFileMetaData> unsortedFileMetas) {
@@ -218,87 +230,121 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
         return true;
     }
 
-    @Override
-    public boolean tryAdvance(@NonNull Consumer<? super NativeRocksHelper.KeyValueSlice> action) {
-        if (this.currentSegment == null) {
-            return false;
-        }
+    protected boolean isIteratorInitialized() {
+        return this.iterator != null;
+    }
 
-        NativeRocksHelper.KeyValueSlice currentKeyValueSlice = this.currentSegment.nextOrNull();
-        if (currentKeyValueSlice != null) { //a value was found, return it as usual
-            action.accept(currentKeyValueSlice);
-            return true;
-        } else { //we've reached this segment's end!
-            this.currentSegment.close();
-            this.currentSegment = null;
-            return false;
+    protected void initializeIterator() {
+        checkState(!this.reachedEnd);
+        checkState(this.boundedReadOptions == null && this.iterator == null && this.cachedKeyValueSlice == null);
+        this.boundedReadOptions = new BoundedReadOptions(this.readOptions, this.smallestKeyInclusive, this.largestKeyExclusive);
+        this.iterator = this.database.delegate().newIterator(this.column, this.boundedReadOptions.readOptions);
+        this.cachedKeyValueSlice = new NativeRocksHelper.KeyValueSlice();
+    }
+
+    protected void resetIterator(boolean reachedEnd) {
+        checkState(!this.reachedEnd);
+        this.reachedEnd = reachedEnd;
+
+        try (BoundedReadOptions boundedReadOptions = this.boundedReadOptions;
+             RocksIterator iterator = this.iterator) {
+            checkState(this.boundedReadOptions != null && this.iterator != null && this.cachedKeyValueSlice != null);
+            this.boundedReadOptions = null;
+            this.iterator = null;
+            this.cachedKeyValueSlice = null;
         }
     }
 
     @Override
+    public boolean tryAdvance(@NonNull Consumer<? super NativeRocksHelper.KeyValueSlice> action) {
+        if (this.reachedEnd) {
+            return false;
+        }
+
+        if(!this.isIteratorInitialized()) {
+            this.initializeIterator();
+            this.iterator.seekToFirst();
+        } else {
+            this.iterator.next();
+        }
+
+        if (!this.iterator.isValid()) {
+            this.resetIterator(true);
+            return false;
+        }
+
+        NativeRocksHelper.getKeyAndValueAsView(this.iterator, this.cachedKeyValueSlice);
+        action.accept(this.cachedKeyValueSlice);
+        return true;
+    }
+
+    @Override
     public RocksColumnSpliterator trySplit() {
-        if (this.currentSegment == null || this.currentSegment.computeRemainingWeight() <= 512L) {
+        if (this.reachedEnd || this.estimateSize() <= 512L) {
             return null;
         }
 
-        //TODO: would be cool to support splitting within an individual segment
         byte[] lo;
-        byte[] hi = this.currentSegment.largestKeyInclusive;
+        byte[] hi = this.largestKeyInclusive;
         byte[] mid = null;
-        byte[] beforeMid = null;
 
-        try (RocksIterator iterator = this.database.delegate().newIterator(this.column, this.readOptions)) {
-            if (this.currentSegment.isStarted()) {
-                //the iterator has already started, meaning we need to find the next key after the current one to find an inclusive lower bound for the remaining keys
-                iterator.seek(this.currentSegment.lastReturnedKeyAsArray());
-                checkState(iterator.isValid());
-                iterator.next();
-                if (!iterator.isValid()) {
-                    return null;
-                }
-                lo = iterator.key();
-            } else {
-                //the iterator hasn't started yet, so we can simply use the current segment's lower bound
-                lo = this.currentSegment.smallestKeyInclusive;
-            }
-
-            //binary search for a middle value which yields an approximately even weight
-            double t = 0.5d;
-            double add = 0.25d;
-            for (int i = 0; i < 16; i++, add *= 0.5d) {
-                mid = this.keyOperations.lerp(lo, hi, t);
-
-                long leftWeight = this.intervalTree.getTotalWeightInRange(lo, true, mid, false).orElse(0L);
-                long rightWeight = this.intervalTree.getTotalWeightInInclusiveRange(mid, hi).orElse(0L);
-                if (leftWeight < rightWeight) {
-                    t += add;
-                } else {
-                    t -= add;
-                }
-            }
-
-            //find the key immediately before mid
-            iterator.seekForPrev(mid);
-            if (!iterator.isValid()) {
+        if (this.isIteratorInitialized()) { //we've already advanced a bit, skip ahead to the next key
+            this.iterator.next();
+            if (!this.iterator.isValid()) { //reached the end
+                this.resetIterator(true);
                 return null;
             }
-            beforeMid = iterator.key();
+            lo = this.iterator.key();
+            //this.iterator.prev();
+            //checkState(this.iterator.isValid());
+        } else { //we haven't actually started iteration, we can use the iteration lower bound
+            lo = this.smallestKeyInclusive;
+        }
+
+        //binary search for a middle value which yields an approximately even weight
+        double t = 0.5d;
+        double add = 0.25d;
+        for (int i = 0; i < 16; i++, add *= 0.5d) {
+            mid = this.keyOperations.lerp(lo, hi, t);
+
+            long leftWeight = this.intervalTree.getTotalWeightInInclusiveRange(lo, mid).orElse(0L);
+            long rightWeight = this.intervalTree.getTotalWeightInInclusiveRange(this.keyOperations.increment(mid).get(), hi).orElse(0L);
+            if (leftWeight < rightWeight) {
+                t += add;
+            } else {
+                t -= add;
+            }
         }
 
         if (this.heapKeyComparator.compare(lo, mid) >= 0) {
             return null;
         } else {
-            this.currentSegment.close();
-            this.currentSegment = new IterationSegment(lo, beforeMid);
-            RocksColumnSpliterator split = new RocksColumnSpliterator(this, new IterationSegment(mid, hi));
+            byte[] afterMid = this.keyOperations.increment(mid).get();
+
+            if (this.isIteratorInitialized()) { //make sure the iterator is closed before changing our bounds
+                this.resetIterator(false);
+            }
+
+            RocksColumnSpliterator split = new RocksColumnSpliterator(this, afterMid, hi, this.largestKeyExclusive);
             this.children.add(split);
+
+            this.smallestKeyInclusive = lo;
+            this.largestKeyInclusive = mid;
+            this.largestKeyExclusive = afterMid;
+
             return split;
         }
     }
 
     @Override
     public long estimateSize() {
-        return this.currentSegment != null ? this.currentSegment.computeRemainingWeight() : 0L;
+        if (this.reachedEnd) {
+            return 0L;
+        } else if (this.isIteratorInitialized()) {
+            return this.intervalTree.getTotalWeightInInclusiveRange(this.iterator.key(), this.largestKeyInclusive).orElse(0L);
+        } else {
+            return this.intervalTree.getTotalWeightInInclusiveRange(this.smallestKeyInclusive, this.largestKeyInclusive).orElse(0L);
+        }
     }
 
     @Override
@@ -370,118 +416,32 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
     /**
      * @author DaPorkchop_
      */
-    protected class IterationSegment implements AutoCloseable {
-        protected final List<WrappedSstFile> files;
+    protected static class BoundedReadOptions implements AutoCloseable {
+        protected final byte[] lowerBoundInclusive;
+        protected final byte[] upperBoundExclusive;
 
-        protected final byte[] smallestKeyInclusive;
-        protected final byte[] largestKeyInclusive;
+        protected final Slice lowerBoundInclusiveSlice;
+        protected final Slice upperBoundExclusiveSlice;
+        protected final ReadOptions readOptions;
 
-        protected final long approximateTotalWeight;
+        public BoundedReadOptions(@NonNull ReadOptions readOptions, byte[] lowerBoundInclusive, byte[] upperBoundExclusive) {
+            this.lowerBoundInclusive = lowerBoundInclusive;
+            this.upperBoundExclusive = upperBoundExclusive;
 
-        protected byte[] currentKeyCached;
-        protected long approximateRemainingWeight;
+            this.lowerBoundInclusiveSlice = lowerBoundInclusive != null ? new Slice(lowerBoundInclusive) : null;
+            this.upperBoundExclusiveSlice = upperBoundExclusive != null ? new Slice(upperBoundExclusive) : null;
 
-        private Slice lowerBoundSlice;
-        private Slice upperBoundSlice;
-        private ReadOptions readOptions;
-
-        private RocksIterator iterator;
-        private NativeRocksHelper.KeyValueSlice currentKeyValueSlice;
-        private boolean reachedEnd = false;
-
-        public IterationSegment(@NonNull byte[] smallestKeyInclusive, @NonNull byte[] largestKeyInclusive) {
-            this.files = new ArrayList<>();
-            RocksColumnSpliterator.this.intervalTree.forEachIntersectingInclusiveRange(smallestKeyInclusive, largestKeyInclusive, this.files::add);
-            this.files.sort(null);
-
-            this.smallestKeyInclusive = smallestKeyInclusive;
-            this.largestKeyInclusive = largestKeyInclusive;
-            this.approximateTotalWeight = RocksColumnSpliterator.this.intervalTree.getTotalWeightInInclusiveRange(
-                    smallestKeyInclusive,
-                    fallbackIfNull(largestKeyInclusive, RocksColumnSpliterator.this.totalLargestKey))
-                    .orElse(0L);
-        }
-
-        protected boolean isStarted() {
-            return this.currentKeyValueSlice != null;
-        }
-
-        public NativeRocksHelper.KeyValueSlice nextOrNull() {
-            if (this.currentKeyValueSlice == null) { //first time
-                this.currentKeyValueSlice = new NativeRocksHelper.KeyValueSlice();
-
-                this.lowerBoundSlice = new Slice(this.smallestKeyInclusive);
-                this.upperBoundSlice = new Slice(this.largestKeyInclusive);
-                this.readOptions = new ReadOptions(RocksColumnSpliterator.this.readOptions)
-                        .setIterateLowerBound(this.lowerBoundSlice)
-                        .setIterateUpperBound(this.upperBoundSlice);
-
-                this.iterator = RocksColumnSpliterator.this.database.delegate().newIterator(RocksColumnSpliterator.this.column, this.readOptions);
-
-                this.iterator.seekToFirst();
-            } else { //advance
-                checkState(!this.reachedEnd, "trying to advance beyond end?!?");
-                this.iterator.next();
-            }
-
-            this.resetCurrentCached();
-
-            if (this.iterator.isValid()) {
-                NativeRocksHelper.getKeyAndValueAsView(this.iterator, this.currentKeyValueSlice);
-                return this.currentKeyValueSlice;
-            } else {
-                this.reachedEnd = true;
-                return null;
-            }
+            this.readOptions = new ReadOptions(readOptions)
+                    .setIterateLowerBound(this.lowerBoundInclusiveSlice)
+                    .setIterateUpperBound(this.upperBoundExclusiveSlice);
         }
 
         @Override
         public void close() {
-            //close everything
-            try (RocksIterator iterator = this.iterator;
-                 ReadOptions readOptions = this.readOptions;
-                 Slice upperBoundSlice = this.upperBoundSlice;
-                 Slice lowerBoundSlice = this.lowerBoundSlice) {
-                this.lowerBoundSlice = null;
-                this.upperBoundSlice = null;
-                this.readOptions = null;
-                this.iterator = null;
-                this.currentKeyValueSlice = null;
+            try (Slice lowerBoundInclusiveSlice = this.lowerBoundInclusiveSlice;
+                 Slice upperBoundExclusiveSlice = this.upperBoundExclusiveSlice;
+                 ReadOptions readOptions = this.readOptions) {
             }
-        }
-
-        protected boolean isCurrentCached() {
-            return this.currentKeyCached != null;
-        }
-
-        protected void computeCurrentCached() {
-            this.currentKeyCached = this.iterator.key();
-
-            //this is technically off by one, but i don't care too much
-            this.approximateRemainingWeight = RocksColumnSpliterator.this.intervalTree.getTotalWeightInInclusiveRange(this.currentKeyCached, this.largestKeyInclusive).orElse(0L);
-        }
-
-        protected void resetCurrentCached() {
-            this.currentKeyCached = null;
-            this.approximateRemainingWeight = -1L;
-        }
-
-        protected byte[] lastReturnedKeyAsArray() {
-            checkState(this.isStarted(), "not started?!?");
-            if (!this.isCurrentCached()) {
-                this.computeCurrentCached();
-            }
-            return this.currentKeyCached;
-        }
-
-        protected long computeRemainingWeight() {
-            if (!this.isStarted()) {
-                return this.approximateTotalWeight;
-            }
-            if (!this.isCurrentCached()) {
-                this.computeCurrentCached();
-            }
-            return this.approximateRemainingWeight;
         }
     }
 
@@ -507,79 +467,16 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                    && comparator.compare(this.largestKey(), smallestKey) >= 0;
         }
 
-        default boolean intersectsRange(@NonNull Comparator<? super K> comparator, @NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive) {
-            //TODO: i'm not sure about this
-            return comparator.compare(this.smallestKey(), largestKey) <= (largestInclusive ? 0 : -1)
-                   && comparator.compare(this.largestKey(), smallestKey) >= (smallestInclusive ? 0 : 1);
-        }
-
         default boolean containsInclusiveRange(@NonNull Comparator<? super K> comparator, @NonNull K smallestKey, @NonNull K largestKey) {
             return comparator.compare(this.smallestKey(), smallestKey) <= 0
                    && comparator.compare(largestKey, this.largestKey()) <= 0;
-        }
-
-        default boolean containsRange(@NonNull Comparator<? super K> comparator, @NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive) {
-            //TODO: i'm not sure about this
-            return comparator.compare(this.smallestKey(), smallestKey) <= (smallestInclusive ? 0 : -1)
-                   && comparator.compare(largestKey, this.largestKey()) <= (largestInclusive ? 0 : -1);
         }
 
         default boolean containedByInclusiveRange(@NonNull Comparator<? super K> comparator, @NonNull K smallestKey, @NonNull K largestKey) {
             return comparator.compare(smallestKey, this.smallestKey()) <= 0
                    && comparator.compare(this.largestKey(), largestKey) <= 0;
         }
-
-        default boolean containedByRange(@NonNull Comparator<? super K> comparator, @NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive) {
-            //TODO: i'm not sure about this
-            return comparator.compare(smallestKey, this.smallestKey()) <= (smallestInclusive ? 0 : -1)
-                   && comparator.compare(this.largestKey(), largestKey) <= (largestInclusive ? 0 : -1);
-        }
     }
-
-    /**
-     * @author DaPorkchop_
-     */
-    /*@NotThreadSafe
-    protected static final class Index<K, R extends IInclusiveRange<K>> {
-        private final Comparator<K> comparator;
-        private final KeyOperations<K> keyOperations;
-        private final NavigableMap<K, List<R>> map;
-
-        public Index(@NonNull Comparator<K> comparator, @NonNull KeyOperations<K> keyOperations) {
-            this.comparator = comparator;
-            this.keyOperations = keyOperations;
-            this.map = new TreeMap<>(comparator);
-        }
-
-        public void insert(@NonNull R range) {
-            checkState(this.comparator.compare(range.smallestKey(), range.largestKey()) != 0, "don't know what to do with a range of length 0!");
-
-            {
-                Map.Entry<K, List<R>> entry = this.map.floorEntry(range.smallestKey());
-                if (entry == null) { //new smallest key!
-                    this.map.put(range.smallestKey(), new ArrayList<>());
-                } else if (this.comparator.compare(range.smallestKey(), entry.getKey()) != 0) { //the key isn't already present, insert a new segment
-                    this.map.put(range.smallestKey(), new ArrayList<>(entry.getValue()));
-                }
-            }
-
-            {
-                K onePlusLargestKey = this.keyOperations.increment(range.largestKey()).get();
-                Map.Entry<K, List<R>> entry = this.map.floorEntry(onePlusLargestKey);
-                checkState(entry != null); //there is always a smaller key
-                if (this.comparator.compare(onePlusLargestKey, entry.getKey()) != 0) {
-                    //the upper bound key isn't already present, insert a new segment
-                    this.map.put(onePlusLargestKey, new ArrayList<>(entry.getValue()));
-                }
-            }
-
-            for (Map.Entry<K, List<R>> entry : this.map.subMap(range.smallestKey(), true, range.largestKey(), true).entrySet()) {
-                entry.getValue().add(range);
-            }
-
-            checkState(this.map.lastEntry().getValue().isEmpty());
-        }
-    }*/
 
     /**
      * @author DaPorkchop_
@@ -614,21 +511,6 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
             } else {
                 return this.keyOperations.lerp(keys.get(keys.size() / 2), keys.get(keys.size() / 2 + 1), 0.5d);
             }
-
-            /*//get a list of all the keys
-            List<Map.Entry<K, R>> allKeysWithRanges = new ArrayList<>(ranges.size() * 2);
-            ranges.forEach(range -> {
-                allKeysWithRanges.add(new AbstractMap.SimpleEntry<>(range.smallestKey(), range));
-                allKeysWithRanges.add(new AbstractMap.SimpleEntry<>(range.largestKey(), range));
-            });
-            allKeysWithRanges.sort(Map.Entry.comparingByKey(this.comparator)); //this is a stable sort
-
-            //get the key in the middle by range weight
-            K totalSmallestKey = allKeysWithRanges.get(0).getKey();
-            K totalLargestKey = allKeysWithRanges.get(allKeysWithRanges.size() - 1).getKey();
-            if (this.comparator.compare(totalSmallestKey, totalLargestKey) == 0) { //the whole range contains a single element
-                return totalSmallestKey;
-            }*/
         }
 
         public void forEachContaining(@NonNull K key, @NonNull Consumer<? super R> action) {
@@ -666,10 +548,12 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                         addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(smallestKey, largestKey, range.smallestKey(), range.largestKey()));
                     } else if (IntervalTree.this.comparator.compare(range.smallestKey(), smallestKey) < 0) {
                         //the discovered range extends beyond the queried range on the low end, but its upper bound is contained by the queried range
-                        addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(smallestKey, range.largestKey(), range.smallestKey(), range.largestKey()));
+                        addWeight = floorL(weight
+                                           * IntervalTree.this.keyOperations.scaledDistance(smallestKey, range.largestKey(), range.smallestKey(), range.largestKey()));
                     } else if (IntervalTree.this.comparator.compare(largestKey, range.largestKey()) < 0) {
                         //the discovered range extends beyond the queried range on the high end, but its lower bound is contained by the queried range
-                        addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(range.smallestKey(), largestKey, range.smallestKey(), range.largestKey()));
+                        addWeight = floorL(weight
+                                           * IntervalTree.this.keyOperations.scaledDistance(range.smallestKey(), largestKey, range.smallestKey(), range.largestKey()));
                     } else {
                         throw new IllegalStateException("range doesn't intersect the queried range?!?");
                     }
@@ -681,47 +565,6 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
 
             State state = new State();
             this.forEachIntersectingInclusiveRange(smallestKey, largestKey, state);
-            return state.any ? OptionalLong.of(state.sum) : OptionalLong.empty();
-        }
-
-        public void forEachIntersectingRange(@NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive, @NonNull Consumer<? super R> action) {
-            if (this.root != null) {
-                this.root.forEachIntersectingRange(smallestKey, smallestInclusive, largestKey, largestInclusive, action);
-            }
-        }
-
-        public OptionalLong getTotalWeightInRange(@NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive) {
-            class State implements Consumer<R> {
-                long sum = 0L;
-                boolean any = false;
-
-                @Override
-                public void accept(R range) {
-                    long weight = range.weight();
-                    long addWeight;
-                    if (range.containedByRange(IntervalTree.this.comparator, smallestKey, smallestInclusive, largestKey, largestInclusive)) {
-                        //the queried range contains the entire discovered range, add its entire weight
-                        addWeight = weight;
-                    } else if (range.containsRange(IntervalTree.this.comparator, smallestKey, smallestInclusive, largestKey, largestInclusive)) {
-                        //the discovered range extends beyond the queried range on both sides
-                        addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(smallestKey, largestKey, range.smallestKey(), range.largestKey()));
-                    } else if (IntervalTree.this.comparator.compare(range.smallestKey(), smallestKey) <= (smallestInclusive ? -1 : 0)) {
-                        //the discovered range extends beyond the queried range on the low end, but its upper bound is contained by the queried range
-                        addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(smallestKey, range.largestKey(), range.smallestKey(), range.largestKey()));
-                    } else if (IntervalTree.this.comparator.compare(largestKey, range.largestKey()) <= (largestInclusive ? -1 : 0)) {
-                        //the discovered range extends beyond the queried range on the high end, but its lower bound is contained by the queried range
-                        addWeight = floorL(weight * IntervalTree.this.keyOperations.scaledDistance(range.smallestKey(), largestKey, range.smallestKey(), range.largestKey()));
-                    } else {
-                        throw new IllegalStateException("range doesn't intersect the queried range?!?");
-                    }
-
-                    this.sum = Math.addExact(this.sum, addWeight);
-                    this.any = true;
-                }
-            }
-
-            State state = new State();
-            this.forEachIntersectingRange(smallestKey, smallestInclusive, largestKey, largestInclusive, state);
             return state.any ? OptionalLong.of(state.sum) : OptionalLong.empty();
         }
 
@@ -807,90 +650,8 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                     }
                 }
             }
-
-            public void forEachIntersectingRange(@NonNull K smallestKey, boolean smallestInclusive, @NonNull K largestKey, boolean largestInclusive, @NonNull Consumer<? super R> action) {
-                if (this.intersectsRange(IntervalTree.this.comparator, smallestKey, smallestInclusive, largestKey, largestInclusive)) {
-                    if (this.left != null) {
-                        this.left.forEachIntersectingRange(smallestKey, smallestInclusive, largestKey, largestInclusive, action);
-                    }
-
-                    this.values.forEach(range -> {
-                        if (range.intersectsRange(IntervalTree.this.comparator, smallestKey, smallestInclusive, largestKey, largestInclusive)) {
-                            action.accept(range);
-                        }
-                    });
-
-                    if (this.right != null) {
-                        this.right.forEachIntersectingRange(smallestKey, smallestInclusive, largestKey, largestInclusive, action);
-                    }
-                }
-            }
         }
     }
-
-    /*@NotThreadSafe
-    protected static final class Index<K, R extends IInclusiveRange<K>> {
-        private final Comparator<K> comparator;
-        private final NavigableMap<K, List<EdgeMarker<R>>> map;
-
-        public Index(@NonNull Comparator<K> comparator) {
-            this.comparator = comparator;
-            this.map = new TreeMap<>(comparator);
-        }
-
-        public void insert(@NonNull R range) {
-            checkState(this.comparator.compare(range.smallestKey(), range.largestKey()) != 0, "don't know what to do with a range of length 0!");
-            this.map.computeIfAbsent(range.smallestKey(), k -> new ArrayList<>()).add(new EdgeMarker<>(range, false));
-            this.map.computeIfAbsent(range.largestKey(), k -> new ArrayList<>()).add(new EdgeMarker<>(range, true));
-        }
-
-        public List<Segment<K, R>> segments() {
-            List<Segment<K, R>> segments = new ArrayList<>();
-            Set<R> visibleValues = new HashSet<>();
-
-            K lastKey = null;
-            for (Map.Entry<K, List<EdgeMarker<R>>> entry : this.map.entrySet()) {
-                K currKey = entry.getKey();
-
-                entry.getValue().forEach(marker -> {
-                    if (!marker.end) {
-                        checkState(visibleValues.add(marker.value));
-                    }
-                });
-                segments.add(new Segment<>(new ArrayList<>(visibleValues), PorkUtil.fallbackIfNull(lastKey, currKey), currKey));
-                entry.getValue().forEach(marker -> {
-                    if (marker.end) {
-                        checkState(visibleValues.remove(marker.value));
-                    }
-                });
-
-                lastKey = currKey;
-            }
-            checkState(visibleValues.isEmpty());
-
-            return segments;
-        }
-
-        @RequiredArgsConstructor
-        @EqualsAndHashCode
-        private static final class EdgeMarker<V> {
-            @NonNull
-            private final V value;
-            private final boolean end;
-        }
-
-        @RequiredArgsConstructor
-        @EqualsAndHashCode
-        @Getter
-        private static final class Segment<K, V> implements IInclusiveRange<K> {
-            @NonNull
-            private final List<V> values;
-            @NonNull
-            private final K smallestKey;
-            @NonNull
-            private final K largestKey;
-        }
-    }*/
 
     /**
      * @author DaPorkchop_
@@ -912,7 +673,7 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                 return Optional.empty();
             }
 
-            protected BigInteger toBigInteger(byte[] arr) {
+            private BigInteger toBigInteger(byte[] arr) {
                 //add a single zero byte as the MSB so that it's unsigned
                 byte[] clone = new byte[arr.length + 1];
                 System.arraycopy(arr, 0, clone, 1, arr.length);

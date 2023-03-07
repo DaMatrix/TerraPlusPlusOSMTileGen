@@ -22,15 +22,15 @@ package net.daporkchop.tpposmtilegen.storage.map;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import it.unimi.dsi.fastutil.longs.LongConsumer;
 import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.AllArgsConstructor;
 import lombok.NonNull;
-import net.daporkchop.lib.common.util.PorkUtil;
+import lombok.RequiredArgsConstructor;
 import net.daporkchop.lib.primitive.lambda.LongLongConsumer;
 import net.daporkchop.lib.primitive.lambda.LongLongObjConsumer;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
@@ -42,25 +42,22 @@ import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import net.daporkchop.tpposmtilegen.util.Threading;
 import org.rocksdb.ColumnFamilyDescriptor;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.ColumnFamilyMetaData;
-import org.rocksdb.Options;
-import org.rocksdb.Snapshot;
-import org.rocksdb.SstFileMetaData;
-import org.rocksdb.SstFileReader;
-import org.rocksdb.SstFileReaderIterator;
+import org.rocksdb.RocksDBException;
 
 import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
+import java.util.OptionalLong;
+import java.util.Spliterator;
+import java.util.function.Consumer;
+import java.util.function.LongConsumer;
 import java.util.stream.LongStream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.common.util.PorkUtil.*;
-import static net.daporkchop.lib.logging.Logging.*;
 
 /**
  * @author DaPorkchop_
@@ -110,7 +107,8 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         int size = keys.size();
         if (size == 0) {
             return Collections.emptyList();
-        } else if (size > 10000) { //split into smaller gets (prevents what i can only assume is a rocksdbjni bug where it will throw an NPE when requesting too many elements at once
+        } else if (size
+                   > 10000) { //split into smaller gets (prevents what i can only assume is a rocksdbjni bug where it will throw an NPE when requesting too many elements at once
             List<V> dst = new ArrayList<>(size);
             for (int i = 0; i < size; i += 10000) {
                 dst.addAll(this.getAll(access, keys.subList(i, min(i + 10000, size))));
@@ -157,12 +155,6 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
     }
 
     public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback) throws Exception {
-        this.forEachParallel(access, callback, (firstKey, lastKey) -> {}, (firstKey, lastKey, t) -> {});
-    }
-
-    public void forEachParallel(@NonNull DBReadAccess access, @NonNull LongObjConsumer<? super V> callback,
-                                @NonNull LongLongConsumer beginThreadLocalSortedCallback,
-                                @NonNull LongLongObjConsumer<? super Throwable> endThreadLocalSortedBlockCallback) throws Exception {
         if (access.isDirectRead()) {
             try (RocksColumnSpliterator rootSpliterator = new RocksColumnSpliterator(this.database, this.column, access.internalSnapshot(),
                     DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER)) {
@@ -176,54 +168,6 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                 }, rootSpliterator);
                 return;
             }
-
-            /*Optional<Snapshot> optionalInternalSnapshot = access.internalSnapshot();
-            try (Snapshot temporarySnapshotToCloseLater = optionalInternalSnapshot.isPresent() ? null : this.database.delegate().getSnapshot();
-                 Options options = new Options(this.database.config().dbOptions(), this.database.columns().get(this.column).getOptions())) {
-                Snapshot snapshot = optionalInternalSnapshot.orElse(temporarySnapshotToCloseLater);
-                long sequenceNumber = snapshot.getSequenceNumber();
-
-                ColumnFamilyMetaData columnMeta = this.database.delegate().getColumnFamilyMetaData(this.column);
-                switch (toInt(columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).count())) {
-                    case 0: //nothing to do
-                        return;
-                    case 1: //there's exactly one non-empty level, we can simply iterate over all the SST files in the level in parallel
-                        Threading.<SstFileMetaData>iterateParallel(CPU_COUNT,
-                                c -> columnMeta.levels().stream().filter(levelMeta -> levelMeta.size() != 0L).findAny().get().files().stream().forEach(c),
-                                fileMeta -> {
-                                    if (fileMeta.smallestSeqno() > sequenceNumber) { //the file is newer than this snapshot
-                                        //TODO: we could improve the detection for this by a lot
-                                        return;
-                                    }
-
-                                    long firstKey = PUnsafe.getUnalignedLongBE(fileMeta.smallestKey(), PUnsafe.arrayByteElementOffset(0));
-                                    long lastKey = PUnsafe.getUnalignedLongBE(fileMeta.largestKey(), PUnsafe.arrayByteElementOffset(0));
-                                    beginThreadLocalSortedCallback.accept(firstKey, lastKey);
-
-                                    try (SstFileReader reader = new SstFileReader(options)) {
-                                        reader.open(fileMeta.path() + fileMeta.fileName());
-                                        try (SstFileReaderIterator iterator = reader.newIterator(this.database.config().readOptions(DatabaseConfig.ReadType.BULK_ITERATE))) {
-                                            for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-                                                long key = PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0));
-                                                callback.accept(key, this.valueFromBytes(key, Unpooled.wrappedBuffer(iterator.value())));
-                                            }
-                                        }
-                                    } catch (Throwable t) {
-                                        try {
-                                            endThreadLocalSortedBlockCallback.accept(firstKey, lastKey, t);
-                                        } catch (Throwable t1) {
-                                            t.addSuppressed(t1);
-                                        }
-                                        throw PUnsafe.throwException(t);
-                                    }
-                                    endThreadLocalSortedBlockCallback.accept(firstKey, lastKey, null);
-                                });
-                        return;
-                }
-            }
-
-            logger.warn("column family '%s' isn't compacted, can't use fast parallel iteration! consider compacting the db first.",
-                    new String(this.column.getName(), StandardCharsets.UTF_8));*/
         }
 
         @AllArgsConstructor
@@ -246,69 +190,151 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
                 });
     }
 
-    public void forEachKeyParallel(@NonNull DBReadAccess access, @NonNull LongConsumer callback, @NonNull KeyDistribution distribution) throws Exception {
-        switch (distribution) {
-            case UNKNOWN:
-            case SCATTERED:
-            case EVEN_SPARSE:
-                Threading.<byte[]>iterateParallel(32 * CPU_COUNT,
-                        c -> {
-                            try (DBIterator itr = access.iterator(this.column)) {
-                                for (itr.seekToFirst(); itr.isValid(); itr.next()) {
-                                    c.accept(itr.key());
-                                }
-                            }
-                        },
-                        keyArray -> {
-                            long key = PUnsafe.getUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0));
-                            callback.accept(key);
-                        });
-                break;
-            case EVEN_DENSE: {
-                long firstKey;
-                long lastKey;
-                try (DBIterator itr = access.iterator(this.column)) {
-                    itr.seekToFirst();
-                    if (!itr.isValid()) { //column family is empty
-                        return;
-                    }
-                    firstKey = PUnsafe.getUnalignedLongBE(itr.key(), PUnsafe.arrayByteElementOffset(0));
-                    itr.seekToLast();
-                    checkState(itr.isValid());
-                    lastKey = PUnsafe.getUnalignedLongBE(itr.key(), PUnsafe.arrayByteElementOffset(0));
-                }
-
-                //TODO: this could be improved further by using an iterator for sub-ranges
-                Threading.forEachParallelLong(key -> {
-                    ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
-                    byte[] keyArray = keyArrayRecycler.get();
-                    try {
-                        PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
-
-                        if (access.get(this.column, keyArray) != null) {
-                            callback.accept(key);
-                        }
-                    } catch (Exception e) {
-                        PUnsafe.throwException(e);
-                    } finally {
-                        keyArrayRecycler.release(keyArray);
-                    }
-                }, LongStream.rangeClosed(firstKey, lastKey).spliterator());
-                break;
-            }
-            default:
-                throw new IllegalArgumentException(distribution.name());
-        }
-    }
-
     protected abstract void valueToBytes(@NonNull V value, @NonNull ByteBuf dst);
 
     protected abstract V valueFromBytes(long key, @NonNull ByteBuf valueBytes);
 
-    public enum KeyDistribution {
-        UNKNOWN,
-        SCATTERED,
-        EVEN_SPARSE,
-        EVEN_DENSE,
+    public KeySpliterator keySpliterator() throws RocksDBException {
+        return new KeySpliterator(new RocksColumnSpliterator(this.database, this.column, Optional.empty(),
+                DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER));
+    }
+
+    public ValueSpliterator valueSpliterator() throws RocksDBException {
+        return new ValueSpliterator(new RocksColumnSpliterator(this.database, this.column, Optional.empty(),
+                DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER));
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @RequiredArgsConstructor
+    public static class KeySpliterator implements Spliterator.OfLong, AutoCloseable {
+        @NonNull
+        protected final RocksColumnSpliterator parent;
+
+        public long smallestKeyInclusive() {
+            return PUnsafe.getUnalignedLongBE(this.parent.smallestKeyInclusive(), PUnsafe.arrayByteElementOffset(0));
+        }
+
+        public long largestKeyInclusive() {
+            return PUnsafe.getUnalignedLongBE(this.parent.largestKeyInclusive(), PUnsafe.arrayByteElementOffset(0));
+        }
+
+        public OptionalLong largestKeyExclusive() {
+            return this.parent.largestKeyExclusive() != null
+                    ? OptionalLong.of(PUnsafe.getUnalignedLongBE(this.parent.largestKeyExclusive(), PUnsafe.arrayByteElementOffset(0)))
+                    : OptionalLong.empty();
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.parent.close();
+        }
+
+        @Override
+        public KeySpliterator trySplit() {
+            RocksColumnSpliterator split = this.parent.trySplit();
+            return split != null ? new KeySpliterator(split) : null;
+        }
+
+        @Override
+        public boolean tryAdvance(@NonNull LongConsumer action) {
+            return this.parent.tryAdvance(slice -> {
+                checkState(slice.keySize() == 8);
+                action.accept(PUnsafe.getUnalignedLongBE(slice.keyAddr()));
+            });
+        }
+
+        @Override
+        public void forEachRemaining(@NonNull LongConsumer action) {
+            this.parent.forEachRemaining(slice -> {
+                checkState(slice.keySize() == 8);
+                action.accept(PUnsafe.getUnalignedLongBE(slice.keyAddr()));
+            });
+        }
+
+        @Override
+        public long estimateSize() {
+            return this.parent.estimateSize();
+        }
+
+        @Override
+        public int characteristics() {
+            return this.parent.characteristics();
+        }
+
+        @Override
+        public long getExactSizeIfKnown() {
+            return this.parent.getExactSizeIfKnown();
+        }
+    }
+
+    /**
+     * @author DaPorkchop_
+     */
+    @RequiredArgsConstructor
+    public class ValueSpliterator implements Spliterator<V>, AutoCloseable {
+        @NonNull
+        protected final RocksColumnSpliterator parent;
+
+        public long smallestKeyInclusive() {
+            return PUnsafe.getUnalignedLongBE(this.parent.smallestKeyInclusive(), PUnsafe.arrayByteElementOffset(0));
+        }
+
+        public long largestKeyInclusive() {
+            return PUnsafe.getUnalignedLongBE(this.parent.largestKeyInclusive(), PUnsafe.arrayByteElementOffset(0));
+        }
+
+        public OptionalLong largestKeyExclusive() {
+            return this.parent.largestKeyExclusive() != null
+                    ? OptionalLong.of(PUnsafe.getUnalignedLongBE(this.parent.largestKeyExclusive(), PUnsafe.arrayByteElementOffset(0)))
+                    : OptionalLong.empty();
+        }
+
+        @Override
+        public void close() throws Exception {
+            this.parent.close();
+        }
+
+        @Override
+        public ValueSpliterator trySplit() {
+            RocksColumnSpliterator split = this.parent.trySplit();
+            return split != null ? new ValueSpliterator(split) : null;
+        }
+
+        @Override
+        public boolean tryAdvance(@NonNull Consumer<? super V> action) {
+            return this.parent.tryAdvance(slice -> {
+                checkState(slice.keySize() == 8);
+                action.accept(RocksDBMap.this.valueFromBytes(
+                        PUnsafe.getUnalignedLongBE(slice.keyAddr()),
+                        Unpooled.wrappedBuffer(slice.valueAddr(), slice.valueSize(), false)));
+            });
+        }
+
+        @Override
+        public void forEachRemaining(@NonNull Consumer<? super V> action) {
+            this.parent.forEachRemaining(slice -> {
+                checkState(slice.keySize() == 8);
+                action.accept(RocksDBMap.this.valueFromBytes(
+                        PUnsafe.getUnalignedLongBE(slice.keyAddr()),
+                        Unpooled.wrappedBuffer(slice.valueAddr(), slice.valueSize(), false)));
+            });
+        }
+
+        @Override
+        public long estimateSize() {
+            return this.parent.estimateSize();
+        }
+
+        @Override
+        public int characteristics() {
+            return this.parent.characteristics();
+        }
+
+        @Override
+        public long getExactSizeIfKnown() {
+            return this.parent.getExactSizeIfKnown();
+        }
     }
 }

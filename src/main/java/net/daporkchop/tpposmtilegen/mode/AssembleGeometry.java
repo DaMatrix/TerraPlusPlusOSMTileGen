@@ -67,28 +67,30 @@ public class AssembleGeometry implements IMode {
             Purge.purge(storage, Purge.DataType.geometry);
         }
 
-        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD);
-             ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
-                     .slot("nodes").slot("ways").slot("relations").slot("coastlines")
-                     .build()) {
-            LongObjConsumer<Element> func = (id, element) -> {
-                if (!element.visible()) {
-                    return;
-                }
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD)) {
+            try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Assemble Geometry")
+                    .slot("nodes").slot("ways").slot("relations").slot("coastlines")
+                    .build()) {
+                LongObjConsumer<Element> func = (id, element) -> {
+                    int type = element.type();
+                    notifier.incrementTotal(type);
+                    if (!element.visible()) {
+                        return;
+                    }
+                    notifier.step(type);
 
-                int type = element.type();
-                try {
-                    storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false, true);
-                } catch (Exception e) {
-                    throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
-                }
-                notifier.step(type);
-            };
+                    try {
+                        storage.convertToGeoJSONAndStoreInDB(storage.db().readWriteBatch(), Element.addTypeToId(type, id), element, false, true);
+                    } catch (Exception e) {
+                        throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
+                    }
+                };
 
-            //storage.nodes().forEachParallel(storage.db().read(), func);
-            storage.ways().forEachParallel(storage.db().read(), func);
-            storage.relations().forEachParallel(storage.db().read(), func);
-            storage.coastlines().forEachParallel(storage.db().read(), func);
+                storage.nodes().forEachParallel(storage.db().read(), func);
+                storage.ways().forEachParallel(storage.db().read(), func);
+                storage.relations().forEachParallel(storage.db().read(), func);
+                storage.coastlines().forEachParallel(storage.db().read(), func);
+            }
 
             try (TimedOperation compactOperation = new TimedOperation("Compaction")) {
                 List<WrappedRocksDB> toCompact = Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
