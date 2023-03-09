@@ -45,10 +45,6 @@ static void throwRocksdbException(JNIEnv* env, const rocksdb::Status& status) no
 
 extern "C" {
 
-JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsortedWriteAccess_init
-        (JNIEnv *env, jclass cla) {
-}
-
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsortedWriteAccess_sortBuffer
         (JNIEnv *env, jobject instance, jlong _addr, jlong _size, jboolean parallel) {
     try {

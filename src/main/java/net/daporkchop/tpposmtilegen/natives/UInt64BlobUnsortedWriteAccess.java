@@ -22,11 +22,10 @@ package net.daporkchop.tpposmtilegen.natives;
 
 import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
-import it.unimi.dsi.fastutil.longs.LongArrayList;
-import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.EConsumer;
 import net.daporkchop.lib.common.function.exception.ESupplier;
+import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.pool.handle.Handle;
@@ -47,10 +46,13 @@ import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static java.nio.file.StandardOpenOption.*;
@@ -60,59 +62,43 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
 /**
  * @author DaPorkchop_
  */
-public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAccess {
-    private final Handle<Path> pathHandle;
-    private final FileChannel channel;
+public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAccess {
+    private final Handle<Path> indexPathHandle;
+    private final FileChannel indexChannel;
 
-    private final Handle<Path> sortedPathHandle;
-    private final FileChannel sortedChannel;
-
+    private final LongAdder totalDataSize = new LongAdder();
     private final CloseableThreadLocal<WriteBuffer> writeBuffers = CloseableThreadLocal.of(WriteBuffer::new);
 
-    private final double compressionRatio;
-    private final boolean merge;
+    private final double averageCompressedSizePerKey;
 
-    public UInt64SetUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, boolean assumeEmpty, double compressionRatio) throws Exception {
+    public UInt64BlobUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, double averageCompressedSizePerKey) throws Exception {
         super(storage, columnFamilyHandle);
+        this.averageCompressedSizePerKey = averageCompressedSizePerKey;
 
-        this.compressionRatio = compressionRatio;
-        this.merge = !assumeEmpty;
-
-        this.pathHandle = storage.getTmpFilePath(
-                UInt64SetUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "buf");
-        this.channel = FileChannel.open(this.pathHandle.get(), READ, WRITE, CREATE_NEW);
-
-        this.sortedPathHandle = storage.getTmpFilePath(
-                UInt64SetUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "sorted.buf");
-        this.sortedChannel = FileChannel.open(this.sortedPathHandle.get(), READ, WRITE, CREATE_NEW, SPARSE);
-
-        /*Runtime.getRuntime()
-                .exec(new String[]{ "chattr", "+C", this.pathHandle.get().toAbsolutePath().toString(), this.sortedPathHandle.get().toAbsolutePath().toString() })
-                .waitFor();*/
+        this.indexPathHandle = storage.getTmpFilePath(
+                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "buf");
+        this.indexChannel = FileChannel.open(this.indexPathHandle.get(), READ, WRITE, CREATE_NEW);
     }
 
     @Override
-    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
+    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
         this.checkWriteOk(columnFamilyHandle);
-        checkArg(UInt64SetMergeOperator.getNumDels(value) == 0L, "delete isn't supported!");
 
-        checkArg(key.length == 8, key.length);
-        long realKey = PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0));
+        checkArg(key.remaining() == 8, key.remaining());
+        long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
 
-        long numAdds = UInt64SetMergeOperator.getNumAdds(value);
-        if (numAdds == 0L) {
-            return;
-        }
+        this.totalDataSize.add(4L + value.remaining());
 
-        WriteBuffer writeBuffer = this.writeBuffers.get();
-        for (long i = 0L; i < numAdds; i++) {
-            writeBuffer.put(realKey, UInt64SetMergeOperator.getIndexedAdd(value, i));
-        }
+        long valueAddr = Memory.malloc(4L + value.remaining());
+        PUnsafe.putInt(valueAddr, value.remaining());
+        Memory.memcpy(valueAddr + 4L, PUnsafe.pork_directBufferAddress(value) + value.position(), value.remaining());
+
+        this.writeBuffers.get().put(realKey, valueAddr);
     }
 
     @Override
     public long getDataSize() throws Exception {
-        return this.channel.size();
+        return this.totalDataSize.sum();
     }
 
     @Override
@@ -124,26 +110,26 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
     protected void flush0() throws Exception {
         this.writeBuffers.forEach((EConsumer<WriteBuffer>) WriteBuffer::flush);
 
-        long size = this.channel.size();
+        long size = this.indexChannel.size();
         if (size > 0L) {
-            this.sortedChannel.write(ByteBuffer.allocate(1), size - 1L);
-            try (MemoryMap srcMmap = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, size);
-                 MemoryMap sortedMmap = new MemoryMap(this.sortedChannel, FileChannel.MapMode.READ_WRITE, 0L, size)) {
+            try (MemoryMap mmap = new MemoryMap(this.indexChannel, FileChannel.MapMode.READ_WRITE, 0L, size)) {
                 //sort the buffer's contents
-                try (TimedOperation sortOperation = new TimedOperation("Sort buffer")) {
-                    this.mergeSortBufferNWay(srcMmap.addr(), size, null, sortedMmap.addr(), size);
+                try (TimedOperation sortOperation = new TimedOperation("Sort buffer", this.logger)) {
+                    sortBuffer(mmap.addr(), size, true);
                 }
 
                 //split the buffer's contents and build SST files out of it
                 List<Handle<Path>> paths;
-                try (TimedOperation sstOperation = new TimedOperation("Build SST files");
+                try (TimedOperation sstOperation = new TimedOperation("Build SST files", this.logger);
                      Options options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions())) {
                     EnvOptions envOptions = this.storage.db().config().envOptions();
 
-                    final long targetBlockSize = PMath.roundUp((long) (this.compressionRatio * options.targetFileSizeBase()), 16L);
-                    long[] blockStartAddrs = partitionSortedRange(sortedMmap.addr(), size, targetBlockSize);
-
-                    Memory.madvise(sortedMmap.addr(), size, Memory.Usage.MADV_SEQUENTIAL);
+                    final long targetBlockSize = PMath.roundUp((long) (16L
+                                                                       * this.averageCompressedSizePerKey
+                                                                       * options.targetFileSizeBase()), Math.max(16, PUnsafe.pageSize()));
+                    long[] blockStartAddrs = LongStream.rangeClosed(0L, size / targetBlockSize)
+                            .flatMap(i -> LongStream.of(mmap.addr() + i * targetBlockSize, Math.min(targetBlockSize, size - i * targetBlockSize)))
+                            .toArray();
 
                     CompletableFuture<Handle<Path>>[] pathFutures = uncheckedCast(new CompletableFuture[blockStartAddrs.length >> 1]);
                     for (int i = 0; i < blockStartAddrs.length; i += 2) {
@@ -169,79 +155,44 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
                     }
                 }
 
+                int totalCount = paths.size();
+                long totalSize = paths.stream().map(Handle::get).map((IOFunction<Path, Long>) Files::size).mapToLong(Long::longValue).sum();
+
                 //ingest the SST files
-                try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files")) {
+                try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files", this.logger)) {
                     this.storage.db().delegate().ingestExternalFile(this.columnFamilyHandle,
                             paths.stream().map(Handle::get).map(Path::toString).collect(Collectors.toList()),
                             this.storage.db().config().ingestOptions(DatabaseConfig.IngestType.MOVE));
                     paths.forEach(Handle::release);
                     paths.clear();
                 }
+
+                this.logger.success("ingested %d keys totalling %d bytes (%.2f MiB) in %d SST files totalling %d bytes (%.2f MiB)",
+                        size / 16L,
+                        this.totalDataSize.sum(), this.totalDataSize.sumThenReset() / (1024.0d * 1024.0d),
+                        totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
             }
 
             //now that all the data has been appended and ingested, truncate the file down to 0 bytes to reset everything
-            this.channel.truncate(0L);
-            this.sortedChannel.truncate(0L);
+            this.indexChannel.truncate(0L);
         }
     }
 
     private static native void sortBuffer(long addr, long size, boolean parallel) throws OutOfMemoryError;
 
-    private static native boolean isSorted(long addr, long size, boolean parallel) throws OutOfMemoryError;
+    private static native long appendKeys(long writerHandle, long begin, long end);
 
-    private static native boolean nWayMerge(long[] srcAddrs, long[] srcSizes, int srcCount, long dstAddr, long dstSize) throws OutOfMemoryError;
-
-    private static native long[] partitionSortedRange(long addr, long size, long targetBlockSize) throws OutOfMemoryError;
-
-    private void mergeSortBufferNWay(long addr, long size, Runnable flush, long dstAddr, long dstSize) {
-        checkArg(size == dstSize);
-        flush = fallbackIfNull(flush, (Runnable) () -> {});
-
-        final long maxInitialSortSize = 8L << 30L;
-
-        //break the buffer up into smaller runs, then merge them
-        LongList addrs = new LongArrayList();
-        LongList sizes = new LongArrayList();
-        for (long offset = 0L; offset < size; offset += maxInitialSortSize) {
-            long runSize = Math.min(maxInitialSortSize, size - offset);
-            if (!isSorted(addr + offset, runSize, true)) {
-                sortBuffer(addr + offset, runSize, true);
-                checkState(isSorted(addr + offset, runSize, true));
-                flush.run();
-                this.logger.info("sorted %dth initial block at offset 0x%x", offset / maxInitialSortSize, offset);
-            } else {
-                this.logger.info("skipping sorted %dth initial block at offset 0x%x", offset / maxInitialSortSize, offset);
-            }
-
-            addrs.add(addr + offset);
-            sizes.add(runSize);
-        }
-
-        Memory.madvise(dstAddr, dstSize, Memory.Usage.MADV_REMOVE);
-
-        try (TimedOperation merge = new TimedOperation("Merge " + addrs.size() + " sorted arrays")) {
-            nWayMerge(addrs.toLongArray(), sizes.toLongArray(), addrs.size(), dstAddr, dstSize);
-        }
-        try (TimedOperation verify = new TimedOperation("Verify sorted data")) {
-            checkState(isSorted(dstAddr, dstSize, true));
-        }
-
-        Memory.madvise(addr, size, Memory.Usage.MADV_REMOVE);
-    }
-
-    private static native long combineAndAppendKey(long writerHandle, long begin, long end, boolean merge);
-
-    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, long addr, long size) throws Exception {
-        checkArg(size % 16L == 0L, size);
+    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, long indexAddr, long indexSize) throws Exception {
+        checkArg(indexSize % 16L == 0L, indexSize);
+        checkArg(indexSize != 0L, indexSize);
 
         Handle<Path> pathHandle = this.storage.getTmpFilePath(new String(this.columnFamilyHandle.getName(), StandardCharsets.UTF_8), "sst");
 
         try (SstFileWriter writer = new SstFileWriter(envOptions, options)) {
             writer.open(pathHandle.get().toString());
 
-            for (long firstAddr = addr, endAddr = addr + size; firstAddr < endAddr; ) {
-                firstAddr = combineAndAppendKey(writer.getNativeHandle(), firstAddr, endAddr, this.merge);
-            }
+            long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize);
+            checkState(writtenKeys != 0L, writtenKeys);
 
             writer.finish();
         }
@@ -250,28 +201,14 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
     }
 
     @Override
-    public synchronized void clear() throws Exception {
-        this.channel.truncate(0L);
-        this.writeBuffers.forEach(writeBuffer -> {
-            synchronized (writeBuffer) {
-                writeBuffer.buf.clear();
-            }
-        });
-    }
-
-    @Override
     public synchronized void close() throws Exception {
         this.writeBuffers.close();
 
         super.close();
 
-        this.channel.close();
-        PFiles.rm(this.pathHandle.get());
-        this.pathHandle.release();
-
-        this.sortedChannel.close();
-        PFiles.rm(this.sortedPathHandle.get());
-        this.sortedPathHandle.release();
+        this.indexChannel.close();
+        PFiles.rm(this.indexPathHandle.get());
+        this.indexPathHandle.release();
     }
 
     protected class WriteBuffer implements Flushable, AutoCloseable {
@@ -288,8 +225,8 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
         @Override
         public synchronized void flush() throws IOException {
             if (this.buf.isReadable()) {
-                synchronized (UInt64SetUnsortedWriteAccess.this) {
-                    Utils.writeFully(UInt64SetUnsortedWriteAccess.this.channel, this.buf);
+                synchronized (UInt64BlobUnsortedWriteAccess.this) {
+                    Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.indexChannel, this.buf);
                 }
                 this.buf.clear();
             }

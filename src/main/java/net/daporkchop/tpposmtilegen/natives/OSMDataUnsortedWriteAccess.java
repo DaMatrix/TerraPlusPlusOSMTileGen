@@ -28,16 +28,11 @@ import lombok.ToString;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.math.PMath;
 import net.daporkchop.lib.common.misc.file.PFiles;
-import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.pool.handle.Handle;
 import net.daporkchop.lib.common.util.PorkUtil;
-import net.daporkchop.lib.common.util.exception.AlreadyReleasedException;
-import net.daporkchop.lib.logging.Logger;
-import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.IterableThreadLocal;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import org.rocksdb.ColumnFamilyHandle;
@@ -56,7 +51,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAccumulator;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.function.ToIntFunction;
@@ -67,16 +61,7 @@ import static net.daporkchop.lib.common.util.PValidation.*;
 /**
  * @author DaPorkchop_
  */
-public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
-    static {
-        PUnsafe.ensureClassInitialized(Natives.class);
-        init();
-    }
-
-    private static native void init();
-
-    private final Storage storage;
-    private final ColumnFamilyHandle columnFamilyHandle;
+public final class OSMDataUnsortedWriteAccess extends AbstractUnsortedWriteAccess {
     private final ToIntFunction<ByteBuffer> versionFromValueExtractor;
 
     private final long indexAddr;
@@ -86,8 +71,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     private final LongAdder writtenKeys = new LongAdder();
     private final LongAdder valueCount = new LongAdder();
     private final LongAdder valueSize = new LongAdder();
-
-    private final Logger logger;
 
     private final double compressionRatio;
     private final long flushTriggerThreshold;
@@ -106,20 +89,16 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
 
     private final boolean assumeEmpty;
 
-    private volatile boolean flushing = false;
     private volatile boolean flushException = false;
 
     public OSMDataUnsortedWriteAccess(@NonNull Storage storage, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ToIntFunction<ByteBuffer> versionFromValueExtractor, double compressionRatio, int threads, boolean assumeEmpty) throws Exception {
-        this.storage = storage;
-        this.columnFamilyHandle = columnFamilyHandle;
+        super(storage, columnFamilyHandle);
         this.versionFromValueExtractor = versionFromValueExtractor;
         this.compressionRatio = compressionRatio;
         this.threads = threads;
         this.assumeEmpty = assumeEmpty;
 
         this.options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions());
-
-        this.logger = Logging.logger.channel(new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8));
 
         this.indexAddr = Memory.mmap(0L, this.indexSize, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
 
@@ -166,16 +145,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     }
 
     @Override
-    public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void put(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
+        this.checkWriteOk(columnFamilyHandle);
 
         checkArg(key.remaining() == 8, key.remaining());
         long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
@@ -192,23 +163,8 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     }
 
     @Override
-    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key, @NonNull byte[] value) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
-    public void merge(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ByteBuffer key, @NonNull ByteBuffer value) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public void delete(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
+        this.checkWriteOk(columnFamilyHandle);
 
         checkArg(key.length == 8, key.length);
         long realKey = PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0));
@@ -221,13 +177,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         PUnsafe.putUnalignedInt(valueAddr + 4L, -1); //size of -1 indicates removal
 
         this.swapEntry(realKey, valueAddr, 4L + 4L);
-    }
-
-    @Override
-    public void deleteRange(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] beginKey, @NonNull byte[] endKey) throws Exception {
-        checkArg(columnFamilyHandle == this.columnFamilyHandle, "may only write to this column family");
-        checkState(!this.flushing, "currently flushing?!?");
-        throw new UnsupportedOperationException();
     }
 
     @Override
@@ -339,11 +288,10 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     }
 
     @Override
-    public synchronized void flush() throws Exception { //this is actually only allowed to be called once
-        checkState(!this.flushing, "already flushing?!?");
-        this.flushing = true;
-
-        checkState(this.threadStates.snapshotValues().stream().allMatch(state -> !state.thread().isAlive() || state.state == ThreadState.State.QUIT), "some worker threads are still alive?!?");
+    protected void flush0() throws Exception {
+        checkState(this.threadStates.snapshotValues()
+                .stream()
+                .allMatch(state -> !state.thread().isAlive() || state.state == ThreadState.State.QUIT), "some worker threads are still alive?!?");
 
         if (this.pendingFlush != null) {
             this.executePendingFlush(this.pendingFlush);
@@ -399,11 +347,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
     }
 
     @Override
-    public synchronized void clear() throws Exception {
-        throw new UnsupportedOperationException();
-    }
-
-    @Override
     public synchronized void close() throws Exception {
         if (!this.flushing) {
             this.flush();
@@ -452,11 +395,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
         Memory.releaseMemoryToSystem();
     }
 
-    @Override
-    public boolean threadSafe() {
-        return true;
-    }
-
     @Builder
     @ToString
     private static final class FlushInfo {
@@ -476,58 +414,6 @@ public final class OSMDataUnsortedWriteAccess implements DBWriteAccess {
             JOINED,
             ACTIVELY_FLUSHING,
             QUIT,
-        }
-    }
-
-    @Getter
-    private final class SequentialAllocationArena extends AbstractRefCounted {
-        private static final long MAX_SIZE = 1L << 30L; // 1GiB
-
-        private final long addr;
-        private long size;
-
-        private long nextAlloc;
-
-        private boolean locked;
-
-        public SequentialAllocationArena() {
-            this.addr = Memory.mmap(0L, MAX_SIZE, 0, 0L, Memory.MapProtection.READ_WRITE, Memory.MapVisibility.PRIVATE, Memory.MapFlags.ANONYMOUS, Memory.MapFlags.NORESERVE);
-            this.size = MAX_SIZE;
-        }
-
-        public synchronized long alloc(long len) {
-            checkState(!this.locked);
-            if (this.nextAlloc + notNegative(len, "len") > this.size) {
-                throw new OutOfMemoryError(String.valueOf(len));
-            }
-            long addr = this.addr + this.nextAlloc;
-            this.nextAlloc += len;
-            return addr;
-        }
-
-        public synchronized void lock() {
-            checkState(!this.locked);
-            this.locked = true;
-
-            //shrink the mapping down to the minimum size
-            long trimmedSize = PMath.roundUp(this.nextAlloc, PUnsafe.pageSize());
-            long newAddr = Memory.mremap(this.addr, this.size, trimmedSize);
-            checkState(this.addr == newAddr, "mremap returned a different address!");
-            this.size = trimmedSize;
-
-            //make the data read-only
-            Memory.mprotect(this.addr, this.size, Memory.MapProtection.READ);
-        }
-
-        @Override
-        public SequentialAllocationArena retain() throws AlreadyReleasedException {
-            super.retain();
-            return this;
-        }
-
-        @Override
-        protected void doRelease() {
-            Memory.munmap(this.addr, this.size);
         }
     }
 }

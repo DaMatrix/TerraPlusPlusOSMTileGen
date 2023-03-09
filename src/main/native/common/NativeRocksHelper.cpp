@@ -98,17 +98,19 @@ JNIEXPORT jobjectArray JNICALL Java_net_daporkchop_tpposmtilegen_natives_NativeR
 
         db->MultiGet(*options, column_family, numKeys, keys, values.data(), statuses.data());
 
-        for (const auto& status : statuses) {
-            if (UNLIKELY(!status.ok())) {
-                throwRocksdbException(env, status);
-                return nullptr;
-            }
-        }
-
         jobjectArray results = env->NewObjectArray(numKeys, env->FindClass("[B"), nullptr);
         if (UNLIKELY(results == nullptr)) return nullptr;
 
         for (decltype(numKeys) i = 0; i < numKeys; i++) {
+            if (UNLIKELY(!statuses[i].ok())) {
+                if (statuses[i].IsNotFound()) {
+                    continue; //leave value set to null
+                } else {
+                    throwRocksdbException(env, statuses[i]);
+                    return nullptr;
+                }
+            }
+
             jint size = static_cast<jint>(values[i].size());
             jbyteArray arr = env->NewByteArray(size);
             if (UNLIKELY(arr == nullptr)) return nullptr;

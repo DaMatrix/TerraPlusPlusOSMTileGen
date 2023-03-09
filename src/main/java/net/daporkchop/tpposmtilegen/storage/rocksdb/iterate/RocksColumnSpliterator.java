@@ -130,6 +130,7 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
             } else { //empty
                 this.totalSmallestKey = null;
                 this.totalLargestKey = null;
+                this.reachedEnd = true;
             }
         }
 
@@ -295,8 +296,8 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                 return null;
             }
             lo = this.iterator.key();
-            //this.iterator.prev();
-            //checkState(this.iterator.isValid());
+            this.iterator.prev();
+            checkState(this.iterator.isValid());
         } else { //we haven't actually started iteration, we can use the iteration lower bound
             lo = this.smallestKeyInclusive;
         }
@@ -325,12 +326,13 @@ public class RocksColumnSpliterator implements Spliterator<NativeRocksHelper.Key
                 this.resetIterator(false);
             }
 
-            RocksColumnSpliterator split = new RocksColumnSpliterator(this, afterMid, hi, this.largestKeyExclusive);
+            //split iterator must cover a prefix of the elements
+            RocksColumnSpliterator split = new RocksColumnSpliterator(this, lo, mid, afterMid);
             this.children.add(split);
 
-            this.smallestKeyInclusive = lo;
-            this.largestKeyInclusive = mid;
-            this.largestKeyExclusive = afterMid;
+            this.smallestKeyInclusive = afterMid;
+            //this.largestKeyInclusive = hi;
+            //this.largestKeyExclusive = this.largestKeyExclusive;
 
             return split;
         }

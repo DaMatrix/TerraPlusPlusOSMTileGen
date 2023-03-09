@@ -84,31 +84,69 @@ public class Utils {
     }
 
     public void writeFully(@NonNull FileChannel dst, @NonNull ByteBuf src) throws IOException {
-        while (src.isReadable()) {
-            src.readBytes(dst, src.readableBytes());
+        boolean interrupted = Thread.interrupted();
+        try {
+            while (src.isReadable()) {
+                src.readBytes(dst, src.readableBytes());
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
     public void writeFully(@NonNull FileChannel dst, long pos, @NonNull ByteBuf src) throws IOException {
-        while (src.isReadable()) {
-            pos += src.readBytes(dst, pos, src.readableBytes());
+        boolean interrupted = Thread.interrupted();
+        try {
+            while (src.isReadable()) {
+                pos += src.readBytes(dst, pos, src.readableBytes());
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
     public void readFully(@NonNull FileChannel src, @NonNull ByteBuf dst, int count) throws IOException {
-        dst.ensureWritable(count);
-        for (int i = 0; i < count; i += dst.writeBytes(src, count - i)) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            dst.ensureWritable(count);
+            for (int i = 0; i < count; i += dst.writeBytes(src, count - i)) {
+                //empty
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
     public void readFully(@NonNull FileChannel src, long pos, @NonNull ByteBuf dst, int count) throws IOException {
-        dst.ensureWritable(count);
-        for (int i = 0; i < count; i += dst.writeBytes(src, pos + i, count - i)) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            dst.ensureWritable(count);
+            for (int i = 0; i < count; i += dst.writeBytes(src, pos + i, count - i)) {
+                //empty
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
     public void transferFully(@NonNull FileChannel src, @NonNull FileChannel dst) throws IOException {
-        for (long pos = 0L, count = src.position(); pos < count; pos += src.transferTo(pos, count - pos, dst)) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            for (long pos = 0L, count = src.position(); pos < count; pos += src.transferTo(pos, count - pos, dst)) {
+                //empty
+            }
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 
