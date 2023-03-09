@@ -12,25 +12,27 @@
 
 #include <iostream>
 
-class data_t {
-public:
-    uint32_t version;
-    int32_t size; //negative if removed
-    char data[];
-};
+namespace {
+    class data_t {
+    public:
+        uint32_t version;
+        int32_t size; //negative if removed
+        char data[];
+    };
 
-static_assert(sizeof(data_t) == sizeof(uint32_t) + sizeof(int32_t));
+    static_assert(sizeof(data_t) == sizeof(uint32_t) + sizeof(int32_t));
 
-class keyvalue_t {
-public:
-    uint64_t key;
-    std::atomic<const data_t*> _value;
+    class keyvalue_t {
+    public:
+        uint64_t key;
+        std::atomic<const data_t*> _value;
 
-    const data_t* value_ptr() const noexcept { return _value.load(); }
-};
+        const data_t* value_ptr() const noexcept { return _value.load(); }
+    };
 
-static_assert(sizeof(keyvalue_t) == sizeof(uint64_t) * 2);
-static_assert(sizeof(jlong) >= sizeof(ptrdiff_t));
+    static_assert(sizeof(keyvalue_t) == sizeof(uint64_t) * 2);
+    static_assert(sizeof(jlong) >= sizeof(ptrdiff_t));
+}
 
 static void throwOutOfMemory(JNIEnv* env, const std::bad_alloc& e) noexcept {
     if (!env->ExceptionCheck()) {

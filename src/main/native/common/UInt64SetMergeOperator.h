@@ -35,7 +35,7 @@ public:
         return sizeof(uint64le) * (2 + total_count());
     }
 
-    constexpr void validate(size_t total_size) const noexcept {
+    void validate(size_t total_size) const noexcept {
         assert(total_size == total_size_with_headers());
         assert(std::is_sorted(add().begin(), add().end()));
         assert(std::is_sorted(del().begin(), del().end()));

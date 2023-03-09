@@ -1,5 +1,5 @@
 #include "tpposmtilegen_common.h"
-#include "UInt64SetMergeOperator.h"
+#include "byte_order.h"
 
 #include <lib-rocksdb/include/rocksdb/sst_file_writer.h>
 
@@ -14,22 +14,24 @@
 
 #include <iostream>
 
-class data_t {
-public:
-    int32_t size;
-    char data[];
-};
+namespace {
+    class data_t {
+    public:
+        int32_t size;
+        char data[];
+    };
 
-class keyvalue_t {
-public:
-    uint64le key;
-    uint64le _value;
+    class keyvalue_t {
+    public:
+        uint64le key;
+        uint64le _value;
 
-    data_t* value_ptr() const noexcept { return reinterpret_cast<data_t*>(static_cast<uint64_t>(_value)); }
+        data_t* value_ptr() const noexcept { return reinterpret_cast<data_t*>(static_cast<uint64_t>(_value)); }
 
-    constexpr auto operator <(const keyvalue_t& other) const noexcept { return key < other.key; }
-    constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
-};
+        constexpr auto operator <(const keyvalue_t& other) const noexcept { return key < other.key; }
+        constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
+    };
+}
 
 static_assert(sizeof(data_t) == sizeof(uint32_t));
 

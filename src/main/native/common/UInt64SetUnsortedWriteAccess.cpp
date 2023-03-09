@@ -3,10 +3,7 @@
 
 #include <lib-rocksdb/include/rocksdb/sst_file_writer.h>
 
-#define TBB_USE_EXCEPTIONS (0)
-
 #include <algorithm>
-#include <execution>
 #include <utility>
 #include <vector>
 
@@ -17,18 +14,20 @@
 
 #include <iostream>
 
-class keyvalue_t {
-public:
-    uint64le key;
-    uint64le value;
+namespace {
+    class keyvalue_t {
+    public:
+        uint64le key;
+        uint64le value;
 
-    constexpr auto operator <(const keyvalue_t& other) const noexcept { return key < other.key || (key == other.key && value < other.value); }
-    constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
-};
+        constexpr auto operator <(const keyvalue_t& other) const noexcept { return key < other.key || (key == other.key && value < other.value); }
+        constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
+    };
 
-static_assert(sizeof(keyvalue_t) == sizeof(uint64_t) * 2);
+    static_assert(sizeof(keyvalue_t) == sizeof(uint64_t) * 2);
 
-static_assert(sizeof(jlong) >= sizeof(ptrdiff_t));
+    static_assert(sizeof(jlong) >= sizeof(ptrdiff_t));
+}
 
 static void throwOutOfMemory(JNIEnv* env, const std::bad_alloc& e) noexcept {
     if (!env->ExceptionCheck()) {
@@ -56,9 +55,9 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsort
         madvise(addr, size * sizeof(keyvalue_t), MADV_WILLNEED);
 
         if (parallel) {
-            std::sort(std::execution::par_unseq, &addr[0], &addr[size]);
+            __gnu_parallel::sort(&addr[0], &addr[size]);
         } else {
-            std::sort(std::execution::unseq, &addr[0], &addr[size]);
+            std::sort(&addr[0], &addr[size]);
         }
 
         madvise(addr, size * sizeof(keyvalue_t), MADV_NORMAL);
@@ -79,9 +78,11 @@ JNIEXPORT jboolean JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUn
 
         bool result;
         if (parallel) {
-            result = std::is_sorted(std::execution::par_unseq, &addr[0], &addr[size]);
+            result = size == 0 || ((&addr[size]) == __gnu_parallel::find_if(&addr[1], &addr[size], [](keyvalue_t& val) {
+                return val < ((&val)[-1]);
+            }));
         } else {
-            result = std::is_sorted(std::execution::unseq, &addr[0], &addr[size]);
+            result = std::is_sorted(&addr[0], &addr[size]);
         }
 
         madvise(addr, size * sizeof(keyvalue_t), MADV_NORMAL);
@@ -126,7 +127,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64SetUnsort
             case 1: {
                 auto src = srcAddrs[0];
                 DEBUG_MSG("nWayMerge: using std::copy");
-                std::copy(std::execution::par_unseq, &src[0], &src[srcSizes[0]], dstAddr);
+                std::copy(&src[0], &src[srcSizes[0]], dstAddr);
                 break;
             }
             default: {

@@ -146,7 +146,9 @@ public:
         set_difference(lop.del(), rop.add(), tmp);
         set_union(tmp, rop.del(), merged_dels);
 
-        operand_t tmp_op = { .add_count = merged_adds.size(), .del_count = merged_dels.size() };
+        operand_t tmp_op;
+        tmp_op.add_count = merged_adds.size();
+        tmp_op.del_count = merged_dels.size();
         new_value->resize(tmp_op.total_size_with_headers());
         *reinterpret_cast<operand_t*>(&(*new_value)[0]) = tmp_op;
 

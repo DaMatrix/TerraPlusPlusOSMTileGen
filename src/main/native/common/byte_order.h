@@ -1,7 +1,7 @@
 #include <bit>
 
 template<std::endian ORDER>
-class bo_uint64 {
+class __attribute__((packed)) bo_uint64 {
     static_assert(std::endian::big == std::endian::native || std::endian::little == std::endian::native);
 
 private:
@@ -44,7 +44,7 @@ using uint64le = bo_uint64<std::endian::little>;
 static_assert(sizeof(uint64le) == sizeof(uint64_t));
 
 template<std::endian ORDER>
-class bo_uint32 {
+class __attribute__((packed)) bo_uint32 {
     static_assert(std::endian::big == std::endian::native || std::endian::little == std::endian::native);
 
 private:
@@ -87,7 +87,7 @@ using uint32le = bo_uint32<std::endian::little>;
 static_assert(sizeof(uint32le) == sizeof(uint32_t));
 
 template<std::endian ORDER>
-class bo_int32 {
+class __attribute__((packed)) bo_int32 {
     static_assert(std::endian::big == std::endian::native || std::endian::little == std::endian::native);
 
 private:
