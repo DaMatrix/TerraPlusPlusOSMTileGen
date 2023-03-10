@@ -50,6 +50,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.LongAdder;
 import java.util.stream.Collectors;
 import java.util.stream.LongStream;
@@ -66,6 +67,11 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
     private final Handle<Path> indexPathHandle;
     private final FileChannel indexChannel;
 
+    private final Handle<Path> dataPathHandle;
+    private final FileChannel dataChannel;
+
+    private final AtomicLong dataOffsetAlloc = new AtomicLong();
+
     private final LongAdder totalDataSize = new LongAdder();
     private final CloseableThreadLocal<WriteBuffer> writeBuffers = CloseableThreadLocal.of(WriteBuffer::new);
 
@@ -76,8 +82,12 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
         this.averageCompressedSizePerKey = averageCompressedSizePerKey;
 
         this.indexPathHandle = storage.getTmpFilePath(
-                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "buf");
+                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyHandle(), "index.buf");
         this.indexChannel = FileChannel.open(this.indexPathHandle.get(), READ, WRITE, CREATE_NEW);
+
+        this.dataPathHandle = storage.getTmpFilePath(
+                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyHandle(), "data.buf");
+        this.dataChannel = FileChannel.open(this.dataPathHandle.get(), READ, WRITE, CREATE_NEW);
     }
 
     @Override
@@ -89,11 +99,7 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
 
         this.totalDataSize.add(4L + value.remaining());
 
-        long valueAddr = Memory.malloc(4L + value.remaining());
-        PUnsafe.putInt(valueAddr, value.remaining());
-        Memory.memcpy(valueAddr + 4L, PUnsafe.pork_directBufferAddress(value) + value.position(), value.remaining());
-
-        this.writeBuffers.get().put(realKey, valueAddr);
+        this.writeBuffers.get().put(realKey, Unpooled.wrappedBuffer(value));
     }
 
     @Override
@@ -103,7 +109,7 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
 
     @Override
     public boolean isDirty() throws Exception {
-        return this.getDataSize() != 0L || this.writeBuffers.snapshotValues().stream().anyMatch(writeBuffer -> writeBuffer.buf.isReadable());
+        return this.getDataSize() != 0L || this.writeBuffers.snapshotValues().stream().anyMatch(writeBuffer -> writeBuffer.indexBuf.isReadable());
     }
 
     @Override
@@ -112,10 +118,11 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
 
         long size = this.indexChannel.size();
         if (size > 0L) {
-            try (MemoryMap mmap = new MemoryMap(this.indexChannel, FileChannel.MapMode.READ_WRITE, 0L, size)) {
+            try (MemoryMap indexMmap = new MemoryMap(this.indexChannel, FileChannel.MapMode.READ_WRITE, 0L, size);
+                 MemoryMap dataMmap = new MemoryMap(this.dataChannel, FileChannel.MapMode.READ_ONLY, 0L, this.dataChannel.size())) {
                 //sort the buffer's contents
                 try (TimedOperation sortOperation = new TimedOperation("Sort buffer", this.logger)) {
-                    sortBuffer(mmap.addr(), size, true);
+                    sortBuffer(indexMmap.addr(), size, true);
                 }
 
                 //split the buffer's contents and build SST files out of it
@@ -128,7 +135,7 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
                                                                        * this.averageCompressedSizePerKey
                                                                        * options.targetFileSizeBase()), Math.max(16, PUnsafe.pageSize()));
                     long[] blockStartAddrs = LongStream.rangeClosed(0L, size / targetBlockSize)
-                            .flatMap(i -> LongStream.of(mmap.addr() + i * targetBlockSize, Math.min(targetBlockSize, size - i * targetBlockSize)))
+                            .flatMap(i -> LongStream.of(indexMmap.addr() + i * targetBlockSize, Math.min(targetBlockSize, size - i * targetBlockSize)))
                             .toArray();
 
                     CompletableFuture<Handle<Path>>[] pathFutures = uncheckedCast(new CompletableFuture[blockStartAddrs.length >> 1]);
@@ -137,7 +144,7 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
                         long blockSize = blockStartAddrs[i + 1];
 
                         pathFutures[i >> 1] = CompletableFuture.supplyAsync(
-                                (ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(envOptions, options, blockAddr, blockSize));
+                                (ESupplier<Handle<Path>>) () -> this.buildSstFileFromRange(envOptions, options, blockAddr, blockSize, dataMmap.addr()));
                     }
 
                     CompletableFuture.allOf(pathFutures);
@@ -173,16 +180,16 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
                         totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
             }
 
-            //now that all the data has been appended and ingested, truncate the file down to 0 bytes to reset everything
-            this.indexChannel.truncate(0L);
+            //now that all the data has been appended and ingested, truncate the files down to 0 bytes to reset everything
+            Stream.of(this.indexChannel, this.dataChannel).parallel().forEach((EConsumer<FileChannel>) c -> c.truncate(0L));
         }
     }
 
     private static native void sortBuffer(long addr, long size, boolean parallel) throws OutOfMemoryError;
 
-    private static native long appendKeys(long writerHandle, long begin, long end);
+    private static native long appendKeys(long writerHandle, long begin, long end, long dataBaseAddr);
 
-    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, long indexAddr, long indexSize) throws Exception {
+    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, long indexAddr, long indexSize, long dataBaseAddr) throws Exception {
         checkArg(indexSize % 16L == 0L, indexSize);
         checkArg(indexSize != 0L, indexSize);
 
@@ -191,7 +198,7 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
         try (SstFileWriter writer = new SstFileWriter(envOptions, options)) {
             writer.open(pathHandle.get().toString());
 
-            long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize);
+            long writtenKeys = appendKeys(writer.getNativeHandle(), indexAddr, indexAddr + indexSize, dataBaseAddr);
             checkState(writtenKeys != 0L, writtenKeys);
 
             writer.finish();
@@ -209,33 +216,87 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
         this.indexChannel.close();
         PFiles.rm(this.indexPathHandle.get());
         this.indexPathHandle.release();
+
+        this.dataChannel.close();
+        PFiles.rm(this.dataPathHandle.get());
+        this.dataPathHandle.release();
     }
 
     protected class WriteBuffer implements Flushable, AutoCloseable {
-        protected final ByteBuf buf = Unpooled.directBuffer(1 << 20, 1 << 20);
+        private static final int INDEX_BLOCK_SIZE = 1 << 20;
+        private static final int DATA_BLOCK_SIZE = 1 << 20;
 
-        public synchronized void put(long key, long value) throws IOException {
-            if (!this.buf.isWritable(16)) {
-                this.flush();
+        protected final ByteBuf indexBuf = Unpooled.directBuffer(INDEX_BLOCK_SIZE, INDEX_BLOCK_SIZE);
+
+        protected long dataTargetOffset = -1L;
+        protected final ByteBuf dataBuf = Unpooled.directBuffer(DATA_BLOCK_SIZE, DATA_BLOCK_SIZE);
+
+        public synchronized void put(long key, @NonNull ByteBuf value) throws IOException {
+            long dataOffset = this.putData(value);
+
+            if (!this.indexBuf.isWritable(16)) {
+                this.flushIndex();
             }
 
-            this.buf.writeLongLE(key).writeLongLE(value);
+            this.indexBuf.writeLongLE(key).writeLongLE(dataOffset);
+        }
+
+        private synchronized long putData(@NonNull ByteBuf data) throws IOException {
+            int totalSpace = Math.addExact(data.readableBytes(), 4);
+
+            if (totalSpace >= DATA_BLOCK_SIZE) { //we don't have enough space to buffer the data, write it directly out to disk
+                long targetOffset = UInt64BlobUnsortedWriteAccess.this.dataOffsetAlloc.getAndAdd(totalSpace);
+                ByteBuf lengthPrefix = Unpooled.buffer(4).writeIntLE(data.readableBytes());
+                checkState(lengthPrefix.readableBytes() == 4);
+                Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.dataChannel, targetOffset, lengthPrefix);
+                Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.dataChannel, targetOffset + 4L, data);
+                lengthPrefix.release();
+                return targetOffset;
+            } else if (!this.dataBuf.isWritable(totalSpace)) {
+                this.flushData();
+            }
+
+            if (this.dataTargetOffset < 0L) { //assign a new target offset
+                checkState(!this.dataBuf.isReadable());
+                this.dataBuf.clear();
+
+                this.dataTargetOffset = UInt64BlobUnsortedWriteAccess.this.dataOffsetAlloc.getAndAdd(DATA_BLOCK_SIZE);
+            }
+
+            long targetOffset = this.dataTargetOffset + this.dataBuf.writerIndex();
+            this.dataBuf.writeIntLE(data.readableBytes()).writeBytes(data);
+            return targetOffset;
         }
 
         @Override
         public synchronized void flush() throws IOException {
-            if (this.buf.isReadable()) {
+            this.flushIndex();
+            this.flushData();
+        }
+
+        private synchronized void flushIndex() throws IOException {
+            if (this.indexBuf.isReadable()) {
                 synchronized (UInt64BlobUnsortedWriteAccess.this) {
-                    Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.indexChannel, this.buf);
+                    Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.indexChannel, this.indexBuf);
                 }
-                this.buf.clear();
+                this.indexBuf.clear();
+            }
+        }
+
+        private synchronized void flushData() throws IOException {
+            if (this.dataBuf.isReadable()) {
+                checkState(this.dataTargetOffset >= 0L);
+                Utils.writeFully(UInt64BlobUnsortedWriteAccess.this.dataChannel, this.dataTargetOffset, this.dataBuf);
+                this.dataTargetOffset = -1L;
+                this.dataBuf.clear();
             }
         }
 
         @Override
         public synchronized void close() throws Exception {
             this.flush();
-            this.buf.release();
+            this.indexBuf.release();
+            this.dataBuf.release();
         }
     }
 }

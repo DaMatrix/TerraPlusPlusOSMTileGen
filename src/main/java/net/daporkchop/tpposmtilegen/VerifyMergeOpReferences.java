@@ -79,16 +79,6 @@ public class VerifyMergeOpReferences {
                  DBReadAccess properReadAccess = properStorage.db().snapshot();
                  DBReadAccess testReadAccess = testStorage.db().snapshot()) {
 
-                /*{
-                    int level = 0;
-                    long tilePos = Tile.xy2tilePos(360, 2962);
-
-                    List<Long2ObjectMap.Entry<byte[]>> properValues = new ArrayList<>();
-                    List<Long2ObjectMap.Entry<byte[]>> testValues = new ArrayList<>();
-                    properStorage.tileJsonStorage()[level].getElementsInTile(properReadAccess, tilePos, (key, value) -> properValues.add(new AbstractLong2ObjectMap.BasicEntry<>(key, value)));
-                    testStorage.tileJsonStorage()[level].getElementsInTile(testReadAccess, tilePos, (key, value) -> testValues.add(new AbstractLong2ObjectMap.BasicEntry<>(key, value)));
-                }*/
-
                 CompletableFuture<?> verifyBlobsTask = CompletableFuture.runAsync(() -> IntStream.range(0, Utils.MAX_LEVELS)
                         .parallel()
                         .boxed()

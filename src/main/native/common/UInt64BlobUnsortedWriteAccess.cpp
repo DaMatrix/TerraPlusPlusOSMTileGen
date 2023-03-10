@@ -24,9 +24,11 @@ namespace {
     class keyvalue_t {
     public:
         uint64le key;
-        uint64le _value;
+        uint64le value_offset;
 
-        data_t* value_ptr() const noexcept { return reinterpret_cast<data_t*>(static_cast<uint64_t>(_value)); }
+        const data_t* value_ptr(const void* dataBaseAddr) const noexcept {
+            return reinterpret_cast<const data_t*>(reinterpret_cast<const char*>(dataBaseAddr) + value_offset);
+        }
 
         constexpr auto operator <(const keyvalue_t& other) const noexcept { return key < other.key; }
         constexpr auto operator >(const keyvalue_t& other) const noexcept { return other < *this; }
@@ -73,7 +75,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64BlobUnsor
 }
 
 JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64BlobUnsortedWriteAccess_appendKeys
-        (JNIEnv *env, jobject instance, rocksdb::SstFileWriter* writer, const keyvalue_t* begin, const keyvalue_t* end) {
+        (JNIEnv *env, jobject instance, rocksdb::SstFileWriter* writer, const keyvalue_t* begin, const keyvalue_t* end, const void* dataBaseAddr) {
     try {
         assert(begin < end);
 
@@ -81,7 +83,7 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64BlobUnso
 
         for (const keyvalue_t* it = begin; it != end; it++) {
             uint64_t key = it->key;
-            const data_t* value = it->value_ptr();
+            const data_t* value = it->value_ptr(dataBaseAddr);
 
             uint64be key_be = key;
 
@@ -89,9 +91,6 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64BlobUnso
             status = writer->Put(
                     rocksdb::Slice(reinterpret_cast<const char*>(&key_be), sizeof(uint64be)),
                     rocksdb::Slice(reinterpret_cast<const char*>(&value->data[0]), value->size));
-
-            //free(const_cast<data_t*>(value));
-            ::operator delete(static_cast<void*>(const_cast<data_t*>(value)), value->size + sizeof(data_t));
 
             if (!status.ok()) {
                 throwRocksdbException(env, status);
