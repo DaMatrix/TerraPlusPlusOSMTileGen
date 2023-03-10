@@ -24,6 +24,7 @@ import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.common.reference.cache.Cached;
 import sun.security.util.ByteArrayLexOrder;
 
@@ -80,6 +81,22 @@ public class Utils {
             return String.format("%.2f GiB", (double) bytes / (1L << 30L));
         } else {
             return String.format("%.2f TiB", (double) bytes / (1L << 40L));
+        }
+    }
+
+    public void truncate(@NonNull FileChannel dst, @NotNegative long size) throws IOException {
+        boolean interrupted = Thread.interrupted();
+        try {
+            if (dst.size() >= size) {
+                dst.truncate(size);
+            } else {
+                writeFully(dst, size - 1L, Unpooled.wrappedBuffer(new byte[1]));
+            }
+            checkState(dst.size() == size);
+        } finally {
+            if (interrupted) {
+                Thread.currentThread().interrupt();
+            }
         }
     }
 

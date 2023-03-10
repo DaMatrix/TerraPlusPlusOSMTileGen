@@ -6,6 +6,8 @@
 #include <vector>
 #include <cassert>
 
+namespace {
+
 class operand_t {
 public:
     uint64le add_count;
@@ -93,5 +95,7 @@ public:
         return result;
     }
 };
+
+}
 
 static_assert(sizeof(operand_t) == sizeof(uint64le) * 2);

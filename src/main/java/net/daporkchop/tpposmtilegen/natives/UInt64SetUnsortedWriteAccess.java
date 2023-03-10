@@ -130,13 +130,13 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
             try (MemoryMap srcMmap = new MemoryMap(this.channel, FileChannel.MapMode.READ_WRITE, 0L, size);
                  MemoryMap sortedMmap = new MemoryMap(this.sortedChannel, FileChannel.MapMode.READ_WRITE, 0L, size)) {
                 //sort the buffer's contents
-                try (TimedOperation sortOperation = new TimedOperation("Sort buffer")) {
+                try (TimedOperation sortOperation = new TimedOperation("Sort buffer", this.logger)) {
                     this.mergeSortBufferNWay(srcMmap.addr(), size, null, sortedMmap.addr(), size);
                 }
 
                 //split the buffer's contents and build SST files out of it
                 List<Handle<Path>> paths;
-                try (TimedOperation sstOperation = new TimedOperation("Build SST files");
+                try (TimedOperation sstOperation = new TimedOperation("Build SST files", this.logger);
                      Options options = new Options(this.storage.db().config().dbOptions(), this.storage.db().columns().get(this.columnFamilyHandle).getOptions())) {
                     EnvOptions envOptions = this.storage.db().config().envOptions();
 
@@ -170,7 +170,7 @@ public final class UInt64SetUnsortedWriteAccess extends AbstractUnsortedWriteAcc
                 }
 
                 //ingest the SST files
-                try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files")) {
+                try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files", this.logger)) {
                     this.storage.db().delegate().ingestExternalFile(this.columnFamilyHandle,
                             paths.stream().map(Handle::get).map(Path::toString).collect(Collectors.toList()),
                             this.storage.db().config().ingestOptions(DatabaseConfig.IngestType.MOVE));

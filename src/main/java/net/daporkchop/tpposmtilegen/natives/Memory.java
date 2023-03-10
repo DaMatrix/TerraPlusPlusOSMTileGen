@@ -140,17 +140,17 @@ public class Memory {
     private static void memcpyJava(Object dstBase, long dstOffset, Object srcBase, long srcOffset, @NotNegative long n) {
         long pos = 0L;
         while (pos + Long.BYTES <= n) {
-            PUnsafe.putUnalignedLong(dstBase, dstOffset, PUnsafe.getUnalignedLong(srcBase, srcOffset));
+            PUnsafe.putUnalignedLong(dstBase, dstOffset + pos, PUnsafe.getUnalignedLong(srcBase, srcOffset + pos));
             pos += Long.BYTES;
         }
 
         if (pos + Integer.BYTES <= n) {
-            PUnsafe.putUnalignedIntLE(dstBase, dstOffset, PUnsafe.getUnalignedInt(srcBase, srcOffset));
+            PUnsafe.putUnalignedInt(dstBase, dstOffset + pos, PUnsafe.getUnalignedInt(srcBase, srcOffset + pos));
             pos += Integer.BYTES;
         }
 
         while (pos < n) {
-            PUnsafe.putByte(dstBase, dstOffset, PUnsafe.getByte(srcBase, srcOffset));
+            PUnsafe.putByte(dstBase, dstOffset + pos, PUnsafe.getByte(srcBase, srcOffset + pos));
             pos++;
         }
     }

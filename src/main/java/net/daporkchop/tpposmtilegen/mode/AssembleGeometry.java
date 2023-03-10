@@ -28,6 +28,7 @@ import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.natives.AbstractUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64BlobUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
+import net.daporkchop.tpposmtilegen.natives.UInt64ToBlobMapUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
@@ -87,10 +88,15 @@ public class AssembleGeometry implements IMode {
                             storage, storage.db().internalColumnFamily(intersectedTilesLevel), 0.054970339304d))
                     .toArray(UInt64BlobUnsortedWriteAccess[]::new);
 
+            UInt64ToBlobMapUnsortedWriteAccess[] tileJsonStorageAccesses = Stream.of(storage.tileJsonStorage())
+                    .map((EFunction<WrappedRocksDB, UInt64ToBlobMapUnsortedWriteAccess>) tileJsonStorageLevel -> new UInt64ToBlobMapUnsortedWriteAccess(
+                            storage, storage.db().internalColumnFamily(tileJsonStorageLevel), 5.754273128207d))
+                    .toArray(UInt64ToBlobMapUnsortedWriteAccess[]::new);
+
             try (WriteRedirectingAccess access = new WriteRedirectingAccess(
                          storage.db().read(),
                          WriteRedirectingAccess.indexWriteDelegates(
-                                 Stream.of(externalJsonStorageAccesses, intersectedTilesAccesses)
+                                 Stream.of(externalJsonStorageAccesses, intersectedTilesAccesses, tileJsonStorageAccesses)
                                          .flatMap(Stream::of)
                                          .flatMap(specificAccess -> Stream.of(specificAccess.columnFamilyHandle(), specificAccess))
                                          .toArray()),
@@ -114,12 +120,12 @@ public class AssembleGeometry implements IMode {
                 };
 
                 //storage.nodes().forEachParallel(storage.db().read(), func);
-                //storage.ways().forEachParallel(storage.db().read(), func);
+                storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);
             }
 
-            Stream.of(externalJsonStorageAccesses, intersectedTilesAccesses).flatMap(Stream::of).forEach((EConsumer<DBWriteAccess>) DBWriteAccess::close);
+            Stream.of(externalJsonStorageAccesses, intersectedTilesAccesses, tileJsonStorageAccesses).flatMap(Stream::of).forEach((EConsumer<DBWriteAccess>) DBWriteAccess::close);
 
             if (true) {
                 List<WrappedRocksDB> toCompact = Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
