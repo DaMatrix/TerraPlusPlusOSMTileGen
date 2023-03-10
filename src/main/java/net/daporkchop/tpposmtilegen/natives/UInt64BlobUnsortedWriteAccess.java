@@ -82,11 +82,11 @@ public final class UInt64BlobUnsortedWriteAccess extends AbstractUnsortedWriteAc
         this.averageCompressedSizePerKey = averageCompressedSizePerKey;
 
         this.indexPathHandle = storage.getTmpFilePath(
-                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyHandle(), "index.buf");
+                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyName, "index.buf");
         this.indexChannel = FileChannel.open(this.indexPathHandle.get(), READ, WRITE, CREATE_NEW);
 
         this.dataPathHandle = storage.getTmpFilePath(
-                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyHandle(), "data.buf");
+                UInt64BlobUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyName, "data.buf");
         this.dataChannel = FileChannel.open(this.dataPathHandle.get(), READ, WRITE, CREATE_NEW);
     }
 

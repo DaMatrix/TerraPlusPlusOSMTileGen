@@ -20,9 +20,13 @@
 
 package net.daporkchop.tpposmtilegen.natives;
 
+import io.netty.buffer.ByteBuf;
 import io.netty.buffer.Unpooled;
 import lombok.NonNull;
+import lombok.RequiredArgsConstructor;
+import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.function.exception.ESupplier;
+import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.pool.handle.Handle;
@@ -41,6 +45,8 @@ import org.rocksdb.EnvOptions;
 import org.rocksdb.Options;
 import org.rocksdb.SstFileWriter;
 
+import java.io.Flushable;
+import java.io.IOException;
 import java.nio.ByteBuffer;
 import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
@@ -62,16 +68,15 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  * @author DaPorkchop_
  */
 public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWriteAccess {
-    private final LongLongMap keysToRootPointers = new LongLongConcurrentHashMap(0L);
-    private final LongObjMap<LongAdder> keysToEntryCounts = new LongObjConcurrentHashMap<>();
-    private final LongObjMap<LongAdder> keysToDataSizes = new LongObjConcurrentHashMap<>();
-
     private final Handle<Path> dataPathHandle;
     private final FileChannel dataChannel;
     private final MemoryMap dataMmap;
     private final long dataSize = 1L << 40L;
 
     private final AtomicLong dataAddrAllocator = new AtomicLong();
+    private final LongAdder totalDataWritten = new LongAdder();
+
+    private final LongObjMap<TileBuffer> keysToBuffers = new LongObjConcurrentHashMap<>();
 
     private final double compressionRatio;
 
@@ -80,11 +85,10 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         this.compressionRatio = compressionRatio;
 
         this.dataPathHandle = storage.getTmpFilePath(
-                UInt64ToBlobMapUnsortedWriteAccess.class.getSimpleName() + '-' + new String(columnFamilyHandle.getName(), StandardCharsets.UTF_8), "buf");
+                UInt64ToBlobMapUnsortedWriteAccess.class.getSimpleName() + '-' + this.columnFamilyName, "buf");
         this.dataChannel = FileChannel.open(this.dataPathHandle.get(), READ, WRITE, CREATE_NEW);
         Utils.truncate(this.dataChannel, this.dataSize);
         this.dataMmap = new MemoryMap(this.dataChannel, FileChannel.MapMode.READ_WRITE, 0L, this.dataSize);
-
         this.dataAddrAllocator.set(this.dataMmap.addr());
     }
 
@@ -96,29 +100,19 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         long realKey = PUnsafe.getUnalignedLongBE(PUnsafe.pork_directBufferAddress(key) + key.position());
 
         UInt64ToBlobMapMergeOperator.decodeToSlices(Unpooled.wrappedBuffer(value), (entryKey, data) -> {
-            int dataSize = data.readableBytes();
-            long fullDataSize = 8L + 8L + 4L + dataSize;
+            this.totalDataWritten.add(8L + 8L + 4L + data.readableBytes());
 
-            long valueAddr = this.dataAddrAllocator.getAndAdd(fullDataSize);
-            PUnsafe.putUnalignedLong(valueAddr, 0L);
-            PUnsafe.putUnalignedLong(valueAddr + 8L, entryKey);
-            PUnsafe.putUnalignedInt(valueAddr + 8L + 8L, dataSize);
-            Memory.memcpy(valueAddr + 8L + 8L + 4L, data.memoryAddress() + data.readerIndex(), dataSize);
-
-            this.keysToRootPointers.merge(realKey, valueAddr, (oldValueAddr, newValueAddr) -> {
-                //new.next = old;
-                checkState(PUnsafe.compareAndSwapLong(null, newValueAddr, 0L, oldValueAddr));
-                return newValueAddr;
-            });
-
-            this.keysToEntryCounts.computeIfAbsent(realKey, unused -> new LongAdder()).increment();
-            this.keysToDataSizes.computeIfAbsent(realKey, unused -> new LongAdder()).add(fullDataSize);
+            try {
+                this.keysToBuffers.computeIfAbsent(realKey, TileBuffer::new).put(entryKey, data);
+            } catch (IOException e) {
+                throw PUnsafe.throwException(e);
+            }
         });
     }
 
     @Override
     public long getDataSize() throws Exception {
-        return this.dataAddrAllocator.get() - this.dataMmap.addr();
+        return this.totalDataWritten.sum();
     }
 
     @Override
@@ -142,13 +136,13 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
             EnvOptions envOptions = this.storage.db().config().envOptions();
 
             final long targetBlockSize = (long) (this.compressionRatio * options.targetFileSizeBase());
-            List<List<LongLongMap.Entry>> batches = new ArrayList<>();
+            List<List<TileBuffer>> batches = new ArrayList<>();
 
             {
-                List<LongLongMap.Entry> currentBatch = null;
+                List<TileBuffer> currentBatch = null;
                 long currentBatchSize = 0L;
-                for (LongLongMap.Entry entry : this.keysToRootPointers.entrySet().stream()
-                        .sorted((a, b) -> Long.compareUnsigned(a.getKey(), b.getKey()))
+                for (TileBuffer entry : this.keysToBuffers.values().stream()
+                        .sorted((a, b) -> Long.compareUnsigned(a.key, b.key))
                         .collect(Collectors.toList())) {
                     if (currentBatch == null) {
                         currentBatch = new ArrayList<>();
@@ -156,7 +150,7 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
                     }
 
                     currentBatch.add(entry);
-                    currentBatchSize += this.keysToDataSizes.get(entry.getKey()).sum();
+                    currentBatchSize += entry.totalDataSize;
 
                     if (currentBatchSize >= targetBlockSize) {
                         currentBatch = null;
@@ -188,6 +182,8 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         int totalCount = paths.size();
         long totalSize = paths.stream().map(Handle::get).map((IOFunction<Path, Long>) Files::size).mapToLong(Long::longValue).sum();
 
+        CompletableFuture<?> truncateFuture = CompletableFuture.runAsync((ERunnable) () -> this.dataChannel.truncate(0L));
+
         //ingest the SST files
         try (TimedOperation ingestOperation = new TimedOperation("Ingest SST files", this.logger)) {
             this.storage.db().delegate().ingestExternalFile(this.columnFamilyHandle,
@@ -202,11 +198,13 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
                 this.getDataSize(), this.getDataSize() / (1024.0d * 1024.0d),
                 reportedTotalSize.sum(), reportedTotalSize.sum() / (1024.0d * 1024.0d),
                 totalCount, totalSize, totalSize / (1024.0d * 1024.0d));
+
+        truncateFuture.join();
     }
 
     private static native long appendKey(long writerHandle, long key, long root);
 
-    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, @NonNull List<LongLongMap.Entry> batch, @NonNull LongAdder reportedTotalSize) throws Exception {
+    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, @NonNull List<TileBuffer> batch, @NonNull LongAdder reportedTotalSize) throws Exception {
         checkArg(!batch.isEmpty());
 
         Handle<Path> pathHandle = this.storage.getTmpFilePath(this.columnFamilyName, "sst");
@@ -214,8 +212,11 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         try (SstFileWriter writer = new SstFileWriter(envOptions, options)) {
             writer.open(pathHandle.get().toString());
 
-            for (LongLongMap.Entry entry : batch) {
-                long writtenData = appendKey(writer.getNativeHandle(), entry.getKey(), entry.getValue());
+            for (TileBuffer buffer : batch) {
+                //checkState(buffer.firstDataOffset >= 0L);
+                //long writtenData = appendKey(writer.getNativeHandle(), buffer.key, dataBaseAddr + buffer.firstDataOffset, dataBaseAddr);
+                checkState(buffer.firstDataAddr != 0L);
+                long writtenData = appendKey(writer.getNativeHandle(), buffer.key, buffer.firstDataAddr);
                 checkState(writtenData != 0L, writtenData);
                 reportedTotalSize.add(writtenData);
             }
@@ -235,4 +236,163 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         PFiles.rm(this.dataPathHandle.get());
         this.dataPathHandle.release();
     }
+
+    @RequiredArgsConstructor
+    private class TileBuffer {
+        private static final int DATA_BLOCK_SIZE = 1 << 20;
+
+        private final long key;
+
+        private long totalDataSize = 0L;
+        private long firstDataAddr = 0L;
+
+        private long currentWriterIndex = 0L;
+        private long currentBlockEnd = 0L;
+        private long prevDataNextAddr = 0L;
+
+        /*
+         * struct entry_t {
+         *   entry_t* next;
+         *   uint64_t key;
+         *   int32_t value_size;
+         *   char value_data[];
+         * };
+         */
+
+        public synchronized void put(long key, @NonNull ByteBuf data) throws IOException {
+            int totalSize = Math.addExact(8 + 8 + 4, data.readableBytes());
+            this.totalDataSize += totalSize;
+
+            long newEntryAddr;
+
+            if (this.currentWriterIndex == 0L || this.currentBlockEnd - this.currentWriterIndex < totalSize) { //we can't write out to the current buffer, begin a new one
+                if (totalSize >= DATA_BLOCK_SIZE) { //the data is too large to fit in an ordinary block, write it out as an individual larger one
+                    newEntryAddr = UInt64ToBlobMapUnsortedWriteAccess.this.dataAddrAllocator.getAndAdd(totalSize);
+                } else { //start a new block
+                    this.currentWriterIndex = UInt64ToBlobMapUnsortedWriteAccess.this.dataAddrAllocator.getAndAdd(DATA_BLOCK_SIZE);
+                    this.currentBlockEnd = this.currentWriterIndex + DATA_BLOCK_SIZE;
+
+                    newEntryAddr = this.currentWriterIndex;
+                    this.currentWriterIndex += totalSize;
+                }
+
+                if (this.firstDataAddr == 0L) {
+                    this.firstDataAddr = newEntryAddr;
+                }
+            } else { //re-use the current buffer
+                newEntryAddr = this.currentWriterIndex;
+                this.currentWriterIndex += totalSize;
+            }
+
+            if (this.prevDataNextAddr != 0L) { //update the "next" pointer in the previous entry
+                checkState(PUnsafe.getUnalignedLong(this.prevDataNextAddr) == 0L);
+                PUnsafe.putUnalignedLong(this.prevDataNextAddr, newEntryAddr);
+            }
+            this.prevDataNextAddr = newEntryAddr;
+
+            PUnsafe.putUnalignedLong(newEntryAddr, 0L); //next
+            PUnsafe.putUnalignedLongLE(newEntryAddr + 8L, key); //key
+            PUnsafe.putUnalignedIntLE(newEntryAddr + 8L + 8L, data.readableBytes()); //data_size
+            Memory.memcpy(newEntryAddr + 8L + 8L + 4L, data.memoryAddress() + data.readerIndex(), data.readableBytes());
+        }
+    }
+
+    /*@RequiredArgsConstructor
+    private class TileBuffer implements Flushable, AutoCloseable {
+        private static final int DATA_BLOCK_SIZE = 1 << 20;
+
+        private final long key;
+
+        private long totalDataSize = 0L;
+        private long firstDataOffset = -1L;
+
+        private long dataTargetOffset = -1L;
+        private ByteBuf dataBuf;
+        private int prevDataNextPointerOffset = -1;
+
+        /*
+         * struct entry_t {
+         *   entry_t* next;
+         *   uint64_t key;
+         *   int32_t value_size;
+         *   char value_data[];
+         * };
+         * /
+
+        public synchronized void put(long key, @NonNull ByteBuf data) throws IOException {
+            checkState(this.dataBuf == null || this.dataTargetOffset >= 0L);
+            checkState(this.dataBuf == null || this.firstDataOffset >= 0L);
+
+            int totalSize = Math.addExact(8 + 8 + 4, data.readableBytes());
+            this.totalDataSize += totalSize;
+
+            long nextDataTargetOffset;
+            ByteBuf nextDataBuf;
+
+            if (this.dataBuf == null || this.dataBuf.ensureWritable(totalSize, false) == 1) { //we can't write out to the current buffer, begin a new one
+                if (totalSize >= DATA_BLOCK_SIZE) { //the data is too large to fit in an ordinary block, write it out as part of a larger one
+                    nextDataBuf = Unpooled.directBuffer(totalSize, totalSize);
+                } else {
+                    nextDataBuf = Unpooled.directBuffer(totalSize, DATA_BLOCK_SIZE);
+                }
+
+                nextDataTargetOffset = UInt64ToBlobMapUnsortedWriteAccess.this.dataOffsetAllocator.getAndAdd(nextDataBuf.maxCapacity());
+                if (this.firstDataOffset < 0L) {
+                    checkState(this.dataBuf == null);
+                    this.firstDataOffset = nextDataTargetOffset;
+                }
+            } else { //re-use the current buffer
+                nextDataTargetOffset = this.dataTargetOffset;
+                nextDataBuf = this.dataBuf;
+            }
+
+            checkState(nextDataTargetOffset >= 0L);
+            checkState(nextDataBuf != null);
+
+            int writtenEntryIndex = nextDataBuf.writerIndex();
+            nextDataBuf.writeLongLE(0L)
+                    .writeLongLE(key)
+                    .writeIntLE(data.readableBytes())
+                    .writeBytes(data);
+
+            this.finishPut(nextDataTargetOffset, nextDataBuf, writtenEntryIndex);
+        }
+
+        private synchronized void finishPut(long nextDataTargetOffset, @NonNull ByteBuf nextDataBuf, int writtenEntryIndex) throws IOException {
+            if (this.prevDataNextPointerOffset >= 0) {
+                this.dataBuf.setLongLE(this.prevDataNextPointerOffset, nextDataTargetOffset + writtenEntryIndex);
+                this.prevDataNextPointerOffset = -1;
+            }
+
+            if (this.dataTargetOffset == nextDataTargetOffset) { //re-using the same buffer, nothing special needs to be done
+                checkState(this.dataBuf == nextDataBuf);
+                this.prevDataNextPointerOffset = writtenEntryIndex;
+            } else { //switching to a new buffer and position, flush the old one out first
+                checkState(this.dataBuf != nextDataBuf);
+                this.flush();
+
+                this.dataTargetOffset = nextDataTargetOffset;
+                this.dataBuf = nextDataBuf;
+                this.prevDataNextPointerOffset = writtenEntryIndex;
+            }
+        }
+
+        @Override
+        public synchronized void flush() throws IOException {
+            if (this.dataBuf != null) {
+                checkState(this.dataBuf.isReadable() && this.dataTargetOffset >= 0L);
+                Utils.writeFully(UInt64ToBlobMapUnsortedWriteAccess.this.dataChannel, this.dataTargetOffset, this.dataBuf);
+                this.dataBuf.release();
+
+                this.dataBuf = null;
+                this.dataTargetOffset = -1L;
+                this.prevDataNextPointerOffset = -1;
+            }
+        }
+
+        @Override
+        public synchronized void close() throws IOException {
+            this.flush();
+        }
+    }*/
 }
