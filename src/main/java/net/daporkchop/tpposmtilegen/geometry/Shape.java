@@ -141,8 +141,10 @@ public final class Shape extends ComplexGeometry {
 
         int pointsBaseX = tile2point(level, baseTileX);
         int pointsBaseY = tile2point(level, baseTileY);
-        int pointsSizeX = multiplyExact(tileSizePointScale, sizeX);
-        int pointsSizeY = multiplyExact(tileSizePointScale, sizeY);
+
+        //these need to be 64-bit due to antarctica
+        long pointsSizeX = tileSizePointScale * (long) sizeX;
+        long pointsSizeY = tileSizePointScale * (long) sizeY;
 
         if (outerPoly.intersects(pointsBaseX, pointsBaseY, pointsSizeX, pointsSizeY)) {
             for (Polygon innerPoly : innerPolys) {

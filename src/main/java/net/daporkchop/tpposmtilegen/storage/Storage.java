@@ -44,6 +44,7 @@ import net.daporkchop.lib.common.util.exception.AlreadyReleasedException;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.natives.DBPropertiesMergeOperator;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
 import net.daporkchop.tpposmtilegen.natives.UInt64ToBlobMapMergeOperator;
 import net.daporkchop.tpposmtilegen.osm.Coastline;
@@ -74,6 +75,7 @@ import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.OptimisticTransactionDB;
+import org.rocksdb.UInt64AddOperator;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -194,7 +196,7 @@ public final class Storage implements AutoCloseable {
         if (legacy && !"/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
             builder.add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
         } else {
-            builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor));
+            builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor), DBPropertiesMergeOperator.UINT64_ADD_OPERATOR);
         }
 
         IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));

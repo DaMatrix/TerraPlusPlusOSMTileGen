@@ -152,5 +152,28 @@ public final class DBProperties extends WrappedRocksDB {
                 return OptionalLong.empty();
             }
         }
+
+        public void increment(@NonNull DBWriteAccess access) throws Exception {
+            this.add(access, 1L);
+        }
+
+        public void decrement(@NonNull DBWriteAccess access) throws Exception {
+            this.add(access, -1L);
+        }
+
+        public void add(@NonNull DBWriteAccess access, long value) throws Exception {
+            if (value == 0L) {
+                return; //nothing to be done
+            }
+
+            ByteArrayRecycler valueArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+            byte[] valueArray = valueArrayRecycler.get();
+            try {
+                PUnsafe.putUnalignedLongLE(valueArray, PUnsafe.arrayByteElementOffset(0), value);
+                access.merge(DBProperties.this.column, this.key, valueArray);
+            } finally {
+                valueArrayRecycler.release(valueArray);
+            }
+        }
     }
 }
