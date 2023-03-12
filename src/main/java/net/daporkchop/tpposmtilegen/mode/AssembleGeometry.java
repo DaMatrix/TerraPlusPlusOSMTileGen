@@ -27,7 +27,6 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.natives.AbstractUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64BlobUnsortedWriteAccess;
-import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64ToBlobMapUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
@@ -42,7 +41,6 @@ import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -78,20 +76,24 @@ public class AssembleGeometry implements IMode {
         }
 
         try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD)) {
-            UInt64BlobUnsortedWriteAccess[] externalJsonStorageAccesses = Stream.of(storage.externalJsonStorage())
-                    .map((EFunction<WrappedRocksDB, UInt64BlobUnsortedWriteAccess>) externalJsonStorageLevel -> new UInt64BlobUnsortedWriteAccess(
-                            storage, storage.db().internalColumnFamily(externalJsonStorageLevel), 0.000233935708d))
-                    .toArray(UInt64BlobUnsortedWriteAccess[]::new);
+            AbstractUnsortedWriteAccess[] externalJsonStorageAccesses = Stream.of(storage.externalJsonStorage())
+                    //.filter(i -> false)
+                    .map((EFunction<WrappedRocksDB, AbstractUnsortedWriteAccess>) externalJsonStorageLevel -> new UInt64BlobUnsortedWriteAccess(
+                            storage, storage.db().internalColumnFamily(externalJsonStorageLevel), 0.000440108682))
+                    .toArray(AbstractUnsortedWriteAccess[]::new);
 
-            UInt64BlobUnsortedWriteAccess[] intersectedTilesAccesses = Stream.of(storage.intersectedTiles())
-                    .map((EFunction<WrappedRocksDB, UInt64BlobUnsortedWriteAccess>) intersectedTilesLevel -> new UInt64BlobUnsortedWriteAccess(
-                            storage, storage.db().internalColumnFamily(intersectedTilesLevel), 0.054970339304d))
-                    .toArray(UInt64BlobUnsortedWriteAccess[]::new);
+            AbstractUnsortedWriteAccess[] intersectedTilesAccesses = Stream.of(storage.intersectedTiles())
+                    //.filter(i -> false)
+                    .map((EFunction<WrappedRocksDB, AbstractUnsortedWriteAccess>) intersectedTilesLevel -> new UInt64BlobUnsortedWriteAccess(
+                            storage, storage.db().internalColumnFamily(intersectedTilesLevel), 0.206963215028d))
+                    .toArray(AbstractUnsortedWriteAccess[]::new);
 
-            UInt64ToBlobMapUnsortedWriteAccess[] tileJsonStorageAccesses = Stream.of(storage.tileJsonStorage())
-                    .map((EFunction<WrappedRocksDB, UInt64ToBlobMapUnsortedWriteAccess>) tileJsonStorageLevel -> new UInt64ToBlobMapUnsortedWriteAccess(
+            AbstractUnsortedWriteAccess[] tileJsonStorageAccesses = Stream.of(storage.tileJsonStorage())
+                    //.peek((EConsumer<WrappedRocksDB>) db -> storage.db().delegate().enableAutoCompaction(Collections.singletonList(storage.db().internalColumnFamily(db))))
+                    .filter(i -> false)
+                    .map((EFunction<WrappedRocksDB, AbstractUnsortedWriteAccess>) tileJsonStorageLevel -> new UInt64ToBlobMapUnsortedWriteAccess(
                             storage, storage.db().internalColumnFamily(tileJsonStorageLevel), 5.754273128207d))
-                    .toArray(UInt64ToBlobMapUnsortedWriteAccess[]::new);
+                    .toArray(AbstractUnsortedWriteAccess[]::new);
 
             try (WriteRedirectingAccess access = new WriteRedirectingAccess(
                          storage.db().read(),

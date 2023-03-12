@@ -67,9 +67,11 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64ToBlobMa
         }
 
         //compute the total size of the output buffer
+        size_t actual_total_size = 0;
         size_t total_size = 0;
         for (const entry_t* entry : entries) {
             assert(entry->element.value_size >= 0);
+            actual_total_size += sizeof(entry_t) + entry->element.value_size;
             total_size += sizeof(element_t) + entry->element.value_size;
         }
 
@@ -91,7 +93,7 @@ JNIEXPORT jlong JNICALL Java_net_daporkchop_tpposmtilegen_natives_UInt64ToBlobMa
             return 0;
         }
 
-        return total_size;
+        return actual_total_size;
     } catch (const std::bad_alloc& e) {
         throwOutOfMemory(env, e);
         return false;

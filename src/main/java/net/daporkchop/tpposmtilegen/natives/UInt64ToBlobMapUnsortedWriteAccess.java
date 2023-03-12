@@ -87,7 +87,7 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
 
         Memory.madvise(this.dataMmap.addr(), this.dataSize, Memory.Usage.MADV_SEQUENTIAL);
 
-        this.dataAddrAllocator.set(this.dataMmap.addr());
+        this.dataAddrAllocator.set(this.dataMmap.addr() + this.dataSize);
     }
 
     @Override
@@ -101,23 +101,19 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
             int dataSize = data.readableBytes();
             long fullDataSize = 8L + 8L + 4L + dataSize;
 
-            long valueAddr = this.dataAddrAllocator.getAndAdd(fullDataSize);
+            long valueAddr = this.dataAddrAllocator.addAndGet(-fullDataSize);
+            checkState(valueAddr >= this.dataMmap.addr());
+
             PUnsafe.putUnalignedLong(valueAddr, 0L);
             PUnsafe.putUnalignedLong(valueAddr + 8L, entryKey);
             PUnsafe.putUnalignedInt(valueAddr + 8L + 8L, dataSize);
             Memory.memcpy(valueAddr + 8L + 8L + 4L, data.memoryAddress() + data.readerIndex(), dataSize);
 
-            TileState state = this.keysToStates.computeIfAbsent(realKey, unused -> new TileState());
+            TileState state = this.keysToStates.computeIfAbsent(realKey, TileState::new);
             synchronized (state) {
-                if (state.rootPtr == 0L) {
-                    state.rootPtr = valueAddr;
-                }
-
-                if (state.lastNextPtr != 0L) {
-                    //new.next = old;
-                    checkState(PUnsafe.compareAndSwapLong(null, state.lastNextPtr, 0L, valueAddr));
-                }
-                state.lastNextPtr = valueAddr;
+                //new.next = old;
+                checkState(PUnsafe.compareAndSwapLong(null, valueAddr, 0L, state.prevPtr));
+                state.prevPtr = valueAddr;
 
                 state.dataSize += fullDataSize;
             }
@@ -150,24 +146,24 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
             EnvOptions envOptions = this.storage.db().config().envOptions();
 
             final long targetBlockSize = (long) (this.compressionRatio * options.targetFileSizeBase());
-            List<List<LongObjMap.Entry<TileState>>> batches = new ArrayList<>();
+            List<List<TileState>> batches = new ArrayList<>();
 
             {
-                List<LongObjMap.Entry<TileState>> currentBatch = null;
+                List<TileState> currentBatch = null;
                 long currentBatchSize = 0L;
 
-                LongObjMap.Entry<TileState>[] allTileStates = this.keysToStates.entrySet().toArray(uncheckedCast(new LongObjMap.Entry[0]));
+                TileState[] allTileStates = this.keysToStates.values().toArray(new TileState[0]);
                 this.keysToStates.clear();
-                Arrays.parallelSort(allTileStates, (a, b) -> Long.compareUnsigned(a.getKey(), b.getKey()));
+                Arrays.parallelSort(allTileStates, (a, b) -> Long.compareUnsigned(a.key, b.key));
 
-                for (LongObjMap.Entry<TileState> entry : allTileStates) {
+                for (TileState entry : allTileStates) {
                     if (currentBatch == null) {
                         currentBatch = new ArrayList<>();
                         batches.add(currentBatch);
                     }
 
                     currentBatch.add(entry);
-                    currentBatchSize += entry.getValue().dataSize;
+                    currentBatchSize += entry.dataSize;
 
                     if (currentBatchSize >= targetBlockSize) {
                         currentBatch = null;
@@ -223,7 +219,7 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
 
     private static native long appendKey(long writerHandle, long key, long root);
 
-    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, @NonNull List<LongObjMap.Entry<TileState>> batch, @NonNull LongAdder reportedTotalSize) throws Exception {
+    private Handle<Path> buildSstFileFromRange(@NonNull EnvOptions envOptions, @NonNull Options options, @NonNull List<TileState> batch, @NonNull LongAdder reportedTotalSize) throws Exception {
         checkArg(!batch.isEmpty());
 
         Handle<Path> pathHandle = this.storage.getTmpFilePath(this.columnFamilyName, "sst");
@@ -231,8 +227,8 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         try (SstFileWriter writer = new SstFileWriter(envOptions, options)) {
             writer.open(pathHandle.get().toString());
 
-            for (LongObjMap.Entry<TileState> entry : batch) {
-                long writtenData = appendKey(writer.getNativeHandle(), entry.getKey(), entry.getValue().rootPtr);
+            for (TileState entry : batch) {
+                long writtenData = appendKey(writer.getNativeHandle(), entry.key, entry.prevPtr);
                 checkState(writtenData != 0L, writtenData);
                 reportedTotalSize.add(writtenData);
             }
@@ -253,9 +249,10 @@ public final class UInt64ToBlobMapUnsortedWriteAccess extends AbstractUnsortedWr
         this.dataPathHandle.release();
     }
 
+    @RequiredArgsConstructor
     private static class TileState {
-        private long rootPtr = 0L;
-        private long lastNextPtr = 0L;
+        private final long key;
+        private long prevPtr = 0L;
         private long dataSize = 0L;
     }
 }
