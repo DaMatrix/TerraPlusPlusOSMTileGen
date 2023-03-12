@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -21,6 +21,8 @@
 package net.daporkchop.tpposmtilegen.natives;
 
 import lombok.experimental.UtilityClass;
+import net.daporkchop.lib.logging.Logger;
+import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.lib.natives.NativeFeature;
 
 /**
@@ -31,8 +33,11 @@ class Natives {
     static {
         try {
             NativeFeature.loadNativeLibrary("", PolygonAssembler.class.getCanonicalName(), PolygonAssembler.class.getClassLoader());
+            init(Logging.logger);
         } catch (Throwable t) {
             throw new AssertionError("unable to load native libs", t);
         }
     }
+
+    private static native void init(Logger logger);
 }

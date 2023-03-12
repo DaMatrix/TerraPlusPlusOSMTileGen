@@ -144,14 +144,16 @@ public class Memory {
             pos += Long.BYTES;
         }
 
-        if (pos + Integer.BYTES <= n) {
-            PUnsafe.putUnalignedInt(dstBase, dstOffset + pos, PUnsafe.getUnalignedInt(srcBase, srcOffset + pos));
-            pos += Integer.BYTES;
-        }
+        if (pos != n) {
+            if (pos + Integer.BYTES <= n) {
+                PUnsafe.putUnalignedInt(dstBase, dstOffset + pos, PUnsafe.getUnalignedInt(srcBase, srcOffset + pos));
+                pos += Integer.BYTES;
+            }
 
-        while (pos < n) {
-            PUnsafe.putByte(dstBase, dstOffset + pos, PUnsafe.getByte(srcBase, srcOffset + pos));
-            pos++;
+            while (pos < n) {
+                PUnsafe.putByte(dstBase, dstOffset + pos, PUnsafe.getByte(srcBase, srcOffset + pos));
+                pos++;
+            }
         }
     }
 

@@ -120,7 +120,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
 
         return toArea(env, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
-        std::cerr << "while assembling area for way " << wayId << ": " << e.what() << std::endl;
+        tpp::logging::warn(env, std::string("while assembling area for way ") + std::to_string(wayId) + ": " + e.what());
         return nullptr;
     }
 }
@@ -179,7 +179,7 @@ JNIEXPORT jobject JNICALL Java_net_daporkchop_tpposmtilegen_natives_PolygonAssem
 
         return toArea(env, areaBuffer.get<osmium::Area>(0));
     } catch (const std::exception &e) {
-        std::cerr << "while assembling area for relation " << relationId << ": " << e.what() << std::endl;
+        tpp::logging::warn(env, std::string("while assembling area for relation ") + std::to_string(relationId) + ": " + e.what());
         return nullptr;
     }
 }
