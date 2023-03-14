@@ -21,19 +21,16 @@
 package net.daporkchop.tpposmtilegen.mode;
 
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.exception.EFunction;
 import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
 
-import java.lang.reflect.Field;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.util.Arrays;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
@@ -44,10 +41,6 @@ import static net.daporkchop.lib.logging.Logging.*;
  * @author DaPorkchop_
  */
 public class Compact implements IMode {
-    private static CompletableFuture<Void> run(@NonNull Executor executor, @NonNull WrappedRocksDB db, @NonNull String name) {
-        return CompletableFuture.runAsync((ERunnable) db::compact, executor).thenRun(() -> logger.info("Compacted %s.", name));
-    }
-
     @Override
     public String name() {
         return "compact";
@@ -68,18 +61,19 @@ public class Compact implements IMode {
         checkArg(args.length == 1, "Usage: compact <index_dir>");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
 
-        try (Storage storage = new Storage(src);
+        try (Storage storage = new Storage(src, DatabaseConfig.RW_BULK_LOAD);
              CloseableThreadFactory threadFactory = new CloseableThreadFactory("Compaction worker")) {
             logger.info("Running compaction...");
 
             ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
 
             CompletableFuture.allOf(
-                    Arrays.stream(Storage.class.getDeclaredFields())
-                            .filter(f -> WrappedRocksDB.class.isAssignableFrom(f.getType()))
-                            .peek(f -> f.setAccessible(true))
-                            .map((EFunction<Field, CompletableFuture<Void>>)
-                                    f -> run(executor, (WrappedRocksDB) f.get(storage), f.getName()))
+                    storage.db().columns().keySet().stream()
+                            .map(column -> CompletableFuture.runAsync((ERunnable) () -> {
+                                String name = new String(column.getName(), StandardCharsets.UTF_8);
+                                storage.db().delegate().compactRange(column, null, null, storage.db().config().compactRangeOptions());
+                                logger.info("Compacted %s.", name);
+                            }, executor))
                             .toArray(CompletableFuture[]::new)
             ).join();
 

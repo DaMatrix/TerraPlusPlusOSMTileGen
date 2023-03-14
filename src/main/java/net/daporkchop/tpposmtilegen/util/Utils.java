@@ -25,12 +25,17 @@ import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.common.annotation.param.NotNegative;
+import net.daporkchop.lib.common.misc.Tuple;
 import net.daporkchop.lib.common.reference.cache.Cached;
 import sun.security.util.ByteArrayLexOrder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.util.Comparator;
+import java.util.List;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 
@@ -237,5 +242,13 @@ public class Utils {
         i = (i | (i >> 8L)) & 0x0000FFFF0000FFFFL;
         i = (i | (i >> 16L)) & 0x00000000FFFFFFFFL;
         return i;
+    }
+
+    public static <A, B> Stream<Tuple<A, B>> zip(@NonNull Stream<A> a, @NonNull Stream<B> b) {
+        List<A> aValues = a.collect(Collectors.toList());
+        List<B> bValues = b.collect(Collectors.toList());
+        checkState(aValues.size() == bValues.size());
+
+        return IntStream.range(0, aValues.size()).mapToObj(i -> new Tuple<>(aValues.set(i, null), bValues.set(i, null)));
     }
 }

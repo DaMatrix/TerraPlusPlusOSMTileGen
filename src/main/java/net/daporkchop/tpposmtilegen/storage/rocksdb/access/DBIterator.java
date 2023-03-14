@@ -117,13 +117,17 @@ public interface DBIterator extends AutoCloseable {
      * @author DaPorkchop_
      */
     class SimpleRangedRocksIteratorWrapper extends SimpleRocksIteratorWrapper {
-        public static DBIterator from(@NonNull RocksDB db, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ReadOptions baseReadOptions, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+        public static DBIterator from(@NonNull RocksDB db, @NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull ReadOptions baseReadOptions, byte[] fromInclusive, byte[] toExclusive) throws Exception {
+            if (fromInclusive == null && toExclusive == null) {
+                return new SimpleRocksIteratorWrapper(db.newIterator(columnFamilyHandle, baseReadOptions));
+            }
+
             Slice fromInclusiveSlice = null;
             Slice toExclusiveSlice = null;
             ReadOptions readOptions = null;
             try {
-                fromInclusiveSlice = new Slice(fromInclusive);
-                toExclusiveSlice = new Slice(toExclusive);
+                fromInclusiveSlice = fromInclusive != null ? new Slice(fromInclusive) : null;
+                toExclusiveSlice = toExclusive != null ? new Slice(toExclusive) : null;
                 readOptions = new ReadOptions(baseReadOptions)
                         .setIterateLowerBound(fromInclusiveSlice)
                         .setIterateUpperBound(toExclusiveSlice);
@@ -147,7 +151,7 @@ public interface DBIterator extends AutoCloseable {
         protected final Slice fromInclusive;
         protected final Slice toExclusive;
 
-        public SimpleRangedRocksIteratorWrapper(@NonNull RocksIterator delegate, @NonNull ReadOptions readOptions, @NonNull Slice fromInclusive, @NonNull Slice toExclusive) {
+        public SimpleRangedRocksIteratorWrapper(@NonNull RocksIterator delegate, @NonNull ReadOptions readOptions, Slice fromInclusive, Slice toExclusive) {
             super(delegate);
 
             this.readOptions = readOptions;
@@ -160,8 +164,12 @@ public interface DBIterator extends AutoCloseable {
             super.close();
 
             this.readOptions.close();
-            this.fromInclusive.close();
-            this.toExclusive.close();
+            if (this.fromInclusive != null) {
+                this.fromInclusive.close();
+            }
+            if (this.toExclusive != null) {
+                this.toExclusive.close();
+            }
         }
     }
 }

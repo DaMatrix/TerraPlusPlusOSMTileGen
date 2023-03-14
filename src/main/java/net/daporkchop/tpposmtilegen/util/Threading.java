@@ -59,7 +59,7 @@ public class Threading {
         try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
             CompletableFuture.allOf(Arrays.stream(spliterators)
                     .map(spliterator -> {
-                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 6), 1L);
+                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 2), 1L);
                         return forEachParallel0(executor, targetSize, spliterator, callback);
                     })
                     .toArray(CompletableFuture[]::new))

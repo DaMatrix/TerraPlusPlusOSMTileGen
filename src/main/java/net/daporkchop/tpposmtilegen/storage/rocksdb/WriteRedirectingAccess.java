@@ -84,7 +84,7 @@ public final class WriteRedirectingAccess implements DBAccess {
     }
 
     @Override
-    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, byte[] fromInclusive, byte[] toExclusive) throws Exception {
         return this.readDelegate.iterator(columnFamilyHandle, fromInclusive, toExclusive);
     }
 

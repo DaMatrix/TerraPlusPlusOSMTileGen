@@ -30,15 +30,11 @@ import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.ReadOptions;
-import org.rocksdb.RocksIterator;
 import org.rocksdb.Slice;
 import org.rocksdb.Transaction;
 
 import java.nio.ByteBuffer;
-import java.util.ArrayDeque;
 import java.util.Arrays;
-import java.util.Collections;
-import java.util.Deque;
 import java.util.List;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -78,6 +74,7 @@ final class TransactionAccess implements DBAccess, DBWriteAccess.Transactional {
         return new DBIterator.SimpleRocksIteratorWrapper(this.transaction.getIterator(this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE), columnFamilyHandle));
     }
 
+    //TODO: make this work with null bounds
     @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
         Slice fromInclusiveSlice = null;

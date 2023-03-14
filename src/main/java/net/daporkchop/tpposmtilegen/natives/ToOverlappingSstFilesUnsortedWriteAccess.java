@@ -239,7 +239,7 @@ public final class ToOverlappingSstFilesUnsortedWriteAccess extends AbstractUnso
         }
 
         @Override
-        @SneakyThrows({ IOException.class, RocksDBException.class })
+        @SneakyThrows(IOException.class)
         public synchronized void flush() {
             if (this.currentWrittenCount != 0L) {
                 this.currentWrittenCount = 0L;

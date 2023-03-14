@@ -69,7 +69,8 @@ class UInt64ToBlobMapMergeOperator : public rocksdb::MergeOperator {
     }
 
     static void write_to_string(const std::map<uint64_t, std::string_view>& state, std::string* dst) {
-        assert(dst->empty());
+        //assert(dst->empty());
+        dst->clear();
 
         //compute total size of all elements
         size_t total_size = 0;

@@ -160,6 +160,8 @@ public final class Storage implements AutoCloseable {
         boolean legacy;
         if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction".equals(root.toString())
             || "/media/daporkchop/data/switzerland".equals(root.toString())
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
             || "/mnt/planet".equals(root.toString())) {

@@ -41,6 +41,7 @@ import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Collections;
 import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
@@ -89,7 +90,7 @@ public class AssembleGeometry implements IMode {
                     .toArray(AbstractUnsortedWriteAccess[]::new);
 
             AbstractUnsortedWriteAccess[] tileJsonStorageAccesses = Stream.of(storage.tileJsonStorage())
-                    //.peek((EConsumer<WrappedRocksDB>) db -> storage.db().delegate().enableAutoCompaction(Collections.singletonList(storage.db().internalColumnFamily(db))))
+                    .peek((EConsumer<WrappedRocksDB>) db -> storage.db().delegate().enableAutoCompaction(Collections.singletonList(storage.db().internalColumnFamily(db))))
                     .filter(i -> false)
                     .map((EFunction<WrappedRocksDB, AbstractUnsortedWriteAccess>) tileJsonStorageLevel -> new UInt64ToBlobMapUnsortedWriteAccess(
                             storage, storage.db().internalColumnFamily(tileJsonStorageLevel), 5.754273128207d))
@@ -129,21 +130,11 @@ public class AssembleGeometry implements IMode {
 
             Stream.of(externalJsonStorageAccesses, intersectedTilesAccesses, tileJsonStorageAccesses).flatMap(Stream::of).forEach((EConsumer<DBWriteAccess>) DBWriteAccess::close);
 
-            if (true) {
-                List<WrappedRocksDB> toCompact = Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
-                        .flatMap(Stream::of).collect(Collectors.toList());
-                for (WrappedRocksDB column : toCompact) {
-                    try (TimedOperation compactOperation = new TimedOperation(
-                            new String(storage.db().internalColumnFamily(column).getName(), StandardCharsets.UTF_8) + " Compaction")) {
-                        column.compact();
-                    }
-                }
-            } else {
-                try (TimedOperation compactOperation = new TimedOperation("Compaction")) {
-                    List<WrappedRocksDB> toCompact = Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
-                            .flatMap(Stream::of).collect(Collectors.toList());
-
-                    Threading.iterateParallel(toCompact.size(), toCompact.size(), toCompact::forEach, WrappedRocksDB::compact);
+            for (WrappedRocksDB column : Stream.of(storage.intersectedTiles(), storage.tileJsonStorage(), storage.externalJsonStorage())
+                    .flatMap(Stream::of).collect(Collectors.toList())) {
+                try (TimedOperation compactOperation = new TimedOperation(
+                        new String(storage.db().internalColumnFamily(column).getName(), StandardCharsets.UTF_8) + " Compaction")) {
+                    column.compact();
                 }
             }
         }

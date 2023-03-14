@@ -39,7 +39,7 @@ public interface DBReadAccess extends DBBaseAccess {
 
     DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception;
 
-    DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception;
+    DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, byte[] fromInclusive, byte[] toExclusive) throws Exception;
 
     /**
      * @return {@code true} if this instance performs reads directly from the underlying database. Should return false for any implementations which could return

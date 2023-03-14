@@ -27,7 +27,6 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import org.rocksdb.ColumnFamilyHandle;
-import org.rocksdb.RocksDB;
 
 import java.nio.ByteBuffer;
 import java.util.List;
@@ -58,7 +57,7 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
-    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, byte[] fromInclusive, byte[] toExclusive) throws Exception {
         return this.readDelegate.iterator(columnFamilyHandle, fromInclusive, toExclusive);
     }
 

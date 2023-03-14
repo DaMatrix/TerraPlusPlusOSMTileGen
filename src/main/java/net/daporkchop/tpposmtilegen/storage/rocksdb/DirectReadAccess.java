@@ -57,7 +57,7 @@ final class DirectReadAccess implements DBReadAccess {
     }
 
     @Override
-    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] fromInclusive, @NonNull byte[] toExclusive) throws Exception {
+    public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, byte[] fromInclusive, byte[] toExclusive) throws Exception {
         return DBIterator.SimpleRangedRocksIteratorWrapper.from(this.db, columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), fromInclusive, toExclusive);
     }
 
