@@ -30,6 +30,7 @@ import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 import java.awt.geom.Line2D;
 import java.awt.geom.Rectangle2D;
 import java.util.Arrays;
+import java.util.Optional;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -130,14 +131,14 @@ public final class Line extends ComplexGeometry {
     }
 
     @Override
-    public Line simplifyTo(int targetLevel) {
+    public Optional<Line> simplifyTo(int targetLevel) {
         if (targetLevel == 0) {
-            return this;
+            return Optional.of(this);
         }
 
         //simplify the single line string, discarding ourself if needed
         Point[] simplifiedPoints = simplifyVisvalingamWhyatt(this.points, targetLevel, false);
-        return simplifiedPoints != null ? new Line(simplifiedPoints) : null;
+        return simplifiedPoints != null ? Optional.of(new Line(simplifiedPoints)) : Optional.empty();
     }
 
     @Override

@@ -155,7 +155,7 @@ JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_free__JJ
 
 JNIEXPORT void JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_releaseMemoryToSystem
         (JNIEnv *env, jclass cla) {
-    //MallocExtension::instance()->ReleaseFreeMemory();
+    MallocExtension::instance()->ReleaseFreeMemory();
 }
 
 JNIEXPORT jint JNICALL Java_net_daporkchop_tpposmtilegen_natives_Memory_00024MapProtection_PROT_1EXEC(JNIEnv *env, jclass cla) { return PROT_EXEC; }

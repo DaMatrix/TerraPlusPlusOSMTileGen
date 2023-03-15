@@ -116,7 +116,7 @@ public class AssembleGeometry implements IMode {
                     notifier.step(type);
 
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(access, Element.addTypeToId(type, id), element, false, true);
+                        storage.convertToGeoJSONAndStoreInDB(access, Element.addTypeToId(type, id), null, element);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

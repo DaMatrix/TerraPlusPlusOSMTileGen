@@ -20,16 +20,15 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
-import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.osm.Updater;
 import net.daporkchop.tpposmtilegen.storage.Storage;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
+import net.daporkchop.tpposmtilegen.util.Utils;
 
-import java.io.File;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Scanner;
@@ -60,6 +59,8 @@ public class ServeWithUpdates implements IMode {
 
     @Override
     public void run(@NonNull String... args) throws Exception {
+        Utils.setAllowForkJoinPool();
+
         checkArg(args.length == 3, "Usage: serve_with_updates <index_dir> <port> <lite>");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
@@ -73,24 +74,14 @@ public class ServeWithUpdates implements IMode {
                     Updater updater = new Updater(storage);
                     int updateCount = 0;
 
-                    boolean[] result = new boolean[1];
+                    boolean result;
                     do {
-                        Thread thread = new FastThreadLocalThread((ERunnable) () -> {
-                            try (DBAccess txn = storage.db().newTransaction()) {
-                                result[0] = updater.update(storage, txn);
-                                txn.flush(); //commit changes
-                            }
-                        });
-
-                        thread.start();
-                        try {
-                            thread.join();
-                        } catch (InterruptedException ignored) {
-                            thread.join();
-                            result[0] = false;
+                        try (DBAccess txn = storage.db().newTransaction()) {
+                            result = updater.update(storage, txn);
+                            txn.flush(); //commit changes
                         }
                         updateCount++;
-                    } while (running.get() && result[0]);
+                    } while (running.get() && result);
 
                     if (updateCount == 0) {
                         logger.info("No updates found.");
@@ -105,7 +96,7 @@ public class ServeWithUpdates implements IMode {
                         }
                     }
                 }
-            });
+            }, "Update thread");
             updateThread.start();
 
             new Scanner(System.in).nextLine();

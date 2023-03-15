@@ -1,7 +1,7 @@
 /*
  * Adapted from The MIT License (MIT)
  *
- * Copyright (c) 2020-2021 DaPorkchop_
+ * Copyright (c) 2020-2023 DaPorkchop_
  *
  * Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation
  * files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy,
@@ -32,6 +32,7 @@ import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -100,21 +101,21 @@ public class Area implements Geometry {
     }
 
     @Override
-    public Area simplifyTo(int targetLevel) {
+    public Optional<Area> simplifyTo(int targetLevel) {
         if (targetLevel == 0) {
-            return this;
+            return Optional.of(this);
         }
 
         //simplify each shape individually, discarding all shapes that discarded themselves and discarding ourself if no shapes remain
         List<Shape> simplifiedShapes = new ArrayList<>(this.shapes.length);
         for (Shape shape : this.shapes) {
-            Shape simplifiedShape = shape.simplifyTo(targetLevel);
+            Shape simplifiedShape = shape.simplifyTo(targetLevel).orElse(null);
             if (simplifiedShape != null) {
                 simplifiedShapes.add(simplifiedShape);
             }
         }
 
-        return simplifiedShapes.isEmpty() ? null : new Area(simplifiedShapes.toArray(new Shape[0]));
+        return simplifiedShapes.isEmpty() ? Optional.empty() : Optional.of(new Area(simplifiedShapes.toArray(new Shape[0])));
     }
 
     @Override

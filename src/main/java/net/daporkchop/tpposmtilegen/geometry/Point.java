@@ -31,6 +31,7 @@ import net.daporkchop.lib.common.reference.cache.Cached;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
+import java.util.Optional;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -152,8 +153,8 @@ public final class Point implements Geometry {
     }
 
     @Override
-    public Geometry simplifyTo(int targetLevel) {
-        return targetLevel == 0 ? this : null; //we don't allow points to be simplified, they're only ever present at level 0
+    public Optional<Point> simplifyTo(int targetLevel) {
+        return targetLevel == 0 ? Optional.of(this) : Optional.empty(); //we don't allow points to be simplified, they're only ever present at level 0
     }
 
     @Override

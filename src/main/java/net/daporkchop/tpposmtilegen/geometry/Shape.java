@@ -27,13 +27,14 @@ import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
 import lombok.ToString;
 import net.daporkchop.tpposmtilegen.util.Bounds2d;
+import net.daporkchop.tpposmtilegen.util.Utils;
 import net.daporkchop.tpposmtilegen.util.WeightedDouble;
 
 import java.awt.Polygon;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.CountedCompleter;
-import java.util.stream.IntStream;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -123,7 +124,13 @@ public final class Shape extends ComplexGeometry {
 
         try {
             LongList tilePositions = new LongArrayList(tileCount);
-            listIntersectedTilesComplex(tilePositions, outerPoly, innerPolys, level, tileMinX, tileMinY, tileMaxX - tileMinX + 1, tileMaxY - tileMinY + 1);
+
+            if (Utils.allowedToUseForkJoinPool()) {
+                new ListIntersectedTilesComplexTask(null, LongLists.synchronize(tilePositions), outerPoly, innerPolys, level, tileMinX, tileMinY, tileMaxX - tileMinX + 1, tileMaxY - tileMinY + 1).invoke();
+            } else { //fall back to sequential impl to avoid overloading existing worker threads
+                listIntersectedTilesComplex(tilePositions, outerPoly, innerPolys, level, tileMinX, tileMinY, tileMaxX - tileMinX + 1, tileMaxY - tileMinY + 1);
+            }
+
             return tilePositions.toLongArray();
         } finally {
             for (int i = innerCount - 1; i >= 0; i--) {
@@ -191,7 +198,6 @@ public final class Shape extends ComplexGeometry {
         }
     }
 
-    //TODO: determine whether this would be beneficial
     private static class ListIntersectedTilesComplexTask extends CountedCompleter<Void> {
         final LongList tilePositions;
         final Polygon outerPoly;
@@ -203,7 +209,7 @@ public final class Shape extends ComplexGeometry {
         final int sizeY;
 
         protected ListIntersectedTilesComplexTask(CountedCompleter<?> completer, LongList tilePositions, Polygon outerPoly, Polygon[] innerPolys, int level, int baseTileX, int baseTileY, int sizeX, int sizeY) {
-            super(completer, multiplyExact(positive(sizeX, "sizeX"), positive(sizeY, "sizeY")));
+            super(completer);
 
             this.tilePositions = tilePositions;
             this.outerPoly = outerPoly;
@@ -247,11 +253,13 @@ public final class Shape extends ComplexGeometry {
                     }
 
                     //we're entirely contained by the polygon, so we can immediately add every tile!
+                    LongList buf = new LongArrayList(multiplyExact(this.sizeX, this.sizeY));
                     for (int dx = 0; dx < this.sizeX; dx++) {
                         for (int dy = 0; dy < this.sizeY; dy++) {
-                            this.tilePositions.add(xy2tilePos(this.baseTileX + dx, this.baseTileY + dy));
+                            buf.add(xy2tilePos(this.baseTileX + dx, this.baseTileY + dy));
                         }
                     }
+                    this.tilePositions.addAll(buf);
                     this.tryComplete();
                     return;
                 }
@@ -325,15 +333,15 @@ public final class Shape extends ComplexGeometry {
     }
 
     @Override
-    public Shape simplifyTo(int targetLevel) {
+    public Optional<Shape> simplifyTo(int targetLevel) {
         if (targetLevel == 0) {
-            return this;
+            return Optional.of(this);
         }
 
         //simplify each loop individually, discarding the whole shape if the outer loop is discarded and silently discarding inner loops as needed
         Point[] simplifiedOuterLoop = simplifyVisvalingamWhyatt(this.outerLoop, targetLevel, true);
         if (simplifiedOuterLoop == null) {
-            return null;
+            return Optional.empty();
         }
 
         List<Point[]> simplifiedInnerLoops = new ArrayList<>(this.innerLoops.length);
@@ -344,7 +352,7 @@ public final class Shape extends ComplexGeometry {
             }
         }
 
-        return new Shape(simplifiedOuterLoop, simplifiedInnerLoops.toArray(new Point[0][]));
+        return Optional.of(new Shape(simplifiedOuterLoop, simplifiedInnerLoops.toArray(new Point[0][])));
     }
 
     @Override

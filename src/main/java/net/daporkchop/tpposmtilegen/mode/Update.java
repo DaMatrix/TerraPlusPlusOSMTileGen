@@ -24,6 +24,7 @@ import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.geometry.Point;
+import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Updater;
@@ -32,6 +33,7 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.Utils;
 
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -48,6 +50,8 @@ public class Update implements IMode {
     protected Storage storage;
     protected DBAccess txn;
     protected Updater updater;
+
+    protected Serve.Server server;
 
     protected CompletableFuture<?> updateTask;
     protected volatile boolean updateCancelled;
@@ -69,9 +73,13 @@ public class Update implements IMode {
 
     @Override
     public synchronized void run(@NonNull String... args) throws Exception {
+        Utils.setAllowForkJoinPool();
+
         checkArg(args.length == 1 || args.length == 2, "Usage: update <index_dir> [lite=true]");
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = args.length == 1 || Boolean.parseBoolean(args[1]);
+
+        Memory.releaseMemoryToSystem();
 
         try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              DBAccess txn = storage.db().newTransaction()) {
@@ -80,9 +88,14 @@ public class Update implements IMode {
             this.updater = new Updater(storage);
 
             try (Scanner scanner = new Scanner(System.in)) {
-                while (this.runCommand(scanner.nextLine())) {}
+                while (this.runCommand(scanner.nextLine())) {
+                }
             }
             txn.clear();
+            if (this.server != null) {
+                this.server.close();
+                this.server = null;
+            }
         } finally {
             this.storage = null;
             this.txn = null;
@@ -120,11 +133,12 @@ public class Update implements IMode {
                 logger.info("Available commands:\n"
                             + "  'info'\n"
                             + "  'update'\n"
-                            + "  'update_to ( <target_sequence_number> | latest )'\n"
+                            + "  'update_to ( <target_sequence_number> | latest ) [auto_commit]'\n"
                             + "  'commit'\n"
                             + "  'rollback_to ( <target_sequence_number> | prev )'\n"
                             + "  'rollback_all'\n"
                             + "  'get ( node | way | relation | coastline ) <id>'\n"
+                            + "  'serve <port>'\n"
                             + "  'stop'");
                 break;
             case "info": {
@@ -171,8 +185,8 @@ public class Update implements IMode {
                 break;
             }
             case "update_to": {
-                if (split.length != 2) {
-                    logger.warn("command '%s' expects one argument: <target_sequence_number>", split[0]);
+                if (split.length != 2 && split.length != 3) {
+                    logger.warn("command '%s' expects one or two arguments: <target_sequence_number> [auto_commit]", split[0]);
                     break;
                 }
 
@@ -188,6 +202,23 @@ public class Update implements IMode {
                     }
                 }
                 long targetSequenceNumber = _targetSequenceNumber; //damn you java
+
+                boolean autoCommit;
+                if (split.length == 2) {
+                    autoCommit = false;
+                } else {
+                    switch (split[2]) {
+                        case "false":
+                            autoCommit = false;
+                            break;
+                        case "true":
+                            autoCommit = true;
+                            break;
+                        default:
+                            logger.warn("unparseable value for [auto_commit], expected true/false but got: '%s'", split[2]);
+                            return true;
+                    }
+                }
 
                 if (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() >= targetSequenceNumber) {
                     logger.warn("already at sequence number %d, cannot go back in time to reach sequence number %d!",
@@ -225,6 +256,11 @@ public class Update implements IMode {
                             logger.alert("failed to update from '%s' to '%s'! stopping at %d", e, fromState, toState, currentSequenceNumber);
                             break;
                         }
+
+                        if (autoCommit) {
+                            this.txn.flush();
+                            Memory.releaseMemoryToSystem();
+                        }
                     } while (this.storage.sequenceNumberProperty().getLong(this.txn).getAsLong() < targetSequenceNumber);
                     logger.info("update_to %d: done.", targetSequenceNumber);
                 });
@@ -239,6 +275,7 @@ public class Update implements IMode {
                 logger.info("Committing...");
                 this.txn.flush();
                 logger.success("Committed.");
+                Memory.releaseMemoryToSystem();
                 break;
             case "rollback_to": {
                 if (split.length != 2) {
@@ -314,6 +351,26 @@ public class Update implements IMode {
                 if (type == Node.TYPE) {
                     logger.info("  point: %s", this.storage.points().get(this.txn, id));
                 }
+                break;
+            }
+            case "serve": {
+                if (split.length != 3) {
+                    logger.warn("command '%s' expects 1 argument: <port>", split[0]);
+                    break;
+                } else if (this.server != null) {
+                    logger.error("already serving!");
+                    break;
+                }
+
+                int port;
+                try {
+                    port = Integer.parseUnsignedInt(split[1]);
+                } catch (IllegalArgumentException e) {
+                    logger.warn("unparseable port number: '%s'", split[1]);
+                    break;
+                }
+
+                this.server = new Serve.Server(port, this.storage, this.storage.db().read());
                 break;
             }
             case "stop":

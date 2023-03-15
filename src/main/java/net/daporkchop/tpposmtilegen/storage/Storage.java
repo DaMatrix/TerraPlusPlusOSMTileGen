@@ -31,6 +31,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
+import net.daporkchop.lib.common.function.exception.EFunction;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.function.io.IOUnaryOperator;
@@ -73,6 +74,7 @@ import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
 import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
+import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.Checkpoint;
 import org.rocksdb.OptimisticTransactionDB;
 import org.rocksdb.UInt64AddOperator;
@@ -89,6 +91,7 @@ import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
 import java.util.Arrays;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.OptionalLong;
 import java.util.Set;
@@ -98,6 +101,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -272,78 +276,125 @@ public final class Storage implements AutoCloseable {
         return map.get(access, id);
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element element, boolean allowUnknown, boolean assumeEmpty) throws Exception {
+    public void removeGeoJSONFromDB(@NonNull DBAccess access, long combinedId) throws Exception {
+        for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
+            long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
+            if (oldIntersected != null) { //the element previously existed at this level, delete it
+                //element should no longer intersect any tiles
+                this.intersectedTiles[lvl].delete(access, combinedId);
+
+                //remove the element's json data from all tiles it previously intersected
+                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+
+                //delete element's external json data, if it was present
+                this.externalJsonStorage[lvl].delete(access, combinedId);
+            } else { //if the element wasn't present at this level, it won't be at any other levels either
+                break;
+            }
+        }
+    }
+
+    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element oldElement, Element newElement) throws Exception {
+        //public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element element, boolean allowUnknown, boolean assumePreviouslyNotVisible) throws Exception {
         int type = Element.extractType(combinedId);
-        String typeName = Element.typeName(type);
         long id = Element.extractId(combinedId);
 
-        if (element == null) { //element isn't provided, attempt to load it
-            element = this.getElement(access, combinedId);
-        }
-        if (element == null && !allowUnknown) {
-            throw new IllegalStateException(PStrings.fastFormat("unknown %s %d", typeName, id));
+        if (oldElement != null && newElement != null) {
+            checkArg(oldElement.type() == newElement.type() && oldElement.id() == newElement.id());
         }
 
         String location = Geometry.externalStorageLocation(type, id);
 
-        //pass 1: delete element from everything (we skip this step if the database is initially empty)
-        if (!assumeEmpty) {
-            for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
-                long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
-                if (oldIntersected != null) { //the element previously existed at this level, delete it
-                    //element should no longer intersect any tiles
-                    this.intersectedTiles[lvl].delete(access, combinedId);
+        //add element to all its new destination tiles, if it exists
+        Geometry geometry = newElement != null ? newElement.toGeometry(this, access) : null;
 
-                    //remove the element's json data from all tiles it previously intersected
-                    this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+        boolean anyNewLevelWasNull = newElement == null || !newElement.visible();
+        boolean anyOldLevelWasNull = oldElement == null || !oldElement.visible();
+        //boolean anyOldLevelWasNull = assumePreviouslyNotVisible;
 
-                    //delete element's external json data, if it was present
-                    this.externalJsonStorage[lvl].delete(access, combinedId);
-                } else { //if the element wasn't present at this level, it won't be at any other levels either
-                    break;
-                }
+        for (int lvl = 0; !(anyOldLevelWasNull && anyNewLevelWasNull) && lvl < MAX_LEVELS; lvl++) {
+            Geometry simplifiedGeometry = !anyNewLevelWasNull && geometry != null ? geometry.simplifyTo(lvl).orElse(null) : null;
+            if (simplifiedGeometry == null) {
+                anyNewLevelWasNull = true;
             }
-        }
 
-        //pass 2: add element to all its new destination tiles, if it exists
-        Geometry geometry;
-        if (element != null && (geometry = element.toGeometry(this, access)) != null) {
-            int lvl = 0;
-            for (Geometry simplifiedGeometry; lvl < MAX_LEVELS && (simplifiedGeometry = geometry.simplifyTo(lvl)) != null; lvl++) {
-                long[] intersected = simplifiedGeometry.listIntersectedTiles(lvl);
-                Arrays.sort(intersected);
+            long[] newIntersected = simplifiedGeometry != null ? Objects.requireNonNull(simplifiedGeometry.listIntersectedTiles(lvl)) : null;
+            if (newIntersected != null) {
+                Arrays.sort(newIntersected);
+            }
 
-                this.intersectedTiles[lvl].put(access, combinedId, intersected);
+            long[] oldIntersected = !anyOldLevelWasNull ? this.intersectedTiles[lvl].get(access, combinedId) : null;
+            if (oldIntersected != null) {
+                Arrays.sort(oldIntersected);
+            } else {
+                anyOldLevelWasNull = true;
+            }
 
-                //encode geometry to GeoJSON
-                ByteBuf buffer;
-                try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
-                    StringBuilder builder = handle.get();
-                    builder.setLength(0);
+            /*if (oldIntersected != null) { //the element previously existed at this level, delete it
+                //remove the element's json data from all tiles it previously intersected
+                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
 
-                    Geometry.toGeoJSON(builder, simplifiedGeometry, element.tags(), combinedId);
+                //delete element's external json data, if it was present
+                this.externalJsonStorage[lvl].delete(access, combinedId);
+            }*/
 
-                    //convert json to bytes
-                    buffer = Geometry.toByteBuf(builder);
+            if (newIntersected != null) { //the element currently exists at this level, store its intersected tiles list (potentially overwriting the old one)
+                this.intersectedTiles[lvl].put(access, combinedId, newIntersected);
+            } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
+                //delete the element's old intersected tiles list completely
+
+                this.intersectedTiles[lvl].delete(access, combinedId);
+            }
+
+            //encode geometry to GeoJSON
+            ByteBuf newTileBuffer = null;
+            ByteBuf newExternalBuffer = null;
+            try {
+                if (simplifiedGeometry != null) {
+                    try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
+                        StringBuilder builder = handle.get();
+                        builder.setLength(0);
+
+                        Geometry.toGeoJSON(builder, simplifiedGeometry, newElement.tags(), combinedId);
+
+                        //convert json to bytes
+                        newTileBuffer = Geometry.toByteBuf(builder);
+                    }
+
+                    if (simplifiedGeometry.shouldStoreExternally(newIntersected.length, newTileBuffer.readableBytes())) {
+                        //we can't store the element's geometry inline in the tile data, store a reference to it in the tile and add the actual geometry to the external json
+                        newExternalBuffer = newTileBuffer;
+                        newTileBuffer = Geometry.createReference(location);
+                    }
                 }
 
-                try {
-                    if (!simplifiedGeometry.shouldStoreExternally(intersected.length, buffer.readableBytes())) {
-                        //the element's geometry is small enough that storing it in multiple tiles should be a non-issue
-                        this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(intersected), combinedId, buffer);
-                    } else {
-                        //element is referenced multiple times, store it in an external file
-                        this.externalJsonStorage[lvl].put(access, combinedId, buffer.nioBuffer());
+                if (newExternalBuffer != null) { //the element currently has an external json blob at this level, store it (potentially overwriting the old one)
+                    this.externalJsonStorage[lvl].put(access, combinedId, newExternalBuffer.nioBuffer());
+                } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
+                    //delete its external json blob, if it was present
+                    this.externalJsonStorage[lvl].delete(access, combinedId);
+                }
 
-                        ByteBuf referenceBuffer = Geometry.createReference(location);
-                        try {
-                            this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(intersected), combinedId, referenceBuffer);
-                        } finally {
-                            referenceBuffer.release();
-                        }
+                if (newTileBuffer != null) { //the element currently has json data at this level, store it into each intersected tile (potentially overwriting any old ones)
+                    this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(newIntersected), combinedId, newTileBuffer);
+
+                    if (oldIntersected != null) { //the element used to exist at this level, delete it from every tile which it no longer intersects
+                        long[] toRemoveFrom = (Utils.allowedToUseForkJoinPool() ? LongStream.of(oldIntersected).parallel() : LongStream.of(oldIntersected))
+                                .filter(oldIntersectedValue -> Arrays.binarySearch(newIntersected, oldIntersectedValue) < 0) //filter to only include values that aren't in newIntersected
+                                .toArray();
+
+                        this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(toRemoveFrom), combinedId);
                     }
-                } finally {
-                    buffer.release();
+                } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
+                    //delete the element from every tile it used to be stored in
+                    this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+                }
+            } finally {
+                if (newExternalBuffer != null) {
+                    newExternalBuffer.release();
+                }
+                if (newTileBuffer != null) {
+                    newTileBuffer.release();
                 }
             }
         }

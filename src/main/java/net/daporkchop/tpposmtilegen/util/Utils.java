@@ -33,6 +33,7 @@ import java.io.IOException;
 import java.nio.channels.FileChannel;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -61,6 +62,8 @@ public class Utils {
         }
     });
 
+    private static boolean ALLOW_FORKJOINPOOL = false;
+
     public static final Comparator<byte[]> BYTES_COMPARATOR = new ByteArrayLexOrder();
 
     public static final double POINT_DENSITY_LEVEL0_AVERAGE = 2409.331319429213d;
@@ -68,7 +71,7 @@ public class Utils {
     public static final double POINT_DENSITY_LEVEL0_MEDIAN = 1519.78891284316d;
     public static final double POINT_DENSITY_LEVEL0_THIRD_QUARTILE = 2891.26581651644d;
 
-    public static final int MAX_LEVELS = 14;
+    public static final int MAX_LEVELS = 1;
 
     public static double minimumDensityAtLevel(int level) {
         //increase by factor of 2 with each level
@@ -250,5 +253,14 @@ public class Utils {
         checkState(aValues.size() == bValues.size());
 
         return IntStream.range(0, aValues.size()).mapToObj(i -> new Tuple<>(aValues.set(i, null), bValues.set(i, null)));
+    }
+
+    public static boolean allowedToUseForkJoinPool() {
+        return ALLOW_FORKJOINPOOL || Thread.currentThread() instanceof ForkJoinWorkerThread; //if we're already on a ForkJoinPool then sure, by all means
+    }
+
+    public synchronized static void setAllowForkJoinPool() {
+        checkState(!ALLOW_FORKJOINPOOL, "ForkJoinPool already allowed!");
+        ALLOW_FORKJOINPOOL = true;
     }
 }

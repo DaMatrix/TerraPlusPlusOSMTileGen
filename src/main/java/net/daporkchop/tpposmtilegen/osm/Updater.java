@@ -20,6 +20,12 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
+import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
+import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2IntMap;
+import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
+import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
@@ -27,6 +33,7 @@ import it.unimi.dsi.fastutil.longs.LongSet;
 import lombok.Data;
 import lombok.Getter;
 import lombok.NonNull;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.osm.changeset.Changeset;
@@ -40,6 +47,7 @@ import java.io.FileNotFoundException;
 import java.time.Instant;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.LongPredicate;
@@ -158,24 +166,32 @@ public class Updater {
                 .collect(Collectors.toList());
         logger.info("processing %d/%d changes in %d entries", taggedElements.size(), changeset.entries().stream().mapToInt(entry -> entry.elements().size()).sum(), changeset.entries().size());
 
-        LongSet changedIds = new LongOpenHashSet();
+        Long2ObjectMap<DirtyElementInfo> dirtyElements = new Long2ObjectOpenHashMap<>();
+
         for (TaggedElement taggedElement : taggedElements) {
             Changeset.Element element = taggedElement.element();
             switch (taggedElement.op()) {
                 case CREATE:
-                    this.create(storage, access, element, changedIds);
+                    this.create(storage, access, element, dirtyElements);
                     break;
                 case MODIFY:
-                    this.modify(storage, access, element, changedIds);
+                    this.modify(storage, access, element, dirtyElements);
                     break;
                 case DELETE:
-                    this.delete(storage, access, element, changedIds);
+                    this.delete(storage, access, element, dirtyElements);
                     break;
                 default:
                     throw new UnsupportedOperationException(taggedElement.op().name());
             }
         }
         logger.trace("pass 1: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
+
+        //pass 2: find all elements affected by the changed elements
+        LongSet affectedIds = new LongOpenHashSet();
+        for (long combinedId : dirtyElements.keySet()) {
+            this.computeAffected(storage, access, affectedIds, combinedId);
+        }
+        logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 3: convert geometry of all changed elements to GeoJSON and recompute relations
         for (long combinedId : changedIds) {
@@ -184,7 +200,7 @@ public class Updater {
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
 
-    private void create(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+    private void create(Storage storage, DBAccess access, Changeset.Element element, Long2ObjectMap<DirtyElementInfo> dirtyElements) throws Exception {
         int type = element.type();
         long id = element.id();
         long combinedId = Element.addTypeToId(type, id);
@@ -200,10 +216,12 @@ public class Updater {
         //we assume that an element which has just been created isn't immediately deleted, lol
         boolean visible = true;
 
+        Element newElement;
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
 
             Node newNode = new Node(id, changedNode.tags(), changedNode.version(), visible);
+            newElement = newNode;
             storage.nodes().put(access, id, newNode);
             storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
             newNode.computeReferences(access, storage);
@@ -211,6 +229,7 @@ public class Updater {
             Changeset.Way changedWay = (Changeset.Way) element;
 
             Way newWay = new Way(id, changedWay.tags(), changedWay.version(), visible, changedWay.refs().toLongArray());
+            newElement = newWay;
             storage.ways().put(access, id, newWay);
             newWay.computeReferences(access, storage);
         } else if (element instanceof Changeset.Relation) {
@@ -218,15 +237,17 @@ public class Updater {
 
             Relation.Member[] members = changedRelation.members().stream().map(Relation.Member::new).toArray(Relation.Member[]::new);
             Relation newRelation = new Relation(id, changedRelation.tags(), changedRelation.version(), visible, members);
+            newElement = newRelation;
             storage.relations().put(access, id, newRelation);
             newRelation.computeReferences(access, storage);
+        } else {
+            throw new IllegalStateException(Objects.toString(element));
         }
 
-        //this will force the element's tile intersections and references to be re-computed
-        changedIds.add(combinedId);
+        this.markDirty(dirtyElements, combinedId, null, newElement);
     }
 
-    private void modify(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+    private void modify(Storage storage, DBAccess access, Changeset.Element element, Long2ObjectMap<DirtyElementInfo> dirtyElements) throws Exception {
         int type = element.type();
         long id = element.id();
         long combinedId = Element.addTypeToId(type, id);
@@ -235,7 +256,7 @@ public class Updater {
         if (oldElement == null) {
             if (false) { //TODO: decide whether or not to keep this
                 logger.warn("attempting to modify non-existent %s with id %d, assuming that it's newly re-created!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
-                this.create(storage, access, element, changedIds);
+                this.create(storage, access, element, dirtyElements);
                 return;
             } else {
                 logger.alert("attempting to modify non-existent %s with id %d!\nold element: %s\nelement: %s", Element.typeName(type), id, oldElement, element);
@@ -268,6 +289,7 @@ public class Updater {
             }
         }
 
+        Element newElement;
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
             Node oldNode = (Node) oldElement;
@@ -281,7 +303,9 @@ public class Updater {
             }
 
             storage.points().put(access, id, new Point(changedNode.lon(), changedNode.lat()));
-            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), true));
+            Node newNode = new Node(id, changedNode.tags(), changedNode.version(), true);
+            newElement = newNode;
+            storage.nodes().put(access, id, newNode);
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way oldWay = (Way) oldElement;
@@ -297,7 +321,9 @@ public class Updater {
                 storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), true, changedWay.refs().toLongArray()));
+            Way newWay = new Way(id, changedWay.tags(), changedWay.version(), true, changedWay.refs().toLongArray());
+            newElement = newWay;
+            storage.ways().put(access, id, newWay);
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation oldRelation = (Relation) oldElement;
@@ -315,14 +341,17 @@ public class Updater {
                 storage.references().deleteReference(access, ref, combinedId);
             }
 
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), true, newMembers));
+            Relation newRelation = new Relation(id, changedRelation.tags(), changedRelation.version(), true, newMembers);
+            newElement = newRelation;
+            storage.relations().put(access, id, newRelation);
+        } else {
+            throw new IllegalStateException(Objects.toString(element));
         }
 
-        //this will force the element's tile intersections and references to be re-computed
-        this.markDirty(storage, access, changedIds, combinedId);
+        this.markDirty(dirtyElements, combinedId, oldElement, newElement);
     }
 
-    private void delete(Storage storage, DBAccess access, Changeset.Element element, LongSet changedIds) throws Exception {
+    private void delete(Storage storage, DBAccess access, Changeset.Element element, Long2ObjectMap<DirtyElementInfo> dirtyElements) throws Exception {
         int type = element.type();
         long id = element.id();
         long combinedId = Element.addTypeToId(type, id);
@@ -348,12 +377,16 @@ public class Updater {
             }
         }
 
+        Element newElement;
         if (element instanceof Changeset.Node) {
             Changeset.Node changedNode = (Changeset.Node) element;
             Node oldNode = (Node) oldElement;
 
             storage.points().delete(access, id); //delete the associated point
-            storage.nodes().put(access, id, new Node(id, changedNode.tags(), changedNode.version(), false));
+
+            Node newNode = new Node(id, changedNode.tags(), changedNode.version(), false);
+            newElement = newNode;
+            storage.nodes().put(access, id, newNode);
         } else if (element instanceof Changeset.Way) {
             Changeset.Way changedWay = (Changeset.Way) element;
             Way oldWay = (Way) oldElement;
@@ -367,7 +400,9 @@ public class Updater {
                 storage.references().deleteReference(access, Element.addTypeToId(Node.TYPE, node), combinedId);
             }
 
-            storage.ways().put(access, id, new Way(id, changedWay.tags(), changedWay.version(), false, new long[0]));
+            Way newWay = new Way(id, changedWay.tags(), changedWay.version(), false, PorkUtil.EMPTY_LONG_ARRAY);
+            newElement = newWay;
+            storage.ways().put(access, id, newWay);
         } else if (element instanceof Changeset.Relation) {
             Changeset.Relation changedRelation = (Changeset.Relation) element;
             Relation oldRelation = (Relation) oldElement;
@@ -381,21 +416,54 @@ public class Updater {
                 storage.references().deleteReference(access, ref, combinedId);
             }
 
-            storage.relations().put(access, id, new Relation(id, changedRelation.tags(), changedRelation.version(), false, new Relation.Member[0]));
+            Relation newRelation = new Relation(id, changedRelation.tags(), changedRelation.version(), false, new Relation.Member[0]);
+            newElement = newRelation;
+            storage.relations().put(access, id, newRelation);
+        } else {
+            throw new IllegalStateException(Objects.toString(element));
         }
 
-        //this will force the element's tile intersections and references to be re-computed
-        this.markDirty(storage, access, changedIds, combinedId);
+        this.markDirty(dirtyElements, combinedId, oldElement, newElement);
     }
 
-    private void markDirty(Storage storage, DBAccess access, LongSet changedIds, long combinedId) throws Exception {
-        if (changedIds.add(combinedId)) {
+    private void markDirty(Long2ObjectMap<DirtyElementInfo> dirtyElements, long combinedId, Element oldElement, @NonNull Element newElement) {
+        /*DirtyElementInfo mergeInfo;
+        if (oldElement != null) {
+            mergeInfo = new DirtyElementInfo(oldElement.version(), oldElement.visible(), newElement.version(), newElement.visible());
+        } else {
+            mergeInfo = new DirtyElementInfo(-1, false, newElement.version(), newElement.visible());
+        }
+
+        dirtyElements.merge(
+                combinedId, mergeInfo,
+                (oldInfo, newInfo) -> new DirtyElementInfo(oldInfo.oldVersion(), oldInfo.oldVisible(), newInfo.newVersion(), newInfo.newVisible()));*/
+
+        dirtyElements.merge(
+                combinedId, new DirtyElementInfo(oldElement, newElement),
+                (oldInfo, newInfo) -> new DirtyElementInfo(oldInfo.oldElement(), newInfo.newElement()));
+    }
+
+    private void computeAffected(Storage storage, DBAccess access, LongSet affectedIds, long combinedId) throws Exception {
+        if (affectedIds.add(combinedId)) {
             for (long referent : storage.references().getReferencesTo(access, combinedId)) {
-                this.markDirty(storage, access, changedIds, referent);
+                this.computeAffected(storage, access, affectedIds, referent);
             }
         }
     }
 
+    @Data
+    private static class DirtyElementInfo {
+        /*private final int oldVersion; //-1 if element didn't exist previously
+        private final boolean oldVisible;
+
+        private final int newVersion;
+        private final boolean newVisible;*/
+
+        private final Element oldElement; //null if element didn't exist previously
+
+        @NonNull
+        private final Element newElement;
+    }
 
     private static final class UpdateImpossibleException extends RuntimeException {
     }
