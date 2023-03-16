@@ -32,6 +32,7 @@ import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.primitive.lambda.LongIntConsumer;
 import net.daporkchop.tpposmtilegen.natives.Memory;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
@@ -76,8 +77,10 @@ public class VerifyMergeOpReferences {
         try (//Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
-             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly"), DatabaseConfig.RO_GENERAL);
-             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction"), DatabaseConfig.RO_GENERAL);
+             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction"), DatabaseConfig.RO_GENERAL);
+             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow"), DatabaseConfig.RO_GENERAL);
+             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast"), DatabaseConfig.RO_GENERAL);
 
              //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland-legacy"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland"), DatabaseConfig.RO_GENERAL);
@@ -126,19 +129,15 @@ public class VerifyMergeOpReferences {
 
                                 properSpliterator.forEachRemaining(properSlice -> {
                                     checkState(testIterator.isValid());
+                                    
+                                    NativeRocksHelper.KeyValueSlice testSlice = testIterator.keyValueSlice();
 
-                                    {
-                                        byte[] keyArray = testIterator.key();
-                                        if (keyArray.length != properSlice.keySize() || Memory.memcmp(properSlice.keyAddr(), keyArray, 0, keyArray.length) != 0) {
-                                            throw new IllegalStateException("key");
-                                        }
+                                    if (testSlice.keySize() != properSlice.keySize() || Memory.memcmp(properSlice.keyAddr(), testSlice.keyAddr(), testSlice.keySize()) != 0) {
+                                        throw new IllegalStateException("key");
                                     }
 
-                                    {
-                                        byte[] valueArray = testIterator.value();
-                                        if (valueArray.length != properSlice.valueSize() || Memory.memcmp(properSlice.valueAddr(), valueArray, 0, valueArray.length) != 0) {
-                                            throw new IllegalStateException("value");
-                                        }
+                                    if (testSlice.valueSize() != properSlice.valueSize() || Memory.memcmp(properSlice.valueAddr(), testSlice.valueAddr(), testSlice.valueSize()) != 0) {
+                                        throw new IllegalStateException("value");
                                     }
 
                                     testIterator.next();

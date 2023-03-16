@@ -59,12 +59,12 @@ public final class Shape extends ComplexGeometry {
         return loop;
     }
 
-    protected static void emitPolygon(Shape shape, StringBuilder dst) {
+    static void emitPolygonCoordinates(Shape shape, StringBuilder dst) {
         dst.append('[');
-        Line.emitLineString(shape.outerLoop, dst);
+        MultiPoint.emitMultiPointCoordinates(shape.outerLoop, dst);
         for (Point[] innerLoop : shape.innerLoops) {
             dst.append(',');
-            Line.emitLineString(innerLoop, dst);
+            MultiPoint.emitMultiPointCoordinates(innerLoop, dst);
         }
         dst.append(']');
     }
@@ -306,7 +306,7 @@ public final class Shape extends ComplexGeometry {
     @Override
     public void toGeoJSON(@NonNull StringBuilder dst) {
         dst.append("{\"type\":\"Polygon\",\"coordinates\":");
-        emitPolygon(this, dst);
+        emitPolygonCoordinates(this, dst);
         dst.append('}');
     }
 

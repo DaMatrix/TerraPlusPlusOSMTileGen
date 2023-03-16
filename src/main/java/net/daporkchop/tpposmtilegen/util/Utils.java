@@ -64,7 +64,7 @@ public class Utils {
 
     private static boolean ALLOW_FORKJOINPOOL = false;
 
-    public static final Comparator<byte[]> BYTES_COMPARATOR = new ByteArrayLexOrder();
+    public static final Comparator<byte[]> BYTES_COMPARATOR = LexOrderComparison.heapComparator();
 
     public static final double POINT_DENSITY_LEVEL0_AVERAGE = 2409.331319429213d;
     public static final double POINT_DENSITY_LEVEL0_FIRST_QUARTILE = 927.067380381451d;

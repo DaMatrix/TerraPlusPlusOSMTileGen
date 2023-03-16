@@ -67,11 +67,11 @@ public class Area implements Geometry {
     public void toGeoJSON(@NonNull StringBuilder dst) {
         if (this.shapes.length == 1) {
             dst.append("{\"type\":\"Polygon\",\"coordinates\":");
-            Shape.emitPolygon(this.shapes[0], dst);
+            Shape.emitPolygonCoordinates(this.shapes[0], dst);
         } else {
             dst.append("{\"type\":\"MultiPolygon\",\"coordinates\":[");
             for (Shape shape : this.shapes) {
-                Shape.emitPolygon(shape, dst);
+                Shape.emitPolygonCoordinates(shape, dst);
                 dst.append(',');
             }
             dst.setCharAt(dst.length() - 1, ']');

@@ -42,18 +42,6 @@ import static net.daporkchop.tpposmtilegen.util.Tile.*;
 @Getter
 @ToString
 public final class Line extends ComplexGeometry {
-    protected static void emitLineString(Point[] points, StringBuilder dst) {
-        dst.append('[');
-        for (Point point : points) {
-            dst.append('[');
-            Point.appendCoordinate(point.x(), dst);
-            dst.append(',');
-            Point.appendCoordinate(point.y(), dst);
-            dst.append(']').append(',');
-        }
-        dst.setCharAt(dst.length() - 1, ']');
-    }
-
     protected final Point[] points;
 
     public Line(@NonNull Point[] points) {
@@ -71,25 +59,13 @@ public final class Line extends ComplexGeometry {
     @Override
     public void toGeoJSON(@NonNull StringBuilder dst) {
         dst.append("{\"type\":\"LineString\",\"coordinates\":");
-        emitLineString(this.points, dst);
+        MultiPoint.emitMultiPointCoordinates(this.points, dst); //LineString uses the same coordinates format as MultiPoint
         dst.append('}');
     }
 
     @Override
     public Bounds2d bounds() {
-        int minX = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE;
-        int minY = Integer.MAX_VALUE;
-        int maxY = Integer.MIN_VALUE;
-        for (Point point : this.points) {
-            int x = point.x();
-            int y = point.y();
-            minX = min(minX, x);
-            maxX = max(maxX, x);
-            minY = min(minY, y);
-            maxY = max(maxY, y);
-        }
-        return Bounds2d.of(minX, maxX, minY, maxY);
+        return MultiPoint.computeBounds(this.points);
     }
 
     @Override

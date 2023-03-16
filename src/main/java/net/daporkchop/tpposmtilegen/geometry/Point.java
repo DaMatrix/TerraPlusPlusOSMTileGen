@@ -145,11 +145,17 @@ public final class Point implements Geometry {
 
     @Override
     public void toGeoJSON(@NonNull StringBuilder dst) {
-        dst.append("{\"type\":\"Point\",\"coordinates\":[");
+        dst.append("{\"type\":\"Point\",\"coordinates\":");
+        this.emitPointCoordinates(dst);
+        dst.append('}');
+    }
+
+    void emitPointCoordinates(StringBuilder dst) {
+        dst.append('[');
         appendCoordinate(this.x, dst);
         dst.append(',');
         appendCoordinate(this.y, dst);
-        dst.append(']').append('}');
+        dst.append(']');
     }
 
     @Override

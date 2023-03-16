@@ -22,7 +22,7 @@ package net.daporkchop.tpposmtilegen.storage.rocksdb.access;
 
 import lombok.NonNull;
 import lombok.RequiredArgsConstructor;
-import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import org.rocksdb.ColumnFamilyHandle;
 import org.rocksdb.ReadOptions;
 import org.rocksdb.RocksDB;
@@ -51,6 +51,15 @@ public interface DBIterator extends AutoCloseable {
 
     byte[] value();
 
+    /**
+     * Gets an instance of {@link NativeRocksHelper.KeyValueSlice} which refers to the current key and value.
+     * <p>
+     * The returned instance's contents will become invalid as soon as this iterator moves to a different entry or is closed.
+     *
+     * @return an instance of {@link NativeRocksHelper.KeyValueSlice} which refers to the current key and value
+     */
+    NativeRocksHelper.KeyValueSlice keyValueSlice();
+
     @Override
     void close() throws Exception;
 
@@ -58,9 +67,11 @@ public interface DBIterator extends AutoCloseable {
      * @author DaPorkchop_
      */
     @RequiredArgsConstructor
-    class SimpleRocksIteratorWrapper implements DBIterator {
+    class SimpleRocksIteratorWrapper extends NativeRocksHelper.KeyValueSlice implements DBIterator {
         @NonNull
         protected final RocksIterator delegate;
+
+        protected boolean sliceValid = false;
 
         @Override
         public boolean isValid() {
@@ -69,31 +80,37 @@ public interface DBIterator extends AutoCloseable {
 
         @Override
         public void seekToFirst() {
+            this.sliceValid = false;
             this.delegate.seekToFirst();
         }
 
         @Override
         public void seekToLast() {
+            this.sliceValid = false;
             this.delegate.seekToLast();
         }
 
         @Override
         public void seekCeil(@NonNull byte[] key) {
+            this.sliceValid = false;
             this.delegate.seek(key);
         }
 
         @Override
         public void seekFloor(@NonNull byte[] key) {
+            this.sliceValid = false;
             this.delegate.seekForPrev(key);
         }
 
         @Override
         public void next() {
+            this.sliceValid = false;
             this.delegate.next();
         }
 
         @Override
         public void prev() {
+            this.sliceValid = false;
             this.delegate.prev();
         }
 
@@ -105,6 +122,15 @@ public interface DBIterator extends AutoCloseable {
         @Override
         public byte[] value() {
             return this.delegate.value();
+        }
+
+        @Override
+        public NativeRocksHelper.KeyValueSlice keyValueSlice() {
+            if (!this.sliceValid) {
+                this.sliceValid = true;
+                NativeRocksHelper.getKeyAndValueAsView(this.delegate, this);
+            }
+            return this;
         }
 
         @Override

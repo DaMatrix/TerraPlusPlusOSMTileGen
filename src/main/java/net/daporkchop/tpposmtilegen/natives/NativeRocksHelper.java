@@ -75,7 +75,7 @@ public final class NativeRocksHelper {
      */
     @NoArgsConstructor
     @Getter
-    public static final class KeyValueSlice {
+    public static class KeyValueSlice {
         public static Comparator<KeyValueSlice> lexOrderKeyComparator() {
             return (a, b) -> {
                 int d = Memory.memcmp(a.keyAddr, b.keyAddr, Math.min(a.keySize, b.keySize));
@@ -89,7 +89,7 @@ public final class NativeRocksHelper {
         private long valueAddr;
         private int valueSize;
 
-        private void set(long keyAddr, long keySize, long valueAddr, long valueSize) {
+        private void set(long keyAddr, long keySize, long valueAddr, long valueSize) { //called from JNI
             this.keyAddr = keyAddr;
             this.keySize = Math.toIntExact(keySize);
             this.valueAddr = valueAddr;

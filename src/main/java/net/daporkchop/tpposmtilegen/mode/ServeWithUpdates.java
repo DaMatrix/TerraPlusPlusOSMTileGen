@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
+import io.netty.util.concurrent.FastThreadLocalThread;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
@@ -68,7 +69,7 @@ public class ServeWithUpdates implements IMode {
         try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
              Serve.Server server = new Serve.Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             AtomicBoolean running = new AtomicBoolean(true);
-            Thread updateThread = new Thread((ERunnable) () -> {
+            Thread updateThread = new FastThreadLocalThread((ERunnable) () -> {
                 while (running.get()) {
                     logger.info("Checking for updates...");
                     Updater updater = new Updater(storage);

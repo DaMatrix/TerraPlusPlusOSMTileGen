@@ -166,6 +166,8 @@ public final class Storage implements AutoCloseable {
             || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast".equals(root.toString())
             || "/media/daporkchop/data/switzerland".equals(root.toString())
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
             || "/mnt/planet".equals(root.toString())) {
