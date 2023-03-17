@@ -46,6 +46,7 @@ import org.rocksdb.RocksDBException;
 
 import java.nio.ByteBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
 import java.util.Optional;
@@ -141,6 +142,48 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         for (int i = 0; i < size; i++) {
             byte[] value = valueBytes.get(i);
             values.add(value != null ? this.valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
+        }
+        return values;
+    }
+
+    public static <V> List<V> getAll(@NonNull DBReadAccess access, @NonNull List<? extends RocksDBMap<V>> maps, @NonNull LongList keys) throws Exception {
+        int size = keys.size();
+        checkState(size == maps.size());
+
+        if (size == 0) {
+            return Collections.emptyList();
+        } else if (maps instanceof DuplicatedList) { //multiple queries to the same column family
+            return maps.get(0).getAll(access, keys);
+        }
+
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+        List<byte[]> keyBytes = new ArrayList<>(size);
+        List<byte[]> valueBytes;
+        try {
+            //retrieve column families
+            ColumnFamilyHandle[] handles = maps.stream().map(map -> map.column).toArray(ColumnFamilyHandle[]::new);
+
+            //serialize keys to bytes
+            for (int i = 0; i < size; i++) {
+                byte[] keyArray = keyArrayRecycler.get();
+                long key = keys.getLong(i);
+                PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
+                keyBytes.add(keyArray);
+            }
+
+            //look up values from key
+            valueBytes = access.multiGetAsList(Arrays.asList(handles), keyBytes);
+        } finally {
+            keyBytes.forEach(keyArrayRecycler::release);
+        }
+
+        //re-use list that was previously used for storing encoded keys and store deserialized values in it
+        keyBytes.clear();
+        List<V> values = uncheckedCast(keyBytes);
+
+        for (int i = 0; i < size; i++) {
+            byte[] value = valueBytes.get(i);
+            values.add(value != null ? maps.get(i).valueFromBytes(keys.getLong(i), Unpooled.wrappedBuffer(value)) : null);
         }
         return values;
     }
@@ -260,7 +303,7 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
 
         @Override
         public int characteristics() {
-            return this.parent.characteristics();
+            return this.parent.characteristics() | SORTED;
         }
 
         @Override

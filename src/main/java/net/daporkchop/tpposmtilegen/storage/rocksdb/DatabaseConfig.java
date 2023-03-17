@@ -111,7 +111,6 @@ public final class DatabaseConfig {
                                 .setSkipStatsUpdateOnDbOpen(true)
                                 .setCompactionReadaheadSize(TABLE_SIZE_BASE_KIB << 10L)
                                 .setAccessHintOnCompactionStart(AccessHint.WILLNEED)
-                                .setAllowFAllocate(true)
                                 .setAllowConcurrentMemtableWrite(true)
                                 .setKeepLogFileNum(16L)
                                 .setMaxTotalWalSize(TABLE_SIZE_BASE_KIB << 10L << 2L)

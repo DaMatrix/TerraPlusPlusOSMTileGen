@@ -40,6 +40,7 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.refcount.AbstractRefCounted;
 import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.pool.handle.Handle;
+import net.daporkchop.lib.common.pool.recycler.Recycler;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.common.util.exception.AlreadyReleasedException;
 import net.daporkchop.lib.unsafe.PUnsafe;
@@ -297,7 +298,6 @@ public final class Storage implements AutoCloseable {
     }
 
     public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element oldElement, Element newElement) throws Exception {
-        //public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element element, boolean allowUnknown, boolean assumePreviouslyNotVisible) throws Exception {
         int type = Element.extractType(combinedId);
         long id = Element.extractId(combinedId);
 
@@ -312,7 +312,6 @@ public final class Storage implements AutoCloseable {
 
         boolean anyNewLevelWasNull = newElement == null || !newElement.visible();
         boolean anyOldLevelWasNull = oldElement == null || !oldElement.visible();
-        //boolean anyOldLevelWasNull = assumePreviouslyNotVisible;
 
         for (int lvl = 0; !(anyOldLevelWasNull && anyNewLevelWasNull) && lvl < MAX_LEVELS; lvl++) {
             Geometry simplifiedGeometry = !anyNewLevelWasNull && geometry != null ? geometry.simplifyTo(lvl).orElse(null) : null;
@@ -332,14 +331,6 @@ public final class Storage implements AutoCloseable {
                 anyOldLevelWasNull = true;
             }
 
-            /*if (oldIntersected != null) { //the element previously existed at this level, delete it
-                //remove the element's json data from all tiles it previously intersected
-                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
-
-                //delete element's external json data, if it was present
-                this.externalJsonStorage[lvl].delete(access, combinedId);
-            }*/
-
             if (newIntersected != null) { //the element currently exists at this level, store its intersected tiles list (potentially overwriting the old one)
                 this.intersectedTiles[lvl].put(access, combinedId, newIntersected);
             } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
@@ -353,15 +344,14 @@ public final class Storage implements AutoCloseable {
             ByteBuf newExternalBuffer = null;
             try {
                 if (simplifiedGeometry != null) {
-                    try (Handle<StringBuilder> handle = PorkUtil.STRINGBUILDER_POOL.get()) {
-                        StringBuilder builder = handle.get();
-                        builder.setLength(0);
+                    Recycler<StringBuilder> stringBuilderRecycler = PorkUtil.stringBuilderRecycler();
+                    StringBuilder builder = stringBuilderRecycler.allocate();
 
-                        Geometry.toGeoJSON(builder, simplifiedGeometry, newElement.tags(), combinedId);
+                    Geometry.toGeoJSON(builder, simplifiedGeometry, newElement.tags(), combinedId);
 
-                        //convert json to bytes
-                        newTileBuffer = Geometry.toByteBuf(builder);
-                    }
+                    //convert json to bytes
+                    newTileBuffer = Geometry.toByteBuf(builder);
+                    stringBuilderRecycler.release(builder);
 
                     if (simplifiedGeometry.shouldStoreExternally(newIntersected.length, newTileBuffer.readableBytes())) {
                         //we can't store the element's geometry inline in the tile data, store a reference to it in the tile and add the actual geometry to the external json

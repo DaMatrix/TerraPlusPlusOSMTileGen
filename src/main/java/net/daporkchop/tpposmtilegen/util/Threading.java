@@ -34,6 +34,8 @@ import java.util.List;
 import java.util.Spliterator;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.concurrent.Semaphore;
 import java.util.function.Consumer;
 import java.util.function.LongConsumer;
@@ -56,15 +58,23 @@ public class Threading {
     }
 
     public <S extends Spliterator<?>> void forEachParallel(int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) throws Exception {
-        try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
-            CompletableFuture.allOf(Arrays.stream(spliterators)
-                    .map(spliterator -> {
-                        long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 2), 1L);
-                        return forEachParallel0(executor, targetSize, spliterator, callback);
-                    })
-                    .toArray(CompletableFuture[]::new))
-                    .join();
+        if (Thread.currentThread() instanceof ForkJoinWorkerThread) {
+            forEachParallel(((ForkJoinWorkerThread) Thread.currentThread()).getPool(), threads, callback, spliterators);
+        } else {
+            try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
+                forEachParallel(executor, threads, callback, spliterators);
+            }
         }
+    }
+
+    public <S extends Spliterator<?>> void forEachParallel(@NonNull Executor executor, int threads, @NonNull Consumer<S> callback, @NonNull S... spliterators) throws Exception {
+        CompletableFuture.allOf(Arrays.stream(spliterators)
+                        .map(spliterator -> {
+                            long targetSize = Math.max(spliterator.estimateSize() / ((long) threads << 2), 1L);
+                            return forEachParallel0(executor, targetSize, spliterator, callback);
+                        })
+                        .toArray(CompletableFuture[]::new))
+                .join();
     }
 
     private <S extends Spliterator<?>> CompletableFuture<Void> forEachParallel0(Executor executor, long targetSize, S spliterator, Consumer<S> callback) {
@@ -85,8 +95,18 @@ public class Threading {
     }
 
     public <T> void iterateParallel(int threads, int maxQueueSize, @NonNull EConsumer<EConsumer<T>> iterator, @NonNull EConsumer<T> function) throws Exception {
+        if (Thread.currentThread() instanceof ForkJoinWorkerThread) {
+            iterateParallel(((ForkJoinWorkerThread) Thread.currentThread()).getPool(), maxQueueSize, iterator, function);
+        } else {
+            try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
+                iterateParallel(executor, maxQueueSize, iterator, function);
+            }
+        }
+    }
+
+    public <T> void iterateParallel(@NonNull Executor executor, int maxQueueSize, @NonNull EConsumer<EConsumer<T>> iterator, @NonNull EConsumer<T> function) throws Exception {
         List<Throwable> exceptions = new ArrayList<>();
-        try (CloseableExecutor executor = new CloseableExecutor(new CloseableThreadFactory(), threads)) {
+        try {
             Semaphore semaphore = new Semaphore(maxQueueSize);
             iterator.acceptThrowing(v -> {
                 tryThrowExceptions(exceptions);

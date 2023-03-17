@@ -194,8 +194,18 @@ public class Updater {
         logger.trace("pass 2: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
 
         //pass 3: convert geometry of all changed elements to GeoJSON and recompute relations
-        for (long combinedId : changedIds) {
-            storage.convertToGeoJSONAndStoreInDB(access, combinedId, null, true);
+        for (long combinedId : affectedIds) {
+            Element oldElement;
+            Element newElement;
+
+            DirtyElementInfo dirtyElementInfo = dirtyElements.get(combinedId);
+            if (dirtyElementInfo != null) {
+                oldElement = dirtyElementInfo.oldElement();
+                newElement = dirtyElementInfo.newElement();
+            } else {
+                oldElement = newElement = storage.getElement(access,combinedId);
+            }
+            storage.convertToGeoJSONAndStoreInDB(access, combinedId, oldElement, newElement);
         }
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }

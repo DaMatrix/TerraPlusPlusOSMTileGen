@@ -20,6 +20,7 @@
 
 package net.daporkchop.tpposmtilegen.storage.rocksdb;
 
+import io.netty.util.concurrent.FastThreadLocalThread;
 import it.unimi.dsi.fastutil.objects.Object2ObjectOpenHashMap;
 import lombok.Getter;
 import lombok.NonNull;
@@ -47,6 +48,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.UUID;
+import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 
@@ -111,6 +113,7 @@ public final class Database implements AutoCloseable {
     }
 
     public DBWriteAccess batch() {
+        checkState(!(Thread.currentThread() instanceof ForkJoinWorkerThread), "not allowed to be accessed from a ForkJoinWorkerThread!");
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.batch;
     }
@@ -123,7 +126,7 @@ public final class Database implements AutoCloseable {
      * @return a new batched write operation
      */
     public DBWriteAccess beginLocalBatch() {
-        return this.beginLocalBatch(DatabaseConfig.WriteType.NO_WAL);
+        return this.beginLocalBatch(DatabaseConfig.WriteType.GENERAL);
     }
 
     /**
@@ -139,11 +142,13 @@ public final class Database implements AutoCloseable {
     }
 
     public DBAccess readWriteBatch() {
+        checkState(!(Thread.currentThread() instanceof ForkJoinWorkerThread), "not allowed to be accessed from a ForkJoinWorkerThread!");
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.readWriteBatch;
     }
 
     public DBWriteAccess sstBatch() {
+        checkState(!(Thread.currentThread() instanceof ForkJoinWorkerThread), "not allowed to be accessed from a ForkJoinWorkerThread!");
         checkState(!this.config.readOnly(), "storage is open in read-only mode!");
         return this.sstBatch;
     }
