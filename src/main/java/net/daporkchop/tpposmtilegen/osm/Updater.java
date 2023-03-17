@@ -20,10 +20,6 @@
 
 package net.daporkchop.tpposmtilegen.osm;
 
-import it.unimi.dsi.fastutil.longs.Long2BooleanMap;
-import it.unimi.dsi.fastutil.longs.Long2BooleanOpenHashMap;
-import it.unimi.dsi.fastutil.longs.Long2IntMap;
-import it.unimi.dsi.fastutil.longs.Long2IntOpenHashMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectMap;
 import it.unimi.dsi.fastutil.longs.Long2ObjectOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
@@ -50,7 +46,6 @@ import java.util.List;
 import java.util.Objects;
 import java.util.OptionalLong;
 import java.util.concurrent.CompletableFuture;
-import java.util.function.LongPredicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -205,7 +200,7 @@ public class Updater {
             } else {
                 oldElement = newElement = storage.getElement(access,combinedId);
             }
-            storage.convertToGeoJSONAndStoreInDB(access, combinedId, oldElement, newElement);
+            storage.assembleElement(access, access, oldElement, newElement);
         }
         logger.trace("pass 3: batched %.2fMiB of updates", access.getDataSize() / (1024.0d * 1024.0d));
     }
@@ -463,12 +458,6 @@ public class Updater {
 
     @Data
     private static class DirtyElementInfo {
-        /*private final int oldVersion; //-1 if element didn't exist previously
-        private final boolean oldVisible;
-
-        private final int newVersion;
-        private final boolean newVisible;*/
-
         private final Element oldElement; //null if element didn't exist previously
 
         @NonNull

@@ -35,14 +35,12 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WriteRedirectingAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.ProgressNotifier;
-import net.daporkchop.tpposmtilegen.util.Threading;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.Collections;
-import java.util.List;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -116,7 +114,7 @@ public class AssembleGeometry implements IMode {
                     notifier.step(type);
 
                     try {
-                        storage.convertToGeoJSONAndStoreInDB(access, Element.addTypeToId(type, id), null, element);
+                        storage.assembleElement(access, access, null, element);
                     } catch (Exception e) {
                         throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
                     }

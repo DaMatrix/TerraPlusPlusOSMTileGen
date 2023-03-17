@@ -21,7 +21,6 @@
 package net.daporkchop.tpposmtilegen.storage;
 
 import io.netty.buffer.ByteBuf;
-import io.netty.buffer.Unpooled;
 import io.netty.buffer.UnpooledByteBufAllocator;
 import it.unimi.dsi.fastutil.ints.Int2ObjectMap;
 import it.unimi.dsi.fastutil.ints.Int2ObjectOpenHashMap;
@@ -31,7 +30,6 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import net.daporkchop.lib.binary.oio.StreamUtil;
-import net.daporkchop.lib.common.function.exception.EFunction;
 import net.daporkchop.lib.common.function.io.IOConsumer;
 import net.daporkchop.lib.common.function.io.IOFunction;
 import net.daporkchop.lib.common.function.io.IOUnaryOperator;
@@ -77,16 +75,12 @@ import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.TimedOperation;
 import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.Checkpoint;
-import org.rocksdb.OptimisticTransactionDB;
-import org.rocksdb.UInt64AddOperator;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.ConnectException;
 import java.net.HttpURLConnection;
 import java.net.SocketTimeoutException;
 import java.net.URL;
-import java.nio.channels.FileChannel;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.StandardOpenOption;
@@ -297,20 +291,34 @@ public final class Storage implements AutoCloseable {
         }
     }
 
-    public void convertToGeoJSONAndStoreInDB(@NonNull DBAccess access, long combinedId, Element oldElement, Element newElement) throws Exception {
-        int type = Element.extractType(combinedId);
-        long id = Element.extractId(combinedId);
+    /**
+     * Assembles the given element to GeoJSON geometry and adds the result to every intersected tile at every level.
+     *
+     * @param currentStateReadAccess a {@link DBReadAccess} for reading the current database state. This is expected to contain the newest data for all element types.
+     *                               For all tiles/external blobs/intersected tiles, this must initially contain the old data, however it is guaranteed that none of these
+     *                               data types will be read from once written to in {@code nextStateWriteAccess}, so it is not defined whether writes will be made
+     *                               visible immediately (this allows the same transaction to be used for both {@code currentStateReadAccess} and
+     *                               {@code nextStateWriteAccess}, or for {@code currentStateReadAccess} to refer to the live database contents/a snapshot while
+     *                               {@code nextStateWriteAccess} is a write batch, etc.)
+     * @param nextStateWriteAccess   a {@link DBWriteAccess} for writing tiles/external blobs/intersected tiles data
+     * @param oldElement             the old element instance (may be {@code null} if the element was not previously assembled)
+     * @param newElement             the new element instance
+     */
+    public void assembleElement(@NonNull DBReadAccess currentStateReadAccess, @NonNull DBWriteAccess nextStateWriteAccess, Element oldElement, @NonNull Element newElement) throws Exception {
+        int type = newElement.type();
+        long id = newElement.id();
+        long combinedId = Element.addTypeToId(type, id);
 
-        if (oldElement != null && newElement != null) {
-            checkArg(oldElement.type() == newElement.type() && oldElement.id() == newElement.id());
+        if (oldElement != null) {
+            checkArg(oldElement.type() == type && oldElement.id() == id);
         }
 
         String location = Geometry.externalStorageLocation(type, id);
 
         //add element to all its new destination tiles, if it exists
-        Geometry geometry = newElement != null ? newElement.toGeometry(this, access) : null;
+        Geometry geometry = newElement.toGeometry(this, currentStateReadAccess);
 
-        boolean anyNewLevelWasNull = newElement == null || !newElement.visible();
+        boolean anyNewLevelWasNull = !newElement.visible();
         boolean anyOldLevelWasNull = oldElement == null || !oldElement.visible();
 
         for (int lvl = 0; !(anyOldLevelWasNull && anyNewLevelWasNull) && lvl < MAX_LEVELS; lvl++) {
@@ -324,7 +332,7 @@ public final class Storage implements AutoCloseable {
                 Arrays.sort(newIntersected);
             }
 
-            long[] oldIntersected = !anyOldLevelWasNull ? this.intersectedTiles[lvl].get(access, combinedId) : null;
+            long[] oldIntersected = !anyOldLevelWasNull ? this.intersectedTiles[lvl].get(currentStateReadAccess, combinedId) : null;
             if (oldIntersected != null) {
                 Arrays.sort(oldIntersected);
             } else {
@@ -332,11 +340,11 @@ public final class Storage implements AutoCloseable {
             }
 
             if (newIntersected != null) { //the element currently exists at this level, store its intersected tiles list (potentially overwriting the old one)
-                this.intersectedTiles[lvl].put(access, combinedId, newIntersected);
+                this.intersectedTiles[lvl].put(nextStateWriteAccess, combinedId, newIntersected);
             } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
                 //delete the element's old intersected tiles list completely
 
-                this.intersectedTiles[lvl].delete(access, combinedId);
+                this.intersectedTiles[lvl].delete(nextStateWriteAccess, combinedId);
             }
 
             //encode geometry to GeoJSON
@@ -361,25 +369,25 @@ public final class Storage implements AutoCloseable {
                 }
 
                 if (newExternalBuffer != null) { //the element currently has an external json blob at this level, store it (potentially overwriting the old one)
-                    this.externalJsonStorage[lvl].put(access, combinedId, newExternalBuffer.nioBuffer());
+                    this.externalJsonStorage[lvl].put(nextStateWriteAccess, combinedId, newExternalBuffer.nioBuffer());
                 } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
                     //delete its external json blob, if it was present
-                    this.externalJsonStorage[lvl].delete(access, combinedId);
+                    this.externalJsonStorage[lvl].delete(nextStateWriteAccess, combinedId);
                 }
 
                 if (newTileBuffer != null) { //the element currently has json data at this level, store it into each intersected tile (potentially overwriting any old ones)
-                    this.tileJsonStorage[lvl].addElementToTiles(access, LongArrayList.wrap(newIntersected), combinedId, newTileBuffer);
+                    this.tileJsonStorage[lvl].addElementToTiles(nextStateWriteAccess, LongArrayList.wrap(newIntersected), combinedId, newTileBuffer);
 
                     if (oldIntersected != null) { //the element used to exist at this level, delete it from every tile which it no longer intersects
                         long[] toRemoveFrom = (Utils.allowedToUseForkJoinPool() ? LongStream.of(oldIntersected).parallel() : LongStream.of(oldIntersected))
                                 .filter(oldIntersectedValue -> Arrays.binarySearch(newIntersected, oldIntersectedValue) < 0) //filter to only include values that aren't in newIntersected
                                 .toArray();
 
-                        this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(toRemoveFrom), combinedId);
+                        this.tileJsonStorage[lvl].deleteElementFromTiles(nextStateWriteAccess, LongArrayList.wrap(toRemoveFrom), combinedId);
                     }
                 } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
                     //delete the element from every tile it used to be stored in
-                    this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
+                    this.tileJsonStorage[lvl].deleteElementFromTiles(nextStateWriteAccess, LongArrayList.wrap(oldIntersected), combinedId);
                 }
             } finally {
                 if (newExternalBuffer != null) {
