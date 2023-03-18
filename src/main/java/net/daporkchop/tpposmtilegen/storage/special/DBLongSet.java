@@ -74,7 +74,7 @@ public final class DBLongSet extends WrappedRocksDB {
         byte[] keyArray = keyArrayRecycler.get();
         try {
             PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), value);
-            return access.get(this.column, keyArray) != null;
+            return access.contains(this.column, keyArray);
         } finally {
             keyArrayRecycler.release(keyArray);
         }

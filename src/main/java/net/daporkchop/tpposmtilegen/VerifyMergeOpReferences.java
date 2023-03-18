@@ -31,11 +31,13 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.primitive.lambda.LongIntConsumer;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
+import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBIterator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.iterate.RocksColumnSpliterator;
@@ -46,6 +48,7 @@ import net.daporkchop.tpposmtilegen.util.Utils;
 import org.rocksdb.ColumnFamilyHandle;
 
 import java.io.File;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -56,6 +59,7 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
 import java.util.stream.Stream;
@@ -79,22 +83,42 @@ public class VerifyMergeOpReferences {
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
              //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction"), DatabaseConfig.RO_GENERAL);
-             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow"), DatabaseConfig.RO_GENERAL);
-             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast"), DatabaseConfig.RO_GENERAL);
+
+             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast"), DatabaseConfig.RO_GENERAL);
+
+             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-0"), DatabaseConfig.RO_GENERAL);
+             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-with-changeset-updated-to-5466051"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227"), DatabaseConfig.RO_GENERAL);
+             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-2"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction"), DatabaseConfig.RO_GENERAL);
 
              //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland-legacy"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland"), DatabaseConfig.RO_GENERAL);
         ) {
             //long properVersion = properStorage.sequenceNumber().get(properStorage.db().read());
-            //long properVersion = properStorage.sequenceNumberProperty().getLong(properStorage.db().read()).getAsLong();
-            //long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
-            //checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
+            long properVersion = properStorage.sequenceNumberProperty().getLong(properStorage.db().read()).getAsLong();
+            long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
+            checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Verify geometry")
                     .slot("tiles").slot("blobs")
                     .build();
                  DBReadAccess properReadAccess = properStorage.db().snapshot();
                  DBReadAccess testReadAccess = testStorage.db().snapshot()) {
+
+                if (false) {
+                    long[] a = properStorage.intersectedTiles()[0].get(properReadAccess, 4611686018885300748L);
+                    long[] b = testStorage.intersectedTiles()[0].get(testReadAccess, 4611686018885300748L);
+                    Element ea = properStorage.getElement(properReadAccess, 4611686018885300748L);
+                    Element eb = testStorage.getElement(testReadAccess, 4611686018885300748L);
+                    Geometry ga = ea.toGeometry(properStorage, properReadAccess);
+                    Geometry gb = eb.toGeometry(testStorage, testReadAccess);
+                    long[] ca = ga.listIntersectedTiles(0);
+                    long[] cb = gb.listIntersectedTiles(0);
+                    int i = 0;
+                    return;
+                }
 
                 /*try (RocksColumnSpliterator spliterator = new RocksColumnSpliterator(
                         properStorage.db(), properStorage.db().internalColumnFamily(properStorage.externalJsonStorage()[0]),
@@ -113,31 +137,34 @@ public class VerifyMergeOpReferences {
                     return;
                 }*/
 
+                Function<Storage, Stream<? extends WrappedRocksDB>> columnFamilyWrappersStream = storage ->
+                        Stream.of(storage.intersectedTiles(), storage.externalJsonStorage(), storage.tileJsonStorage())
+                                .flatMap(Stream::of);
+
                 Map<ColumnFamilyHandle, ColumnFamilyHandle> properToTestColumnFamilyHandles = Utils.zip(
-                        Stream.of(properStorage.intersectedTiles(), properStorage.externalJsonStorage(), properStorage.tileJsonStorage())
-                                .flatMap(Stream::of)
-                                .map(properStorage.db()::internalColumnFamily),
-                        Stream.of(testStorage.intersectedTiles(), testStorage.externalJsonStorage(), testStorage.tileJsonStorage())
-                                .flatMap(Stream::of)
-                                .map(testStorage.db()::internalColumnFamily))
+                        columnFamilyWrappersStream.apply(properStorage).map(properStorage.db()::internalColumnFamily),
+                        columnFamilyWrappersStream.apply(testStorage).map(testStorage.db()::internalColumnFamily))
                         .collect(Collectors.toMap(Tuple::getA, Tuple::getB));
 
                 Threading.forEachParallel(PorkUtil.CPU_COUNT / 3,
                         (EConsumer<RocksColumnSpliterator>) properSpliterator -> {
+                            String columnFamilyName = new String(properSpliterator.column().getName(), StandardCharsets.UTF_8);
+
                             try (DBIterator testIterator = testReadAccess.iterator(properToTestColumnFamilyHandles.get(properSpliterator.column()), properSpliterator.smallestKeyInclusive(), properSpliterator.largestKeyExclusive())) {
                                 testIterator.seekToFirst();
 
                                 properSpliterator.forEachRemaining(properSlice -> {
+                                    checkState(properStorage != null && properReadAccess != null && testStorage != null && testReadAccess != null); //allows access to these variables for debugger evaluation
                                     checkState(testIterator.isValid());
                                     
                                     NativeRocksHelper.KeyValueSlice testSlice = testIterator.keyValueSlice();
 
                                     if (testSlice.keySize() != properSlice.keySize() || Memory.memcmp(properSlice.keyAddr(), testSlice.keyAddr(), testSlice.keySize()) != 0) {
-                                        throw new IllegalStateException("key");
+                                        throw new IllegalStateException("key in " + columnFamilyName);
                                     }
 
                                     if (testSlice.valueSize() != properSlice.valueSize() || Memory.memcmp(properSlice.valueAddr(), testSlice.valueAddr(), testSlice.valueSize()) != 0) {
-                                        throw new IllegalStateException("value");
+                                        throw new IllegalStateException("value in " + columnFamilyName + " for key " + Arrays.toString(testSlice.keyToArray()));
                                     }
 
                                     testIterator.next();
@@ -148,8 +175,7 @@ public class VerifyMergeOpReferences {
                                 e.printStackTrace();
                             }
                         },
-                        Stream.of(properStorage.intersectedTiles(), properStorage.externalJsonStorage(), properStorage.tileJsonStorage())
-                                .flatMap(Stream::of)
+                        columnFamilyWrappersStream.apply(properStorage)
                                 .map(properStorage.db()::internalColumnFamily)
                                 .map((EFunction<ColumnFamilyHandle, RocksColumnSpliterator>) cf ->
                                         new RocksColumnSpliterator(properStorage.db(), cf, properReadAccess.internalSnapshot(), DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER))

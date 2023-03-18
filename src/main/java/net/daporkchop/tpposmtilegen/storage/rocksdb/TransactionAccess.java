@@ -70,6 +70,11 @@ final class TransactionAccess implements DBAccess, DBWriteAccess.Transactional {
     }
 
     @Override
+    public boolean contains(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
+        return this.get(columnFamilyHandle, key) != null;
+    }
+
+    @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
         return new DBIterator.SimpleRocksIteratorWrapper(this.transaction.getIterator(this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE), columnFamilyHandle));
     }

@@ -1,1 +1,3 @@
 - invalidate cloudflare cached URLs
+- decide how to deal with simplifying points
+  - also improved system for determining which ways/relations should be visible at which levels

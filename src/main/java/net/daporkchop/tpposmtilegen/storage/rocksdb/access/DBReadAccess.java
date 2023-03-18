@@ -37,6 +37,8 @@ public interface DBReadAccess extends DBBaseAccess {
 
     List<@NonNull byte[]> multiGetAsList(@NonNull List<@NonNull ColumnFamilyHandle> columnFamilyHandleList, @NonNull List<@NonNull byte[]> keys) throws Exception;
 
+    boolean contains(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception;
+
     DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception;
 
     DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle, byte[] fromInclusive, byte[] toExclusive) throws Exception;

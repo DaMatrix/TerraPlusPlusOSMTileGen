@@ -26,6 +26,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import lombok.NonNull;
 import net.daporkchop.lib.common.annotation.param.NotNegative;
+import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.util.DuplicatedList;
 import org.rocksdb.AbstractRocksIterator;
@@ -83,6 +84,16 @@ public final class NativeRocksHelper {
             };
         }
 
+        private static byte[] directSliceToArray(long addr, int size) {
+            if (size == 0) {
+                return PorkUtil.EMPTY_BYTE_ARRAY;
+            } else {
+                byte[] arr = new byte[size];
+                Memory.memcpy(arr, 0, addr, size);
+                return arr;
+            }
+        }
+
         private long keyAddr;
         private int keySize;
 
@@ -94,6 +105,14 @@ public final class NativeRocksHelper {
             this.keySize = Math.toIntExact(keySize);
             this.valueAddr = valueAddr;
             this.valueSize = Math.toIntExact(valueSize);
+        }
+
+        public byte[] keyToArray() {
+            return directSliceToArray(this.keyAddr, this.keySize);
+        }
+
+        public byte[] valueToArray() {
+            return directSliceToArray(this.valueAddr, this.valueSize);
         }
     }
 

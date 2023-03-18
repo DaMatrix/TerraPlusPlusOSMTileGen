@@ -52,6 +52,12 @@ final class DirectReadAccess implements DBReadAccess {
     }
 
     @Override
+    public boolean contains(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
+        return this.db.keyMayExist(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.GENERAL), key, null)
+                && this.get(columnFamilyHandle, key) != null; //double-check in case of false positives
+    }
+
+    @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
         return new DBIterator.SimpleRocksIteratorWrapper(this.db.newIterator(columnFamilyHandle, this.config.readOptions(DatabaseConfig.ReadType.BULK_ITERATE)));
     }

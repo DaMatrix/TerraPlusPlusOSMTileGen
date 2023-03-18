@@ -159,10 +159,15 @@ public final class Storage implements AutoCloseable {
         boolean legacy;
         if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-0".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-2".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-3".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-with-changeset-updated-to-5466051".equals(root.toString())
             || "/media/daporkchop/data/switzerland".equals(root.toString())
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
             || "/mnt/planet".equals(root.toString())) {
@@ -329,18 +334,22 @@ public final class Storage implements AutoCloseable {
 
             long[] newIntersected = simplifiedGeometry != null ? Objects.requireNonNull(simplifiedGeometry.listIntersectedTiles(lvl)) : null;
             if (newIntersected != null) {
-                Arrays.sort(newIntersected);
+                Utils.maybeParallelSort(newIntersected);
             }
 
             long[] oldIntersected = !anyOldLevelWasNull ? this.intersectedTiles[lvl].get(currentStateReadAccess, combinedId) : null;
             if (oldIntersected != null) {
-                Arrays.sort(oldIntersected);
+                Utils.maybeParallelSort(oldIntersected);
             } else {
                 anyOldLevelWasNull = true;
             }
 
             if (newIntersected != null) { //the element currently exists at this level, store its intersected tiles list (potentially overwriting the old one)
-                this.intersectedTiles[lvl].put(nextStateWriteAccess, combinedId, newIntersected);
+                if (Arrays.equals(newIntersected, oldIntersected)) {
+                    //we can avoid overwriting the old intersected tiles list if it hasn't changed
+                } else {
+                    this.intersectedTiles[lvl].put(nextStateWriteAccess, combinedId, newIntersected);
+                }
             } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
                 //delete the element's old intersected tiles list completely
 
@@ -368,7 +377,16 @@ public final class Storage implements AutoCloseable {
                     }
                 }
 
-                if (newExternalBuffer != null) { //the element currently has an external json blob at this level, store it (potentially overwriting the old one)
+                boolean canReuseExistingTileJson = false;
+
+                if (newExternalBuffer != null) { //the element needs to have an external json blob at this level, store it (potentially overwriting the old one)
+                    if (oldIntersected != null) { //the element was already assembled before
+                        //if there's already an existing external json blob for this element, we know that the old version of the element was being stored externally
+                        // and therefore each tile that it intersected contains a reference to the external blob. as the element's ID hasn't changed, this reference is
+                        // still valid for the new version of the element and may be re-used!
+                        canReuseExistingTileJson = this.externalJsonStorage[lvl].contains(currentStateReadAccess, combinedId);
+                    }
+
                     this.externalJsonStorage[lvl].put(nextStateWriteAccess, combinedId, newExternalBuffer.nioBuffer());
                 } else if (oldIntersected != null) { //the element used to exist at this level, but no longer does!
                     //delete its external json blob, if it was present
@@ -376,10 +394,20 @@ public final class Storage implements AutoCloseable {
                 }
 
                 if (newTileBuffer != null) { //the element currently has json data at this level, store it into each intersected tile (potentially overwriting any old ones)
-                    this.tileJsonStorage[lvl].addElementToTiles(nextStateWriteAccess, LongArrayList.wrap(newIntersected), combinedId, newTileBuffer);
+                    if (canReuseExistingTileJson) {
+                        //we don't have to add the element's json data to every newly intersected tile, only the ones which weren't intersected before!
+                        long[] toAddTo = Utils.maybeParallelStream(newIntersected)
+                                .filter(newIntersectedValue -> Arrays.binarySearch(oldIntersected, newIntersectedValue) < 0) //filter to only include values that aren't in oldIntersected
+                                .toArray();
+
+                        this.tileJsonStorage[lvl].addElementToTiles(nextStateWriteAccess, LongArrayList.wrap(toAddTo), combinedId, newTileBuffer);
+                    } else {
+                        //simply add the element's json data to each newly intersected tile
+                        this.tileJsonStorage[lvl].addElementToTiles(nextStateWriteAccess, LongArrayList.wrap(newIntersected), combinedId, newTileBuffer);
+                    }
 
                     if (oldIntersected != null) { //the element used to exist at this level, delete it from every tile which it no longer intersects
-                        long[] toRemoveFrom = (Utils.allowedToUseForkJoinPool() ? LongStream.of(oldIntersected).parallel() : LongStream.of(oldIntersected))
+                        long[] toRemoveFrom = Utils.maybeParallelStream(oldIntersected)
                                 .filter(oldIntersectedValue -> Arrays.binarySearch(newIntersected, oldIntersectedValue) < 0) //filter to only include values that aren't in newIntersected
                                 .toArray();
 

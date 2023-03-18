@@ -52,6 +52,11 @@ final class ReadWriteBatchAccess implements DBAccess {
     }
 
     @Override
+    public boolean contains(@NonNull ColumnFamilyHandle columnFamilyHandle, @NonNull byte[] key) throws Exception {
+        return this.readDelegate.contains(columnFamilyHandle, key);
+    }
+
+    @Override
     public DBIterator iterator(@NonNull ColumnFamilyHandle columnFamilyHandle) throws Exception {
         return this.readDelegate.iterator(columnFamilyHandle);
     }

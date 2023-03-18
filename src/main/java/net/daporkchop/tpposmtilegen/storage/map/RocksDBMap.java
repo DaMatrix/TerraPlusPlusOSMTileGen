@@ -79,6 +79,18 @@ public abstract class RocksDBMap<V> extends WrappedRocksDB {
         access.put(this.column, keyBuffer, buf.internalNioBuffer(0, buf.readableBytes()));
     }
 
+    public boolean contains(@NonNull DBReadAccess access, long key) throws Exception {
+        ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
+        byte[] keyArray = keyArrayRecycler.get();
+        try {
+            //serialize key to bytes
+            PUnsafe.putUnalignedLongBE(keyArray, PUnsafe.arrayByteElementOffset(0), key);
+            return access.contains(this.column, keyArray);
+        } finally {
+            keyArrayRecycler.release(keyArray);
+        }
+    }
+
     public void delete(@NonNull DBWriteAccess access, long key) throws Exception {
         ByteArrayRecycler keyArrayRecycler = BYTE_ARRAY_RECYCLER_8.get();
         byte[] keyArray = keyArrayRecycler.get();

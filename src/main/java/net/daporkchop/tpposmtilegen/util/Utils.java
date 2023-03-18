@@ -31,11 +31,13 @@ import sun.security.util.ByteArrayLexOrder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.ForkJoinWorkerThread;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -262,5 +264,18 @@ public class Utils {
     public synchronized static void setAllowForkJoinPool() {
         checkState(!ALLOW_FORKJOINPOOL, "ForkJoinPool already allowed!");
         ALLOW_FORKJOINPOOL = true;
+    }
+
+    public static void maybeParallelSort(long[] array) {
+        if (allowedToUseForkJoinPool()) {
+            Arrays.parallelSort(array);
+        } else {
+            Arrays.sort(array);
+        }
+    }
+
+    public static LongStream maybeParallelStream(long... array) {
+        LongStream stream = LongStream.of(array);
+        return allowedToUseForkJoinPool() ? stream.parallel() : stream;
     }
 }

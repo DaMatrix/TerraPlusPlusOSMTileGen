@@ -20,9 +20,11 @@
 
 package net.daporkchop.tpposmtilegen.mode;
 
+import io.netty.buffer.Unpooled;
 import lombok.NonNull;
 import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
+import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.osm.Element;
@@ -33,12 +35,18 @@ import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
+import net.daporkchop.tpposmtilegen.util.Tile;
 import net.daporkchop.tpposmtilegen.util.Utils;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.Arrays;
 import java.util.Scanner;
 import java.util.concurrent.CompletableFuture;
+import java.util.stream.Collectors;
+import java.util.stream.LongStream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
 import static net.daporkchop.lib.logging.Logging.*;
@@ -133,11 +141,11 @@ public class Update implements IMode {
                 logger.info("Available commands:\n"
                             + "  'info'\n"
                             + "  'update'\n"
-                            + "  'update_to ( <target_sequence_number> | latest ) [auto_commit]'\n"
+                            + "  'update_to ( <target_sequence_number> | latest ) [auto_commit=false]'\n"
                             + "  'commit'\n"
                             + "  'rollback_to ( <target_sequence_number> | prev )'\n"
                             + "  'rollback_all'\n"
-                            + "  'get ( node | way | relation | coastline ) <id>'\n"
+                            + "  'get ( node | way | relation | coastline ) <id> [ geometry | intersected | ext_json ]'\n"
                             + "  'serve <port>'\n"
                             + "  'stop'");
                 break;
@@ -186,7 +194,7 @@ public class Update implements IMode {
             }
             case "update_to": {
                 if (split.length != 2 && split.length != 3) {
-                    logger.warn("command '%s' expects one or two arguments: <target_sequence_number> [auto_commit]", split[0]);
+                    logger.warn("command '%s' expects one or two arguments: <target_sequence_number> [auto_commit=false]", split[0]);
                     break;
                 }
 
@@ -324,14 +332,15 @@ public class Update implements IMode {
                 logger.info("rolled back all uncommitted changes.");
                 break;
             case "get": {
-                if (split.length != 3) {
-                    logger.warn("command '%s' expects 2 arguments: <type> <id>", split[0]);
+                if (split.length != 3 && split.length != 4) {
+                    logger.warn("command '%s' expects 2 or 3 arguments: <type> <id> [ geometry | intersected | ext_json ]", split[0]);
                     break;
                 }
 
+                String typeName;
                 int type;
                 try {
-                    type = Element.typeId(split[1]);
+                    type = Element.typeId(typeName = split[1]);
                 } catch (IllegalArgumentException e) {
                     logger.warn("invalid element type, expected one of [%s]: %s", Element.typeNames(), split[1]);
                     break;
@@ -345,8 +354,59 @@ public class Update implements IMode {
                     break;
                 }
 
-                Element element = this.storage.getElement(this.txn, Element.addTypeToId(type, id));
-                logger.info("%s id %d:\n  %s", Element.typeName(type), id, element);
+                long combinedId = Element.addTypeToId(type, id);
+                logger.info("%s id %d: (combined id=%d)", typeName, id, combinedId);
+
+                if (split.length == 4) {
+                    switch (split[3]) {
+                        case "geometry": {
+                            Element element = this.storage.getElement(this.txn, combinedId);
+                            if (element == null) {
+                                logger.warn("  element not found, cannot assemble geometry!");
+                                break;
+                            }
+
+                            Geometry geometry = element.toGeometry(this.storage, this.txn);
+                            if (geometry == null) {
+                                logger.warn("  element exists, but toGeometry() returned null (maybe the element isn't visible?)");
+                            } else {
+                                StringBuilder geojsonBuilder = new StringBuilder();
+                                geometry.toGeoJSON(geojsonBuilder);
+                                logger.info("  geometry: %s\n  GeoJSON: %s", geometry, geojsonBuilder);
+                            }
+                            break;
+                        }
+                        case "intersected": {
+                            //TODO: allow choosing the detail level
+                            long[] intersectedTiles = this.storage.intersectedTiles()[0].get(this.txn, combinedId);
+                            if (intersectedTiles == null) {
+                                logger.warn("  intersected tiles data doesn't exist (maybe the element isn't visible?)");
+                            } else {
+                                logger.info("  raw: %s\n  coordinates: %s", Arrays.toString(intersectedTiles),
+                                        LongStream.of(intersectedTiles)
+                                                .mapToObj(pos -> "(" + Tile.tileX(pos) + ", " + Tile.tileY(pos) + ')')
+                                                .collect(Collectors.joining(", ", "[", "]")));
+                            }
+                            break;
+                        }
+                        case "ext_json": {
+                            //TODO: allow choosing the detail level
+                            ByteBuffer extJsonBuffer = this.storage.externalJsonStorage()[0].get(this.txn, combinedId);
+                            if (extJsonBuffer == null) {
+                                logger.warn("  external json data doesn't exist (maybe the element isn't visible, or its json data is stored inline in the tiles?)");
+                            } else {
+                                logger.info("  external GeoJSON: '%s'", Unpooled.wrappedBuffer(extJsonBuffer).toString(StandardCharsets.UTF_8));
+                            }
+                            break;
+                        }
+                        default:
+                            logger.warn("unknown argument '%s' (expected one of [ geometry | intersected | ext_json ])", split[3]);
+                            break;
+                    }
+                    break;
+                }
+
+                logger.info("  " + this.storage.getElement(this.txn, combinedId));
 
                 if (type == Node.TYPE) {
                     logger.info("  point: %s", this.storage.points().get(this.txn, id));

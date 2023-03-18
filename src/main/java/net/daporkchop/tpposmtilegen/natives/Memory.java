@@ -172,6 +172,11 @@ public class Memory {
         memcpyJava(null, dst, src, PUnsafe.arrayByteElementOffset(srcOffset), n);
     }
 
+    public static void memcpy(byte[] dst, int dstOffset, long src, @NotNegative int n) {
+        checkRangeLen(dst.length, dstOffset, n);
+        memcpyJava(dst, PUnsafe.arrayByteElementOffset(dstOffset), null, src, n);
+    }
+
     private static void checkArrayRange(byte[] array, int offset, int n) {
         if (offset < 0 || offset + n > array.length) {
             throw new ArrayIndexOutOfBoundsException();
