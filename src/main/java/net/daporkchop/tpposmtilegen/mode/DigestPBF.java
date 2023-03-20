@@ -30,9 +30,11 @@ import net.daporkchop.lib.common.function.exception.ERunnable;
 import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.lib.common.misc.threadlocal.TL;
 import net.daporkchop.lib.common.util.PorkUtil;
+import net.daporkchop.lib.primitive.lambda.LongObjConsumer;
 import net.daporkchop.tpposmtilegen.geometry.Point;
 import net.daporkchop.tpposmtilegen.natives.OSMDataUnsortedWriteAccess;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetUnsortedWriteAccess;
+import net.daporkchop.tpposmtilegen.osm.Element;
 import net.daporkchop.tpposmtilegen.osm.Node;
 import net.daporkchop.tpposmtilegen.osm.Relation;
 import net.daporkchop.tpposmtilegen.osm.Way;
@@ -246,13 +248,11 @@ public class DigestPBF implements IMode {
 
             final int threads = PorkUtil.CPU_COUNT;
 
-            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
-                    storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
-                 InputStream is = Files.newInputStream(src);
+            try (InputStream is = Files.newInputStream(src);
                  ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Read PBF")
                          .slot("nodes").slot("ways").slot("relations")
                          .build();
-                 PbfElementHandler elementHandler = new PbfElementHandler(storage, storage.legacy ? storage.db().batch() : referencesWriteAccess, notifier, threads);
+                 PbfElementHandler elementHandler = new PbfElementHandler(storage, notifier, threads);
                  CloseableThreadFactory threadFactory = new CloseableThreadFactory("PBF parse worker")) {
                 new ParallelBinaryParser(is, threads)
                         .setThreadFactory(threadFactory)
@@ -279,6 +279,28 @@ public class DigestPBF implements IMode {
             try (TimedOperation compactRelations = new TimedOperation("Relations compaction")) {
                 storage.relations().compact();
             }
+
+            try (UInt64SetUnsortedWriteAccess referencesWriteAccess = new UInt64SetUnsortedWriteAccess(storage,
+                    storage.db().internalColumnFamily(storage.references()), true, 4.266666667d);
+                 ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Compute references")
+                         .slot("nodes").slot("ways").slot("relations").slot("coastlines")
+                         .build()) {
+                LongObjConsumer<Element> func = (id, element) -> {
+                    int type = element.type();
+                    try {
+                        element.computeReferences(referencesWriteAccess, storage);
+                    } catch (Exception e) {
+                        throw new RuntimeException(Element.typeName(type) + ' ' + id, e);
+                    }
+                    notifier.step(type);
+                };
+
+                storage.nodes().forEachParallel(storage.db().read(), func);
+                storage.ways().forEachParallel(storage.db().read(), func);
+                storage.relations().forEachParallel(storage.db().read(), func);
+                storage.coastlines().forEachParallel(storage.db().read(), func);
+            }
+
             try (TimedOperation compactReferences = new TimedOperation("References compaction")) {
                 storage.references().compact();
             }
@@ -295,7 +317,6 @@ public class DigestPBF implements IMode {
         private final OSMDataUnsortedWriteAccess pointsWriteAccess;
         private final OSMDataUnsortedWriteAccess waysWriteAccess;
         private final OSMDataUnsortedWriteAccess relationsWriteAccess;
-        private final DBWriteAccess referencesWriteAccess;
 
         private final OSMDataUnsortedWriteAccess[] osmDataWriteAccesses;
 
@@ -308,7 +329,7 @@ public class DigestPBF implements IMode {
         private final EConsumer<BlobInformation> blobStartHandler = in -> this.state.get().onBlobStart(in);
         private final ERunnable blobCompleteHandler = () -> this.state.get().onBlobComplete();
 
-        public PbfElementHandler(@NonNull Storage storage, @NonNull DBWriteAccess referencesWriteAccess, @NonNull ProgressNotifier notifier, int threads) throws Exception {
+        public PbfElementHandler(@NonNull Storage storage, @NonNull ProgressNotifier notifier, int threads) throws Exception {
             this.storage = storage;
 
             ToIntFunction<ByteBuffer> currentVersionExtractor = buf -> this.currentVersion.get().intValue();
@@ -321,7 +342,6 @@ public class DigestPBF implements IMode {
                     storage, storage.db().internalColumnFamily(storage.ways()), currentVersionExtractor, 3.243015087d, threads, true);
             this.relationsWriteAccess = new OSMDataUnsortedWriteAccess(
                     storage, storage.db().internalColumnFamily(storage.relations()), currentVersionExtractor, 3.519971471d, threads, true);
-            this.referencesWriteAccess = referencesWriteAccess;
 
             this.osmDataWriteAccesses = new OSMDataUnsortedWriteAccess[] {
                     this.nodesWriteAccess,
@@ -345,7 +365,6 @@ public class DigestPBF implements IMode {
             } else { //we need to explicitly delete the point in order to replace any older versions of the point for which the node was visible
                 this.storage.points().delete(this.pointsWriteAccess, node.id());
             }
-            node.computeReferences(this.referencesWriteAccess, this.storage);
             node.erase();
         }
 
@@ -356,7 +375,6 @@ public class DigestPBF implements IMode {
 
             Way way = new Way(in);
             this.storage.putWay(this.waysWriteAccess, way);
-            way.computeReferences(this.referencesWriteAccess, this.storage);
             way.erase();
         }
 
@@ -367,7 +385,6 @@ public class DigestPBF implements IMode {
 
             Relation relation = new Relation(in);
             this.storage.putRelation(this.relationsWriteAccess, relation);
-            relation.computeReferences(this.referencesWriteAccess, this.storage);
             relation.erase();
         }
 
