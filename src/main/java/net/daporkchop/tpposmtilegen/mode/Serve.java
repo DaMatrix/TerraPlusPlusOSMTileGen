@@ -124,7 +124,7 @@ public class Serve implements IMode {
             }
 
             if (path.isEmpty()) {
-                this.sendIndex(response, path, IntStream.range(0, MAX_LEVELS).mapToObj(i -> i + "/"));
+                this.sendIndex(response, path, IntStream.range(0, MAX_LEVEL).mapToObj(i -> i + "/"));
                 return;
             }
 

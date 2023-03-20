@@ -1,3 +1,4 @@
 - invalidate cloudflare cached URLs
 - decide how to deal with simplifying points
   - also improved system for determining which ways/relations should be visible at which levels
+- coastline simplification: need to merge neighboring coastline polygons into larger ones

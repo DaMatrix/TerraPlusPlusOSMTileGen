@@ -240,9 +240,10 @@ public final class Database implements AutoCloseable {
 
     @Override
     public synchronized void close() throws Exception {
+        this.flush();
         this.batch.close();
 
-        if (!this.config.readOnly()) {
+        if (!this.config.readOnly()) { //flush all WALs
             this.delegate.flush(this.config.flushOptions(DatabaseConfig.FlushType.GENERAL), new ArrayList<>(this.columns.keySet()));
         }
 

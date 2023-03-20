@@ -26,14 +26,13 @@ import it.unimi.dsi.fastutil.longs.LongList;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
 import net.daporkchop.tpposmtilegen.util.Persistent;
 
-import java.nio.ByteBuffer;
-import java.nio.ByteOrder;
 import java.util.Arrays;
 import java.util.Collections;
 import java.util.List;
@@ -86,18 +85,15 @@ public abstract class Element implements Persistent {
         return (int) (combined >>> 62L);
     }
 
-    public static int getVersionFromSerialized(@NonNull ByteBuffer data) {
-        checkArg(data.order() == ByteOrder.BIG_ENDIAN);
-        return data.getInt(data.position());
-    }
-
-    public static int getVersionFromSerialized(@NonNull ByteBuf data) {
-        return data.getInt(data.readerIndex());
-    }
-
     protected final long id;
     protected Map<String, String> tags;
     protected int version;
+
+    /**
+     * The OpenStreetMap 'visible' property.
+     * <p>
+     * This is {@code false} if the element is currently deleted, but even a value of {@code true} does not necessarily mean that the element is actually visible.
+     */
     protected boolean visible;
 
     public Element(long id, @NonNull Map<String, String> tags, int version, boolean visible) {
@@ -135,10 +131,36 @@ public abstract class Element implements Persistent {
         storage.references().addReferences(access, this.getReferencesCombinedIds(), addTypeToId(this.type(), this.id));
     }
 
+    /**
+     * @return a {@link LongList} containing the combined IDs of all elements referenced by this element
+     */
     public abstract LongList getReferencesCombinedIds();
 
+    /**
+     * Checks if this element is allowed to be included in the tile data at the given detail level.
+     *
+     * @param level the detail level
+     * @return {@code true} if this element is allowed to be included in the tile data at the given detail level
+     */
+    public boolean allowedToIncludeAtLevel(@NotNegative int level) {
+        notNegative(level, "level");
+        return this.visible();
+    }
+
+    /**
+     * Assembles this element into its {@link Geometry} representation.
+     *
+     * @param storage the {@link Storage} which this element is stored in
+     * @param access  the {@link DBReadAccess} to use for reading additional data required to assemble this element into its geometry representation
+     * @return the assembled geometry, or {@code null} if this element couldn't be assembled
+     */
     public abstract Geometry toGeometry(@NonNull Storage storage, @NonNull DBReadAccess access) throws Exception;
 
+    /**
+     * Clears object references held by this element instance in an effort to help the garbage collector.
+     * <p>
+     * Once this method has been called, accessing this instance in any way will result in undefined behavior!
+     */
     public void erase() {
         this.tags.clear();
         this.tags = null;

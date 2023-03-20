@@ -76,22 +76,15 @@ public interface Geometry extends Persistent {
         dst.append('}');
     }
 
+    static ByteBuf createReference(int type, long id) {
+        return createReference(externalStorageLocation(type, id));
+    }
+
     static ByteBuf createReference(@NonNull CharSequence location) {
-        ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.ioBuffer(_REFERENCE_PREFIX.length + location.length() + _REFERENCE_SUFFIX.length);
+        ByteBuf buffer = UnpooledByteBufAllocator.DEFAULT.directBuffer(_REFERENCE_PREFIX.length + location.length() + _REFERENCE_SUFFIX.length);
         buffer.writeBytes(_REFERENCE_PREFIX);
         buffer.writeCharSequence(location, StandardCharsets.US_ASCII);
         buffer.writeBytes(_REFERENCE_SUFFIX);
-        return buffer;
-    }
-
-    static ByteBuffer toNioBuffer(@NonNull CharSequence text) { //really should go in a separate util class but i don't want to make one
-        int length = text.length();
-        ByteBuffer buffer = ByteBuffer.allocateDirect(length);
-        for (int i = 0; i < length; i++) {
-            char c = text.charAt(i);
-            buffer.put((byte) (c > 255 ? '?' : c));
-        }
-        buffer.flip();
         return buffer;
     }
 

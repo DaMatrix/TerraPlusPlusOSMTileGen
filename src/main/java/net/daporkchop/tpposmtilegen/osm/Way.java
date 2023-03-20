@@ -27,6 +27,7 @@ import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Area;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
@@ -107,6 +108,12 @@ public final class Way extends Element {
     public LongList getReferencesCombinedIds() {
         checkState(Element.addTypeToId(Node.TYPE, 0L) == 0L);
         return LongLists.unmodifiable(LongArrayList.wrap(this.nodes));
+    }
+
+    @Override
+    public boolean allowedToIncludeAtLevel(@NotNegative int level) {
+        //TODO: smarter logic for determining this
+        return super.allowedToIncludeAtLevel(level) && true;
     }
 
     @Override

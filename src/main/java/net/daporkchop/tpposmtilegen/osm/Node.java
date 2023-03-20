@@ -26,6 +26,7 @@ import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
@@ -66,6 +67,12 @@ public final class Node extends Element {
     public LongList getReferencesCombinedIds() {
         //a node doesn't reference anything
         return LongLists.EMPTY_LIST;
+    }
+
+    @Override
+    public boolean allowedToIncludeAtLevel(@NotNegative int level) {
+        //TODO: nodes should be present sometimes
+        return super.allowedToIncludeAtLevel(level) && false;
     }
 
     @Override

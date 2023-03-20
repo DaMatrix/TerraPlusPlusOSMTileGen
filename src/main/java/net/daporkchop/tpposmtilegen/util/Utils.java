@@ -27,7 +27,6 @@ import lombok.experimental.UtilityClass;
 import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.common.misc.Tuple;
 import net.daporkchop.lib.common.reference.cache.Cached;
-import sun.security.util.ByteArrayLexOrder;
 
 import java.io.IOException;
 import java.nio.channels.FileChannel;
@@ -73,7 +72,9 @@ public class Utils {
     public static final double POINT_DENSITY_LEVEL0_MEDIAN = 1519.78891284316d;
     public static final double POINT_DENSITY_LEVEL0_THIRD_QUARTILE = 2891.26581651644d;
 
-    public static final int MAX_LEVELS = 1;
+    public static final int MIN_LEVEL = 0;
+    public static final int MAX_LEVEL = 1;
+    public static final int NUM_LEVELS = MAX_LEVEL - MIN_LEVEL;
 
     public static double minimumDensityAtLevel(int level) {
         //increase by factor of 2 with each level

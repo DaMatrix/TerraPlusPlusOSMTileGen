@@ -114,6 +114,7 @@ public final class DatabaseConfig {
                                 .setAllowConcurrentMemtableWrite(true)
                                 .setKeepLogFileNum(16L)
                                 .setMaxTotalWalSize(TABLE_SIZE_BASE_KIB << 10L << 2L)
+                                .setAllowFAllocate(false)
                                 .setAllowMmapReads(true)
                                 .setAllowMmapWrites(true)
                                 .setAdviseRandomOnOpen(true)

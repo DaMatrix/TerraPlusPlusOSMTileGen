@@ -96,7 +96,6 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.TimeUnit;
 import java.util.function.Function;
 import java.util.stream.IntStream;
-import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -132,9 +131,10 @@ public final class Storage implements AutoCloseable {
 
     protected ReferenceDB references;
 
-    protected final LongArrayDB[] intersectedTiles = new LongArrayDB[MAX_LEVELS];
-    protected final TileDB[] tileJsonStorage = new TileDB[MAX_LEVELS];
-    protected final BlobDB[] externalJsonStorage = new BlobDB[MAX_LEVELS];
+    //TODO: index these properly with MIN_LEVEL
+    protected final LongArrayDB[] intersectedTiles = new LongArrayDB[MAX_LEVEL];
+    protected final TileDB[] tileJsonStorage = new TileDB[MAX_LEVEL];
+    protected final BlobDB[] externalJsonStorage = new BlobDB[MAX_LEVEL];
 
     protected final Database db;
 
@@ -166,8 +166,16 @@ public final class Storage implements AutoCloseable {
             || "/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-to-5466051-v2".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3-removed-empty-references".equals(root.toString())
             || "/media/daporkchop/data/planet-test/planet-assembled-230227".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-with-changeset-updated-to-5466051".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2-recomputed-references".equals(root.toString())
+            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v1-with-changeset-updated-to-5466051".equals(root.toString())
             || "/media/daporkchop/data/switzerland".equals(root.toString())
             || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
             || "/mnt/planet".equals(root.toString())) {
@@ -207,9 +215,9 @@ public final class Storage implements AutoCloseable {
             builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor), DBPropertiesMergeOperator.UINT64_ADD_OPERATOR);
         }
 
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = legacy ? new TileDB.Legacy(database, handle, descriptor) : new TileDB(database, handle, descriptor), legacy ? null : UInt64ToBlobMapMergeOperator.INSTANCE));
-        IntStream.range(0, MAX_LEVELS).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
+        IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
+        IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = legacy ? new TileDB.Legacy(database, handle, descriptor) : new TileDB(database, handle, descriptor), legacy ? null : UInt64ToBlobMapMergeOperator.INSTANCE));
+        IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         try (TimedOperation operation = new TimedOperation("Open DB")) {
             this.db = builder.build(root.resolve("db"));
         }
@@ -279,7 +287,7 @@ public final class Storage implements AutoCloseable {
     }
 
     public void removeGeoJSONFromDB(@NonNull DBAccess access, long combinedId) throws Exception {
-        for (int lvl = 0; lvl < MAX_LEVELS; lvl++) {
+        for (int lvl = 0; lvl < MAX_LEVEL; lvl++) {
             long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
             if (oldIntersected != null) { //the element previously existed at this level, delete it
                 //element should no longer intersect any tiles
@@ -318,16 +326,14 @@ public final class Storage implements AutoCloseable {
             checkArg(oldElement.type() == type && oldElement.id() == id);
         }
 
-        String location = Geometry.externalStorageLocation(type, id);
-
         //add element to all its new destination tiles, if it exists
-        Geometry geometry = newElement.toGeometry(this, currentStateReadAccess);
+        Geometry newGeometry = newElement.allowedToIncludeAtLevel(MIN_LEVEL) ? newElement.toGeometry(this, currentStateReadAccess) : null;
 
-        boolean anyNewLevelWasNull = !newElement.visible();
+        boolean anyNewLevelWasNull = newGeometry == null || !newElement.visible();
         boolean anyOldLevelWasNull = oldElement == null || !oldElement.visible();
 
-        for (int lvl = 0; !(anyOldLevelWasNull && anyNewLevelWasNull) && lvl < MAX_LEVELS; lvl++) {
-            Geometry simplifiedGeometry = !anyNewLevelWasNull && geometry != null ? geometry.simplifyTo(lvl).orElse(null) : null;
+        for (int lvl = MIN_LEVEL; !(anyOldLevelWasNull && anyNewLevelWasNull) && lvl < MAX_LEVEL; lvl++) {
+            Geometry simplifiedGeometry = !anyNewLevelWasNull && newElement.allowedToIncludeAtLevel(lvl) ? newGeometry.simplifyTo(lvl).orElse(null) : null;
             if (simplifiedGeometry == null) {
                 anyNewLevelWasNull = true;
             }
@@ -373,7 +379,7 @@ public final class Storage implements AutoCloseable {
                     if (simplifiedGeometry.shouldStoreExternally(newIntersected.length, newTileBuffer.readableBytes())) {
                         //we can't store the element's geometry inline in the tile data, store a reference to it in the tile and add the actual geometry to the external json
                         newExternalBuffer = newTileBuffer;
-                        newTileBuffer = Geometry.createReference(location);
+                        newTileBuffer = Geometry.createReference(type, id);
                     }
                 }
 
@@ -454,28 +460,6 @@ public final class Storage implements AutoCloseable {
         //merged.writeBytes(Geometry._FEATURECOLLECTION_SUFFIX);
 
         return merged;
-    }
-
-    public void purge(boolean full) throws Exception {
-        logger.info("Cleaning up... (this might take a while)");
-        this.flush();
-
-        if (full) {
-            logger.trace("Clearing geometry intersection index...");
-            for (LongArrayDB db : this.intersectedTiles) {
-                db.clear();
-            }
-            logger.trace("Clearing per-tile GeoJSON storage...");
-            for (TileDB db : this.tileJsonStorage) {
-                db.clear();
-            }
-            logger.trace("Clearing external GeoJSON storage...");
-            for (BlobDB db : this.externalJsonStorage) {
-                db.clear();
-            }
-        }
-
-        logger.success("Cleared.");
     }
 
     public void flush() throws Exception {

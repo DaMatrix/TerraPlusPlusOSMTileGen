@@ -26,6 +26,8 @@ import net.daporkchop.lib.common.misc.file.PFiles;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.util.CloseableThreadFactory;
+import net.daporkchop.tpposmtilegen.util.TimedOperation;
+import org.rocksdb.ColumnFamilyHandle;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
@@ -65,21 +67,11 @@ public class Compact implements IMode {
              CloseableThreadFactory threadFactory = new CloseableThreadFactory("Compaction worker")) {
             logger.info("Running compaction...");
 
-            ExecutorService executor = Executors.newCachedThreadPool(threadFactory);
-
-            CompletableFuture.allOf(
-                    storage.db().columns().keySet().stream()
-                            .map(column -> CompletableFuture.runAsync((ERunnable) () -> {
-                                String name = new String(column.getName(), StandardCharsets.UTF_8);
-                                storage.db().delegate().compactRange(column, null, null, storage.db().config().compactRangeOptions());
-                                logger.info("Compacted %s.", name);
-                            }, executor))
-                            .toArray(CompletableFuture[]::new)
-            ).join();
-
-            executor.shutdown();
-
-            logger.info("Wrapping up...");
+            for (ColumnFamilyHandle column : storage.db().columns().keySet()) {
+                try (TimedOperation operation = new TimedOperation("Compact " + new String(column.getName(), StandardCharsets.UTF_8))) {
+                    storage.db().delegate().compactRange(column, null, null, storage.db().config().compactRangeOptions());
+                }
+            }
         }
         logger.success("Done.");
     }

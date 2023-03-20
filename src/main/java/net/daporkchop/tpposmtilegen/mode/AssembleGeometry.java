@@ -120,7 +120,7 @@ public class AssembleGeometry implements IMode {
                     }
                 };
 
-                //storage.nodes().forEachParallel(storage.db().read(), func);
+                storage.nodes().forEachParallel(storage.db().read(), func);
                 storage.ways().forEachParallel(storage.db().read(), func);
                 storage.relations().forEachParallel(storage.db().read(), func);
                 storage.coastlines().forEachParallel(storage.db().read(), func);

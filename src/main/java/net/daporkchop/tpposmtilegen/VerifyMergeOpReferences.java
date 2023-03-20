@@ -31,10 +31,13 @@ import net.daporkchop.lib.common.misc.string.PStrings;
 import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.logging.LogAmount;
 import net.daporkchop.lib.primitive.lambda.LongIntConsumer;
+import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.natives.Memory;
 import net.daporkchop.tpposmtilegen.natives.NativeRocksHelper;
 import net.daporkchop.tpposmtilegen.osm.Element;
+import net.daporkchop.tpposmtilegen.osm.Relation;
+import net.daporkchop.tpposmtilegen.osm.Way;
 import net.daporkchop.tpposmtilegen.storage.Storage;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.WrappedRocksDB;
@@ -59,9 +62,11 @@ import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.Function;
+import java.util.function.Predicate;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 import java.util.stream.IntStream;
+import java.util.stream.LongStream;
 import java.util.stream.Stream;
 
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -78,6 +83,24 @@ public class VerifyMergeOpReferences {
                 .addFile(new File("logs/" + Instant.now() + ".log"), LogAmount.DEBUG)
                 .setLogAmount(LogAmount.DEBUG);
 
+        if (false) { //delete empty references from references
+            try (Storage storage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3-removed-empty-references"), DatabaseConfig.RW_GENERAL);
+                 DBReadAccess snapshot = storage.db().snapshot()) {
+                Threading.forEachParallel(PorkUtil.CPU_COUNT,
+                        s -> s.forEachRemaining((EConsumer<NativeRocksHelper.KeyValueSlice>) slice -> {
+                            checkState(slice.keySize() == 8);
+                            checkState(slice.valueSize() % 8 == 0);
+
+                            if (slice.valueSize() == 0) {
+                                storage.references().deleteAllReferencesTo(storage.db().batch(), PUnsafe.getUnalignedLongBE(slice.keyAddr()));
+                            }
+                        }),
+                        new RocksColumnSpliterator(storage.db(), storage.db().internalColumnFamily(storage.references()), snapshot.internalSnapshot(),
+                                DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER));
+            }
+            return;
+        }
+
         try (//Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
@@ -87,19 +110,25 @@ public class VerifyMergeOpReferences {
              //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast"), DatabaseConfig.RO_GENERAL);
 
-             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-0"), DatabaseConfig.RO_GENERAL);
-             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-with-changeset-updated-to-5466051"), DatabaseConfig.RO_GENERAL);
-             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227"), DatabaseConfig.RO_GENERAL);
-             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-2"), DatabaseConfig.RO_GENERAL);
-             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction"), DatabaseConfig.RO_GENERAL);
+             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-v2"), DatabaseConfig.RO_GENERAL);
+             Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2-recomputed-references"), DatabaseConfig.RO_GENERAL);
+
+             //TODO: this has broken references
+             //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2"), DatabaseConfig.RO_GENERAL);
+
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-230227-v1-with-changeset-updated-to-5466051"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3"), DatabaseConfig.RO_GENERAL);
+             Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3-removed-empty-references"), DatabaseConfig.RO_GENERAL);
+             //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/planet-test/planet"), DatabaseConfig.RO_GENERAL);
 
              //Storage properStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland-legacy"), DatabaseConfig.RO_GENERAL);
              //Storage testStorage = new Storage(Paths.get("/media/daporkchop/data/switzerland"), DatabaseConfig.RO_GENERAL);
         ) {
-            //long properVersion = properStorage.sequenceNumber().get(properStorage.db().read());
-            long properVersion = properStorage.sequenceNumberProperty().getLong(properStorage.db().read()).getAsLong();
-            long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
-            checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
+            if (true) {
+                long properVersion = properStorage.sequenceNumberProperty().getLong(properStorage.db().read()).getAsLong();
+                long testVersion = testStorage.sequenceNumberProperty().getLong(testStorage.db().read()).getAsLong();
+                checkState(properVersion == testVersion, "%d != %d", properVersion, testVersion);
+            }
 
             try (ProgressNotifier notifier = new ProgressNotifier.Builder().prefix("Verify geometry")
                     .slot("tiles").slot("blobs")
@@ -107,62 +136,33 @@ public class VerifyMergeOpReferences {
                  DBReadAccess properReadAccess = properStorage.db().snapshot();
                  DBReadAccess testReadAccess = testStorage.db().snapshot()) {
 
-                if (false) {
-                    long[] a = properStorage.intersectedTiles()[0].get(properReadAccess, 4611686018885300748L);
-                    long[] b = testStorage.intersectedTiles()[0].get(testReadAccess, 4611686018885300748L);
-                    Element ea = properStorage.getElement(properReadAccess, 4611686018885300748L);
-                    Element eb = testStorage.getElement(testReadAccess, 4611686018885300748L);
-                    Geometry ga = ea.toGeometry(properStorage, properReadAccess);
-                    Geometry gb = eb.toGeometry(testStorage, testReadAccess);
-                    long[] ca = ga.listIntersectedTiles(0);
-                    long[] cb = gb.listIntersectedTiles(0);
-                    int i = 0;
-                    return;
-                }
-
-                /*try (RocksColumnSpliterator spliterator = new RocksColumnSpliterator(
-                        properStorage.db(), properStorage.db().internalColumnFamily(properStorage.externalJsonStorage()[0]),
-                        Optional.empty(), DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER)) {
-                    notifier.setTotal(0, 0L);
-                    Threading.forEachParallel(PorkUtil.CPU_COUNT / 4, s -> s.forEachRemaining(slice -> notifier.incrementTotal(0)), spliterator);
-                    //spliterator.forEachRemaining(slice -> notifier.incrementTotal(0));
-                }
-                try (RocksColumnSpliterator spliterator = new RocksColumnSpliterator(
-                        testStorage.db(), testStorage.db().internalColumnFamily(testStorage.externalJsonStorage()[0]),
-                        Optional.empty(), DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER)) {
-                    Threading.forEachParallel(PorkUtil.CPU_COUNT / 4, s -> s.forEachRemaining(slice -> notifier.step(0)), spliterator);
-                    //spliterator.forEachRemaining(slice -> notifier.step(0));
-                }
-                if (true) {
-                    return;
-                }*/
-
-                Function<Storage, Stream<? extends WrappedRocksDB>> columnFamilyWrappersStream = storage ->
-                        Stream.of(storage.intersectedTiles(), storage.externalJsonStorage(), storage.tileJsonStorage())
-                                .flatMap(Stream::of);
+                Function<Storage, Stream<ColumnFamilyHandle>> columnFamilyWrappersStream = storage ->
+                        Stream.of(storage.nodes(), storage.points(), storage.ways(), storage.relations(), storage.coastlines(), storage.references())
+                        /*Stream.of(storage.intersectedTiles(), storage.externalJsonStorage(), storage.tileJsonStorage())
+                                .flatMap(Stream::of)*/
+                                .map(storage.db()::internalColumnFamily);
 
                 Map<ColumnFamilyHandle, ColumnFamilyHandle> properToTestColumnFamilyHandles = Utils.zip(
-                        columnFamilyWrappersStream.apply(properStorage).map(properStorage.db()::internalColumnFamily),
-                        columnFamilyWrappersStream.apply(testStorage).map(testStorage.db()::internalColumnFamily))
+                        columnFamilyWrappersStream.apply(properStorage),
+                        columnFamilyWrappersStream.apply(testStorage))
                         .collect(Collectors.toMap(Tuple::getA, Tuple::getB));
 
-                Threading.forEachParallel(PorkUtil.CPU_COUNT / 3,
+                Threading.forEachParallel(PorkUtil.CPU_COUNT,
                         (EConsumer<RocksColumnSpliterator>) properSpliterator -> {
                             String columnFamilyName = new String(properSpliterator.column().getName(), StandardCharsets.UTF_8);
 
                             try (DBIterator testIterator = testReadAccess.iterator(properToTestColumnFamilyHandles.get(properSpliterator.column()), properSpliterator.smallestKeyInclusive(), properSpliterator.largestKeyExclusive())) {
                                 testIterator.seekToFirst();
 
-                                properSpliterator.forEachRemaining(properSlice -> {
+                                properSpliterator.forEachRemaining((EConsumer<NativeRocksHelper.KeyValueSlice>) properSlice -> {
                                     checkState(properStorage != null && properReadAccess != null && testStorage != null && testReadAccess != null); //allows access to these variables for debugger evaluation
-                                    checkState(testIterator.isValid());
+                                    checkState(testIterator.isValid(), columnFamilyName);
                                     
                                     NativeRocksHelper.KeyValueSlice testSlice = testIterator.keyValueSlice();
 
                                     if (testSlice.keySize() != properSlice.keySize() || Memory.memcmp(properSlice.keyAddr(), testSlice.keyAddr(), testSlice.keySize()) != 0) {
                                         throw new IllegalStateException("key in " + columnFamilyName);
                                     }
-
                                     if (testSlice.valueSize() != properSlice.valueSize() || Memory.memcmp(properSlice.valueAddr(), testSlice.valueAddr(), testSlice.valueSize()) != 0) {
                                         throw new IllegalStateException("value in " + columnFamilyName + " for key " + Arrays.toString(testSlice.keyToArray()));
                                     }
@@ -170,13 +170,12 @@ public class VerifyMergeOpReferences {
                                     testIterator.next();
                                     notifier.step(1);
                                 });
-                                checkState(!testIterator.isValid());
+                                checkState(!testIterator.isValid(), columnFamilyName);
                             } catch (Exception e) {
                                 e.printStackTrace();
                             }
                         },
                         columnFamilyWrappersStream.apply(properStorage)
-                                .map(properStorage.db()::internalColumnFamily)
                                 .map((EFunction<ColumnFamilyHandle, RocksColumnSpliterator>) cf ->
                                         new RocksColumnSpliterator(properStorage.db(), cf, properReadAccess.internalSnapshot(), DatabaseConfig.ReadType.BULK_ITERATE, RocksColumnSpliterator.KeyOperations.FIXED_SIZE_LEX_ORDER))
                                 .toArray(RocksColumnSpliterator[]::new));

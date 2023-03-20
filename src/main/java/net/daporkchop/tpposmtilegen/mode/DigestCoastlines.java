@@ -98,6 +98,7 @@ public class DigestCoastlines implements IMode {
                     id++;
                     notifier.step(0);
                 }
+                storage.db().batch().flush();
             }
 
             try (TimedOperation compactOperation = new TimedOperation("Compact coastlines")) {

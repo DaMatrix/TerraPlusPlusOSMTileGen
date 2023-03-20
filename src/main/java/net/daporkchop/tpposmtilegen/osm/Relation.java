@@ -28,6 +28,7 @@ import lombok.AllArgsConstructor;
 import lombok.Getter;
 import lombok.NonNull;
 import lombok.ToString;
+import net.daporkchop.lib.common.annotation.param.NotNegative;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.geometry.Geometry;
 import net.daporkchop.tpposmtilegen.geometry.Point;
@@ -113,6 +114,12 @@ public final class Relation extends Element {
             ids.add(member.combinedId);
         }
         return ids;
+    }
+
+    @Override
+    public boolean allowedToIncludeAtLevel(@NotNegative int level) {
+        //TODO: smarter logic for determining this
+        return super.allowedToIncludeAtLevel(level) && true;
     }
 
     @Override
