@@ -95,9 +95,10 @@ public class Updater {
                 }
             }
 
-            logger.success("offsetting sequence number %d by 60 to be sure we have the right one -> %d", min, min - 60L);
-            try (DBWriteAccess batch = storage.db().newNotAutoFlushingWriteBatch()) {
-                storage.sequenceNumber().set(batch, min - 60L);
+            final long safety_offset = 60L;
+            logger.success("offsetting sequence number %d by %d to be sure we have the right one -> %d", min, safety_offset, min - safety_offset);
+            try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
+                storage.sequenceNumberProperty().set(batch, min - safety_offset);
             }
         } else if (!storage.replicationTimestampProperty().getLong(storage.db().read()).isPresent()) { //set timestamp
             try (DBWriteAccess batch = storage.db().beginLocalBatch()) {
