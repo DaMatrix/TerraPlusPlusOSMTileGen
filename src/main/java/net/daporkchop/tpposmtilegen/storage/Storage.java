@@ -67,7 +67,6 @@ import net.daporkchop.tpposmtilegen.storage.rocksdb.DatabaseConfig;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBReadAccess;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.access.DBWriteAccess;
-import net.daporkchop.tpposmtilegen.storage.special.DBLong;
 import net.daporkchop.tpposmtilegen.storage.special.DBProperties;
 import net.daporkchop.tpposmtilegen.storage.special.ReferenceDB;
 import net.daporkchop.tpposmtilegen.storage.special.TileDB;
@@ -126,9 +125,6 @@ public final class Storage implements AutoCloseable {
     protected DBProperties.LongProperty replicationTimestampProperty;
     protected DBProperties.StringProperty replicationBaseUrlProperty;
 
-    @Deprecated
-    protected DBLong sequenceNumber;
-
     protected ReferenceDB references;
 
     //TODO: index these properly with MIN_LEVEL
@@ -147,49 +143,12 @@ public final class Storage implements AutoCloseable {
     protected final Object2ObjectLinkedOpenHashMap<String, CompletableFuture<byte[]>> replicationBlobs
             = new Object2ObjectLinkedOpenHashMap<>(REPLICATION_BLOBS_CACHE_CLEANUP_THRESHOLD);
 
-    public final boolean legacy;
-
     public Storage(@NonNull Path root) throws Exception {
         this(root, DatabaseConfig.RW_GENERAL);
     }
 
     public Storage(@NonNull Path root, @NonNull DatabaseConfig config) throws Exception {
         this.root = root;
-
-        boolean legacy;
-        if ("/media/daporkchop/data/planet-4-aggressive-zstd-compression/planet".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-0".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-2".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-3".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-compact-everything-constantly".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v2-compact-tiles-after-post-compaction".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-original-slow".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-5456500-new-technique-2-very-fast".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-updated-to-5466051-v2".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-v3-recomputed-references-updated-to-5466051-v3-removed-empty-references".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v2-with-changeset-updated-to-5466051-with-coastlines-v2-recomputed-references".equals(root.toString())
-            || "/media/daporkchop/data/planet-test/planet-assembled-230227-v1-with-changeset-updated-to-5466051".equals(root.toString())
-            || "/media/daporkchop/data/switzerland".equals(root.toString())
-            || "/media/daporkchop/data/switzerland-reference".equals(root.toString())
-            || "/mnt/planet".equals(root.toString())) {
-            legacy = false;
-        } else if ("/media/daporkchop/data/planet-5-dictionary-zstd-compression/planet".equals(root.toString())
-                   || "/media/daporkchop/data/planet-legacy-references/planet".equals(root.toString())
-                   || "/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
-            legacy = true;
-
-            logger.alert("storage at '%s' being opened in legacy mode!", root);
-        } else {
-            throw new IllegalArgumentException(root.toString());
-        }
-        this.legacy = legacy;
 
         if (!config.readOnly() && PFiles.checkFileExists(root.resolve("db").resolve("IDENTITY"))) {
             //if we're trying to open the storage read-write, we should first open and close it read-only in order to double-check the version number without breaking
@@ -207,27 +166,20 @@ public final class Storage implements AutoCloseable {
                 .add("ways", (database, handle, descriptor) -> this.ways = new WayDB(database, handle, descriptor))
                 .add("relations", (database, handle, descriptor) -> this.relations = new RelationDB(database, handle, descriptor))
                 .add("coastlines", (database, handle, descriptor) -> this.coastlines = new CoastlineDB(database, handle, descriptor))
-                .add("references", (database, handle, descriptor) -> this.references = legacy ? new ReferenceDB.Legacy(database, handle, descriptor) : new ReferenceDB(database, handle, descriptor), legacy ? null : UInt64SetMergeOperator.INSTANCE);
-
-        if (legacy && !"/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
-            builder.add("sequence_number", (database, handle, descriptor) -> this.sequenceNumber = new DBLong(database, handle, descriptor));
-        } else {
-            builder.add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor), DBPropertiesMergeOperator.UINT64_ADD_OPERATOR);
-        }
+                .add("references", (database, handle, descriptor) -> this.references = new ReferenceDB(database, handle, descriptor), UInt64SetMergeOperator.INSTANCE)
+                .add("properties", (database, handle, descriptor) -> this.properties = new DBProperties(database, handle, descriptor), DBPropertiesMergeOperator.UINT64_ADD_OPERATOR);
 
         IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("intersected_tiles@" + lvl, (database, handle, descriptor) -> this.intersectedTiles[lvl] = new LongArrayDB(database, handle, descriptor)));
-        IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = legacy ? new TileDB.Legacy(database, handle, descriptor) : new TileDB(database, handle, descriptor), legacy ? null : UInt64ToBlobMapMergeOperator.INSTANCE));
+        IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("tiles@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.tileJsonStorage[lvl] = new TileDB(database, handle, descriptor), UInt64ToBlobMapMergeOperator.INSTANCE));
         IntStream.range(MIN_LEVEL, MAX_LEVEL).forEach(lvl -> builder.add("external_json@" + lvl, DatabaseConfig.ColumnFamilyType.COMPACT, (database, handle, descriptor) -> this.externalJsonStorage[lvl] = new BlobDB(database, handle, descriptor)));
         try (TimedOperation operation = new TimedOperation("Open DB")) {
             this.db = builder.build(root.resolve("db"));
         }
 
-        if (!legacy || "/media/daporkchop/data/switzerland-legacy".equals(root.toString())) {
-            this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
-            this.sequenceNumberProperty = this.properties.getLongProperty("sequenceNumber");
-            this.replicationTimestampProperty = this.properties.getLongProperty("replicationTimestamp");
-            this.replicationBaseUrlProperty = this.properties.getStringProperty("replicationBaseUrl");
-        }
+        this.versionNumberProperty = this.properties.getLongProperty("versionNumber");
+        this.sequenceNumberProperty = this.properties.getLongProperty("sequenceNumber");
+        this.replicationTimestampProperty = this.properties.getLongProperty("replicationTimestamp");
+        this.replicationBaseUrlProperty = this.properties.getStringProperty("replicationBaseUrl");
 
         this.elementsByType.put(Node.TYPE, this.nodes);
         this.elementsByType.put(Way.TYPE, this.ways);
@@ -237,18 +189,16 @@ public final class Storage implements AutoCloseable {
         this.tmpDirectoryPath = root.resolve("tmp");
         this.replicationDirectoryPath = root.resolve("replication");
 
-        if (!legacy) {
-            OptionalLong version = this.versionNumberProperty.getLong(this.db.read());
-            final long supportedVersion = 2L;
-            if (!version.isPresent()) {
-                if (!config.readOnly()) {
-                    try (DBWriteAccess batch = this.db.beginLocalBatch()) {
-                        this.versionNumberProperty.set(batch, supportedVersion);
-                    }
+        OptionalLong version = this.versionNumberProperty.getLong(this.db.read());
+        final long supportedVersion = 2L;
+        if (!version.isPresent()) {
+            if (!config.readOnly()) {
+                try (DBWriteAccess batch = this.db.beginLocalBatch()) {
+                    this.versionNumberProperty.set(batch, supportedVersion);
                 }
-            } else if (version.getAsLong() != supportedVersion) {
-                throw new IllegalStateException("storage at '" + root + "' is at version v" + version.getAsLong() + ", but this version of T++OSMTileGen only supports v" + supportedVersion);
             }
+        } else if (version.getAsLong() != supportedVersion) {
+            throw new IllegalStateException("storage at '" + root + "' is at version v" + version.getAsLong() + ", but this version of T++OSMTileGen only supports v" + supportedVersion);
         }
     }
 
@@ -284,24 +234,6 @@ public final class Storage implements AutoCloseable {
         RocksDBMap<? extends Element> map = this.elementsByType.getOrDefault(type, null);
         checkArg(map != null, "unknown element type %d (id %d)", type, id);
         return map.get(access, id);
-    }
-
-    public void removeGeoJSONFromDB(@NonNull DBAccess access, long combinedId) throws Exception {
-        for (int lvl = 0; lvl < MAX_LEVEL; lvl++) {
-            long[] oldIntersected = this.intersectedTiles[lvl].get(access, combinedId);
-            if (oldIntersected != null) { //the element previously existed at this level, delete it
-                //element should no longer intersect any tiles
-                this.intersectedTiles[lvl].delete(access, combinedId);
-
-                //remove the element's json data from all tiles it previously intersected
-                this.tileJsonStorage[lvl].deleteElementFromTiles(access, LongArrayList.wrap(oldIntersected), combinedId);
-
-                //delete element's external json data, if it was present
-                this.externalJsonStorage[lvl].delete(access, combinedId);
-            } else { //if the element wasn't present at this level, it won't be at any other levels either
-                break;
-            }
-        }
     }
 
     /**

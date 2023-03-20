@@ -20,13 +20,10 @@
 
 package net.daporkchop.tpposmtilegen.storage.special;
 
-import io.netty.buffer.Unpooled;
 import it.unimi.dsi.fastutil.longs.LongArrayList;
 import it.unimi.dsi.fastutil.longs.LongList;
 import it.unimi.dsi.fastutil.longs.LongLists;
 import lombok.NonNull;
-import net.daporkchop.lib.common.function.exception.EFunction;
-import net.daporkchop.lib.common.util.PorkUtil;
 import net.daporkchop.lib.unsafe.PUnsafe;
 import net.daporkchop.tpposmtilegen.natives.UInt64SetMergeOperator;
 import net.daporkchop.tpposmtilegen.storage.rocksdb.Database;
@@ -42,7 +39,6 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.function.LongConsumer;
-import java.util.stream.Collectors;
 
 import static java.lang.Math.*;
 import static net.daporkchop.lib.common.util.PValidation.*;
@@ -53,7 +49,7 @@ import static net.daporkchop.lib.common.util.PorkUtil.*;
  *
  * @author DaPorkchop_
  */
-public class ReferenceDB extends WrappedRocksDB {
+public final class ReferenceDB extends WrappedRocksDB {
     public ReferenceDB(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
         super(database, column, desc);
     }
@@ -213,124 +209,6 @@ public class ReferenceDB extends WrappedRocksDB {
         try (DBIterator iterator = access.iterator(this.column)) {
             for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
                 action.accept(PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0)));
-            }
-        }
-    }
-
-    public static class Legacy extends ReferenceDB {
-        public Legacy(Database database, ColumnFamilyHandle column, ColumnFamilyDescriptor desc) {
-            super(database, column, desc);
-        }
-
-        @Override
-        public void addReference(@NonNull DBWriteAccess access, long combinedId, long referent) throws Exception {
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] key = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referent);
-                access.put(this.column, key, EMPTY_BYTE_ARRAY);
-            } finally {
-                recycler.release(key);
-            }
-        }
-
-        @Override
-        public void addReferences(@NonNull DBWriteAccess access, @NonNull LongList combinedIds, long referentCombined) throws Exception {
-            int size = combinedIds.size();
-            if (size == 0) {
-                return;
-            }
-
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] key = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
-                for (int i = 0; i < size; i++) {
-                    long id = combinedIds.getLong(i);
-                    PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), id);
-                    access.put(this.column, key, EMPTY_BYTE_ARRAY);
-                }
-            } finally {
-                recycler.release(key);
-            }
-        }
-
-        @Override
-        public void deleteReference(@NonNull DBWriteAccess access, long combinedId, long referentCombined) throws Exception {
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] key = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(0), combinedId);
-                PUnsafe.putUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8), referentCombined);
-                access.delete(this.column, key);
-            } finally {
-                recycler.release(key);
-            }
-        }
-
-        @Override
-        public void deleteAllReferencesTo(@NonNull DBWriteAccess access, long combinedId) throws Exception {
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] from = recycler.get();
-            byte[] to = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(0), combinedId);
-                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(8), 0L);
-                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(0), combinedId + 1L);
-                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(8), 0L);
-                access.deleteRange(this.column, from, to);
-            } finally {
-                recycler.release(from);
-                recycler.release(to);
-            }
-        }
-
-        @Override
-        public void getReferencesTo(@NonNull DBReadAccess access, long combinedId, @NonNull LongList dst) throws Exception {
-            ByteArrayRecycler recycler = BYTE_ARRAY_RECYCLER_16.get();
-            byte[] from = recycler.get();
-            byte[] to = recycler.get();
-            try {
-                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(0), combinedId);
-                PUnsafe.putUnalignedLongBE(from, PUnsafe.arrayByteElementOffset(8), 0L);
-                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(0), combinedId + 1L);
-                PUnsafe.putUnalignedLongBE(to, PUnsafe.arrayByteElementOffset(8), 0L);
-                try (DBIterator iterator = access.iterator(this.column, from, to)) {
-                    for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-                        byte[] key = iterator.key();
-
-                        //iterating over a transaction can go far beyond the actual iteration bound (rocksdb bug), so we have to manually check
-                        checkState(PUnsafe.getUnalignedLong(from, PUnsafe.arrayByteElementOffset(0)) == PUnsafe.getUnalignedLong(key, PUnsafe.arrayByteElementOffset(0)), "%d != %d",
-                                PUnsafe.getUnalignedLong(from, PUnsafe.arrayByteElementOffset(0)), PUnsafe.getUnalignedLong(key, PUnsafe.arrayByteElementOffset(0)));
-
-                        dst.add(PUnsafe.getUnalignedLongBE(key, PUnsafe.arrayByteElementOffset(8)));
-                    }
-                }
-            } finally {
-                recycler.release(from);
-                recycler.release(to);
-            }
-        }
-
-        @Override
-        public LongList getReferencesTo(@NonNull DBReadAccess access, long combinedId) throws Exception {
-            LongList list = new LongArrayList();
-            this.getReferencesTo(access, combinedId, list);
-            return list;
-        }
-
-        @Override
-        public List<LongList> getReferencesTo(@NonNull DBReadAccess access, @NonNull LongList combinedIds) throws Exception {
-            return combinedIds.stream().map((EFunction<Long, LongList>) combinedId -> this.getReferencesTo(access, combinedId)).collect(Collectors.toList());
-        }
-
-        @Override
-        public void forEachKey(@NonNull DBReadAccess access, @NonNull LongConsumer action) throws Exception {
-            try (DBIterator iterator = access.iterator(this.column)) {
-                for (iterator.seekToFirst(); iterator.isValid(); iterator.next()) {
-                    action.accept(PUnsafe.getUnalignedLongBE(iterator.key(), PUnsafe.arrayByteElementOffset(0)));
-                }
             }
         }
     }
