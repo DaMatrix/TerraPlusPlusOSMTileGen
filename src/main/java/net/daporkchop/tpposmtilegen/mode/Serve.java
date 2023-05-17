@@ -82,7 +82,7 @@ public class Serve implements IMode {
         Path src = PFiles.assertDirectoryExists(Paths.get(args[0]));
         boolean lite = Boolean.parseBoolean(args[2]);
 
-        try (Storage storage = new Storage(src, lite ? DatabaseConfig.RW_LITE : DatabaseConfig.RW_GENERAL);
+        try (Storage storage = new Storage(src, lite ? DatabaseConfig.RO_LITE : DatabaseConfig.RO_GENERAL);
              Server server = new Server(Integer.parseUnsignedInt(args[1]), storage, storage.db().read())) {
             new Scanner(System.in).nextLine();
         }
