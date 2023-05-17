@@ -1,15 +1,13 @@
 Dockerfile
 .dockerignore
 
-docker-build/
-
 .idea/
+.git/
 .gradle/
 
 build/
 logs/
 out/
-test/
 
 /*.tar.gz
 /*.log
