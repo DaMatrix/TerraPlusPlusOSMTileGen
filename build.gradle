@@ -22,7 +22,7 @@ apply plugin: "java"
 apply plugin: "application"
 
 mainClassName = "net.daporkchop.tpposmtilegen.Main"
-applicationDefaultJvmArgs = [ "-Xmx4G", "-Xms4G", "-XX:+UseG1GC" ]
+//applicationDefaultJvmArgs = [ "-Xmx4G", "-Xms4G", "-XX:+UseG1GC" ]
 
 ext {
     //general things
@@ -141,4 +141,6 @@ if (System.getProperty("os.name", "").toLowerCase().replaceAll("[^a-z0-9]+", "")
     }
 
     cleanNatives.dependsOn(deleteRocksdbSharedLibrary)
+
+    test.environment("LD_LIBRARY_PATH", buildDir.toPath().resolve("native-deps").resolve("shared").toAbsolutePath().toString())
 }

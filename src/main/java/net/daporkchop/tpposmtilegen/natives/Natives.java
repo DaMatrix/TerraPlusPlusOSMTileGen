@@ -25,17 +25,67 @@ import net.daporkchop.lib.logging.Logger;
 import net.daporkchop.lib.logging.Logging;
 import net.daporkchop.lib.natives.NativeFeature;
 
+import java.io.File;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Set;
+
 /**
  * @author DaPorkchop_
  */
 @UtilityClass
-class Natives {
+public class Natives {
     static {
         try {
             NativeFeature.loadNativeLibrary("", PolygonAssembler.class.getCanonicalName(), PolygonAssembler.class.getClassLoader());
             init(Logging.logger);
+
+            //this isn't necessary, as librocksdbjni-linux64.so is implicitly loaded by our shared library (which depends on it)
+            // RocksDB.loadLibrary();
         } catch (Throwable t) {
-            throw new AssertionError("unable to load native libs", t);
+            final String[] EXTRA_LIBS = {
+                    "librocksdbjni-linux64.so",
+            };
+
+            final Path[] CANDIDATE_NEW_DIRS = {
+                    Paths.get("build/native-deps/shared").toAbsolutePath(),
+            };
+
+            String existingPath = System.getenv("LD_LIBRARY_PATH");
+            List<Path> existingDirs = new ArrayList<>();
+            if (existingPath != null) {
+                for (String existingDir : existingPath.split(File.pathSeparator)) {
+                    existingDirs.add(Paths.get(existingDir));
+                }
+            }
+            existingDirs.add(Paths.get("/lib"));
+            existingDirs.add(Paths.get("/usr/lib"));
+
+            Set<String> requiredExtraDirs = new LinkedHashSet<>();
+            OUTER:
+            for (String extraLib : EXTRA_LIBS) {
+                for (Path existingDir : existingDirs) {
+                    if (Files.exists(existingDir.resolve(extraLib))) {
+                        continue OUTER;
+                    }
+                }
+
+                for (Path candidateNewDir : CANDIDATE_NEW_DIRS) {
+                    if (Files.exists(candidateNewDir.resolve(extraLib))) {
+                        requiredExtraDirs.add(candidateNewDir.toString());
+                        continue OUTER;
+                    }
+                }
+
+                t.addSuppressed(new IllegalStateException("couldn't find library '" + extraLib + "' on any of:\njava.library.path: " + existingDirs + "\ncandidate new directories: " + Arrays.toString(CANDIDATE_NEW_DIRS)));
+            }
+
+            throw new AssertionError("unable to load native libs!\nconsider adding '" + String.join(File.pathSeparator, requiredExtraDirs) + "' to the environment variable LD_LIBRARY_PATH", t);
         }
     }
 

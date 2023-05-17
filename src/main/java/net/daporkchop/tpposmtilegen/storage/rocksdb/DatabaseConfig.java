@@ -26,6 +26,8 @@ import lombok.Getter;
 import lombok.NonNull;
 import lombok.With;
 import net.daporkchop.lib.common.util.PValidation;
+import net.daporkchop.lib.unsafe.PUnsafe;
+import net.daporkchop.tpposmtilegen.natives.Natives;
 import org.rocksdb.AccessHint;
 import org.rocksdb.BlockBasedTableConfig;
 import org.rocksdb.Cache;
@@ -75,7 +77,7 @@ public final class DatabaseConfig {
     private static final long TABLE_SIZE_BASE_KIB = 65536L;
 
     static {
-        RocksDB.loadLibrary(); //ensure rocksdb native library is loaded before creating options instances
+        PUnsafe.ensureClassInitialized(Natives.class);
 
         @Getter
         class ColumnFamilySettings {
