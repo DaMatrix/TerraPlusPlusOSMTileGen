@@ -37,9 +37,9 @@ LIB_DEPS		:=
 COMPILE_DEPS	:=	$(LIB_DEPS) $(MAKEFILES) $(CURDIR)/lib-libosmium/README.md $(CURDIR)/lib-rocksdb/README.md
 
 build: tpposmtilegen.$(EXT)
-	@{ [ -d $(OUTDIR) ] || mkdir $(OUTDIR); } && \
+	@{ [ -d $(OUTDIR) ] || mkdir -p $(OUTDIR); } && \
 		$(CP) -v tpposmtilegen.$(EXT) $(OUTDIR)/$(BUILD).$(EXT)
-	@{ [ -d $(OUTDIR2) ] || mkdir $(OUTDIR2); } && \
+	@{ [ -d $(OUTDIR2) ] || mkdir -p $(OUTDIR2); } && \
 		$(CP) -v tpposmtilegen.$(EXT) $(OUTDIR2)/$(BUILD).$(EXT)
 
 tpposmtilegen.$(EXT): $(OFILES) $(COMPILE_DEPS)

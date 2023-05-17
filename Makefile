@@ -66,7 +66,7 @@ export LDFLAGS		:= $(LDFLAGS) -Wl,--warn-common
 #export LDFLAGS		:= $(LDFLAGS) -Wl,--print-map
 #export LDFLAGS		:= $(LDFLAGS) -Wl,--print-gc-sections
 
-export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/docker-build -Wl,-l:librocksdbjni-linux64.so
+export LDFLAGS		:=	$(LDFLAGS) -Wl,-L$(TOPDIR)/build/native-deps/shared -Wl,-l:librocksdbjni-linux64.so
 
 export CXXFLAGS		:= $(CXXFLAGS) -fopenmp
 export LDFLAGS		:= $(LDFLAGS) -fopenmp

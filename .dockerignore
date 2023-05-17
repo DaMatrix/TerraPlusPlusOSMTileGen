@@ -1,0 +1,17 @@
+Dockerfile
+.dockerignore
+
+docker-build/
+
+.idea/
+.gradle/
+
+build/
+logs/
+out/
+test/
+
+/*.tar.gz
+/*.log
+
+/*.sh
